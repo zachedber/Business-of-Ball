@@ -1,801 +1,427 @@
 // ============================================================
-// FRANCHISE BUILDER V2 — GAME ENGINE
-// Core simulation, generation, and game logic
+// BUSINESS OF BALL — GAME ENGINE (Phase 3+4 Combined)
 // ============================================================
-
 import {
   NGL_TEAMS, ABL_TEAMS, RIVALRIES, NGL_POSITIONS, ABL_POSITIONS,
   NGL_ROSTER_SIZE, ABL_ROSTER_SIZE, NGL_SALARY_CAP, ABL_SALARY_CAP,
-  NGL_DRAFT_ROUNDS, ABL_DRAFT_ROUNDS, CAP_INFLATION_RATE,
-  PEAK_AGES, PLAYER_TRAITS, TRAIT_WEIGHTS,
-  COACH_PERSONALITIES, CITY_ECONOMY_BASE,
-  FIRST_NAMES, LAST_NAMES, COACH_FIRST_NAMES, COACH_LAST_NAMES,
+  CAP_INFLATION_RATE, PEAK_AGES, PLAYER_TRAITS, TRAIT_WEIGHTS,
+  COACH_PERSONALITIES, CITY_ECONOMY, MARKET_TIERS, getMarketTier,
+  UPGRADE_COSTS, TICKET_BASE_PRICE, TICKET_ELASTICITY, STARTING_CASH,
+  REVENUE_SHARE_PCT, MAX_DEBT_RATIO, DEBT_INTEREST,
 } from '@/data/leagues';
+import { generatePlayerName, generateCoachName } from '@/data/names';
 
-// ============================================================
-// SEEDED RANDOM (deterministic when needed)
-// ============================================================
-let _seed = Date.now();
-export function setSeed(s) { _seed = s; }
-export function seededRandom() {
-  _seed = (_seed * 16807 + 0) % 2147483647;
-  return (_seed & 0x7fffffff) / 2147483647;
-}
+// --- Utils ---
+export function rand(a,b){return Math.floor(Math.random()*(b-a+1))+a;}
+export function randFloat(a,b){return Math.random()*(b-a)+a;}
+export function pick(arr){return arr[Math.floor(Math.random()*arr.length)];}
+export function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
+export function generateId(){return Math.random().toString(36).slice(2,10);}
+function r1(n){return Math.round(n*10)/10;}
 
-export function rand(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-export function randFloat(min, max) {
-  return Math.random() * (max - min) + min;
-}
-
-export function pick(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-export function shuffle(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-export function clamp(val, min, max) {
-  return Math.max(min, Math.min(max, val));
-}
-
-export function generateId() {
-  return Math.random().toString(36).substring(2, 10);
+// --- Traits ---
+export function generateTrait(){
+  const r=Math.random();let c=0;
+  for(let i=0;i<PLAYER_TRAITS.length;i++){c+=TRAIT_WEIGHTS[i];if(r<c)return PLAYER_TRAITS[i];}
+  return null;
 }
 
 // ============================================================
-// NAME GENERATION
+// TICKET DEMAND CURVE
 // ============================================================
-export function generatePlayerName() {
-  return `${pick(FIRST_NAMES)} ${pick(LAST_NAMES)}`;
+export function calcAttendance(price,fan,wp,market,cond){
+  const base=fan/100*0.28+wp*0.24+market/100*0.18+cond/100*0.10+0.18;
+  const elMod=1.0-wp*0.3-market/100*0.2-fan/100*0.15;
+  const eff=TICKET_ELASTICITY*Math.max(0.3,elMod);
+  const delta=price-TICKET_BASE_PRICE;
+  const impact=delta>0?-delta*eff:delta*eff*0.25;
+  return clamp(base+impact+randFloat(-0.02,0.02),0.25,0.99);
 }
 
-export function generateCoachName() {
-  return `${pick(COACH_FIRST_NAMES)} ${pick(COACH_LAST_NAMES)}`;
-}
-
-// ============================================================
-// TRAIT GENERATION
-// ============================================================
-export function generateTrait() {
-  const r = Math.random();
-  let cumulative = 0;
-  for (let i = 0; i < PLAYER_TRAITS.length; i++) {
-    cumulative += TRAIT_WEIGHTS[i];
-    if (r < cumulative) return PLAYER_TRAITS[i];
-  }
-  return null; // ~18% chance no trait
-}
-
-// ============================================================
-// ML-EQUIVALENT MODELS (Pure math, no TensorFlow dependency)
-// Implements the same logic as the TF.js spec with baked-in weights
-// ============================================================
-
-// Sigmoid activation
-function sigmoid(x) { return 1 / (1 + Math.exp(-clamp(x, -10, 10))); }
-function relu(x) { return Math.max(0, x); }
-function tanh_(x) { return Math.tanh(x); }
-
-// Simple 2-layer network forward pass
-function forwardPass(inputs, w1, b1, w2, b2, w3, b3, activations) {
-  // Layer 1
-  const h1 = [];
-  for (let i = 0; i < b1.length; i++) {
-    let sum = b1[i];
-    for (let j = 0; j < inputs.length; j++) sum += inputs[j] * w1[j][i];
-    h1.push(activations[0](sum));
-  }
-  // Layer 2
-  const h2 = [];
-  for (let i = 0; i < b2.length; i++) {
-    let sum = b2[i];
-    for (let j = 0; j < h1.length; j++) sum += h1[j] * w2[j][i];
-    h2.push(activations[1](sum));
-  }
-  // Output
-  let out = b3[0];
-  for (let j = 0; j < h2.length; j++) out += h2[j] * w3[j][0];
-  return activations[2](out);
-}
-
-// --- MODEL 1: Attendance Predictor ---
-// Inputs: [fanRating/100, winPct, avgPrice/150, stadiumCondition/100, market/100, rivalryFactor]
-// Output: attendance fraction (0-1)
-export function predictAttendance(fanRating, winPct, avgPrice, stadiumCondition, market, rivalryFactor) {
-  const inputs = [fanRating/100, winPct, avgPrice/150, stadiumCondition/100, market/100, rivalryFactor];
-  // Weights calibrated for realistic attendance curves
-  // High fan rating + winning + good stadium + big market = high attendance
-  // High prices dampen attendance
-  const base = (
-    inputs[0] * 0.25 +   // fan rating
-    inputs[1] * 0.22 +   // win pct
-    inputs[2] * -0.08 +  // price (negative effect)
-    inputs[3] * 0.15 +   // stadium condition
-    inputs[4] * 0.18 +   // market size
-    inputs[5] * 0.05 +   // rivalry factor
-    0.15                  // baseline
-  );
-  // Add some non-linearity: winning + good fans = synergy bonus
-  const synergy = inputs[0] * inputs[1] * 0.12;
-  return clamp(base + synergy + randFloat(-0.03, 0.03), 0.35, 1.0);
-}
-
-// --- MODEL 2: Player Development ---
-// Inputs: age, currentRating, morale/100, devStaffLevel(0-3), trait
-// Output: rating delta for next season
-export function predictDevelopment(age, currentRating, morale, devStaffLevel, trait, league) {
-  const [peakStart, peakEnd] = PEAK_AGES[league] || [26, 30];
-  
-  let ageFactor = 0;
-  if (age < peakStart) {
-    // Young: positive growth
-    ageFactor = (peakStart - age) * 0.6;
-  } else if (age <= peakEnd) {
-    // Peak: slight growth or stable
-    ageFactor = 0.3;
-  } else {
-    // Decline: negative
-    ageFactor = -(age - peakEnd) * 0.8;
-  }
-
-  // Development staff bonus
-  const devBonus = devStaffLevel * 0.5;
-
-  // Morale factor
-  const moraleFactor = (morale - 50) * 0.015;
-
-  // Trait effects
-  let traitBonus = 0;
-  if (trait === 'hometown') traitBonus = 0.3;
-  if (trait === 'volatile') traitBonus = randFloat(-1.0, 1.5);
-  if (trait === 'leader') traitBonus = 0.2;
-
-  // Rating ceiling effect: harder to grow when already high
-  const ceilingPenalty = currentRating > 85 ? -(currentRating - 85) * 0.15 : 0;
-
-  const delta = ageFactor + devBonus + moraleFactor + traitBonus + ceilingPenalty + randFloat(-1.5, 1.5);
-  return Math.round(clamp(delta, -5, 8));
-}
-
-// --- MODEL 3: Injury Probability ---
-// Inputs: age, seasonsPlayed, medicalStaffLevel(0-3), isInjuryProne, currentRating
-// Output: injury probability (0-1)
-export function predictInjuryRisk(age, seasonsPlayed, medStaffLevel, trait, currentRating) {
-  let baseRisk = 0.08; // 8% base injury chance
-
-  // Age increases risk
-  if (age > 30) baseRisk += (age - 30) * 0.02;
-  if (age > 34) baseRisk += (age - 34) * 0.03;
-
-  // Experience (more seasons = more wear)
-  baseRisk += seasonsPlayed * 0.005;
-
-  // Medical staff reduces risk
-  baseRisk -= medStaffLevel * 0.025;
-
-  // Trait effects
-  if (trait === 'injury_prone') baseRisk *= 2.0;
-  if (trait === 'ironman') baseRisk *= 0.4;
-
-  // Stars slightly more protected (better conditioning)
-  if (currentRating > 85) baseRisk *= 0.85;
-
-  return clamp(baseRisk + randFloat(-0.02, 0.02), 0.02, 0.65);
+export function projectRevenue(f){
+  const games=f.league==='ngl'?17:82;
+  const wp=f.wins/Math.max(1,f.wins+f.losses);
+  const att=calcAttendance(f.ticketPrice,f.fanRating,wp,f.market,f.stadiumCondition);
+  const gate=att*f.stadiumCapacity*f.ticketPrice*games/1e6;
+  const tv=f.market*(0.5+(f.tvTier||1)*0.3);
+  const merch=f.market*(f.merchMultiplier||1)*Math.max(0.3,wp)*0.4;
+  const spon=(f.sponsorLevel||1)*f.market*0.08;
+  const naming=f.namingRightsActive?(f.namingRightsDeal||3):0;
+  const rev=gate+tv+merch+spon+naming;
+  const staff=(f.scoutingStaff+f.developmentStaff+f.medicalStaff+f.marketingStaff)*2;
+  const fac=(f.trainingFacility+f.weightRoom+f.filmRoom)*1.5;
+  const maint=f.stadiumAge>15?f.stadiumAge*0.3:1;
+  const interest=(f.debt||0)*DEBT_INTEREST;
+  const exp=f.totalSalary+staff+fac+maint+interest+(f.capDeadMoney||0);
+  return{attendance:Math.round(att*100),gateRevenue:r1(gate),tvRevenue:r1(tv),merchRevenue:r1(merch),totalRevenue:r1(rev),totalExpenses:r1(exp),projectedProfit:r1(rev-exp)};
 }
 
 // ============================================================
-// PLAYER GENERATION
+// ML MODELS
 // ============================================================
-export function generatePlayer(position, league, options = {}) {
-  const age = options.age || rand(22, 32);
-  const rating = options.rating || rand(55, 88);
-  const trait = options.trait !== undefined ? options.trait : generateTrait();
-  const yearsLeft = options.yearsLeft || rand(1, 4);
-  const seasonsPlayed = options.seasonsPlayed || Math.max(1, age - 21);
-
-  // Salary based on rating (in millions)
-  const cap = league === 'ngl' ? NGL_SALARY_CAP : ABL_SALARY_CAP;
-  const rosterSize = league === 'ngl' ? NGL_ROSTER_SIZE : ABL_ROSTER_SIZE;
-  const avgSalary = cap / rosterSize;
-  let salary = avgSalary * (rating / 72) * randFloat(0.7, 1.3);
-  if (trait === 'mercenary') salary *= 1.4;
-  if (trait === 'hometown') salary *= 0.8;
-  salary = Math.round(salary * 10) / 10; // round to 0.1M
-
-  return {
-    id: generateId(),
-    name: generatePlayerName(),
-    position,
-    age,
-    rating: clamp(rating, 40, 99),
-    morale: rand(55, 85),
-    trait,
-    salary,
-    yearsLeft,
-    seasonsPlayed,
-    injured: false,
-    injurySeverity: null, // 'minor','moderate','severe'
-    gamesOut: 0,
-    isLocalLegend: false,
-    seasonsWithTeam: options.seasonsWithTeam || 1,
-    careerStats: { seasons: seasonsPlayed, bestRating: rating },
-  };
+export function predictDev(age,rating,morale,devStaff,trait,league){
+  const[ps,pe]=PEAK_AGES[league]||[26,30];
+  let af=age<ps?(ps-age)*0.6:age<=pe?0.3:-(age-pe)*0.8;
+  let tb=0;if(trait==='hometown')tb=0.3;if(trait==='volatile')tb=randFloat(-1,1.5);if(trait==='leader')tb=0.2;
+  const cp=rating>85?-(rating-85)*0.15:0;
+  return Math.round(clamp(af+devStaff*0.5+(morale-50)*0.015+tb+cp+randFloat(-1.5,1.5),-5,8));
 }
-
-export function generateRoster(league) {
-  const positions = league === 'ngl' ? NGL_POSITIONS : ABL_POSITIONS;
-  return positions.map(pos => generatePlayer(pos, league));
+export function predictInjury(age,seasons,medStaff,trait,rating){
+  let r=0.08;if(age>30)r+=(age-30)*0.02;if(age>34)r+=(age-34)*0.03;
+  r+=seasons*0.005-medStaff*0.025;
+  if(trait==='injury_prone')r*=2;if(trait==='ironman')r*=0.4;if(rating>85)r*=0.85;
+  return clamp(r+randFloat(-0.02,0.02),0.02,0.65);
 }
 
 // ============================================================
-// COACH GENERATION
+// GENERATION
 // ============================================================
-export function generateCoach() {
-  return {
-    name: generateCoachName(),
-    personality: pick(COACH_PERSONALITIES),
-    level: rand(1, 3), // 1-4 scale
-    age: rand(40, 65),
-    seasonsWithTeam: 0,
+export function generatePlayer(pos,league,opts={}){
+  const age=opts.age||rand(22,32);const rating=opts.rating||rand(55,88);
+  const trait=opts.trait!==undefined?opts.trait:generateTrait();
+  const yrs=opts.yearsLeft||rand(1,4);const sp=opts.seasonsPlayed||Math.max(1,age-21);
+  const cap=league==='ngl'?NGL_SALARY_CAP:ABL_SALARY_CAP;
+  const rs=league==='ngl'?NGL_ROSTER_SIZE:ABL_ROSTER_SIZE;
+  let sal=cap/rs*(rating/72)*randFloat(0.7,1.3);
+  if(trait==='mercenary')sal*=1.4;if(trait==='hometown')sal*=0.8;
+  return{id:generateId(),name:generatePlayerName(),position:pos,age,rating:clamp(rating,40,99),morale:rand(55,85),trait,salary:r1(sal),yearsLeft:yrs,seasonsPlayed:sp,injured:false,injurySeverity:null,gamesOut:0,isLocalLegend:false,seasonsWithTeam:opts.seasonsWithTeam||1,careerStats:{seasons:sp,bestRating:rating}};
+}
+export function generateRoster(lg){return(lg==='ngl'?NGL_POSITIONS:ABL_POSITIONS).map(p=>generatePlayer(p,lg));}
+export function generateCoach(){return{name:generateCoachName(),personality:pick(COACH_PERSONALITIES),level:rand(1,3),age:rand(40,65),seasonsWithTeam:0};}
+
+// ============================================================
+// COACHING CAROUSEL
+// ============================================================
+const BS={'Players Coach':['Deep player relationships.','Family atmosphere.','Gets best from underperformers.'],'Disciplinarian':['Zero tolerance for mistakes.','Military-style structure.','Old-school, wins titles.'],'Tactician':['Analytics innovator.','Film room genius.','Halftime adjustment master.'],'Showman':['Media darling, brings energy.','Fills stadiums with excitement.','Players love the spotlight.']};
+export function generateCoachCandidates(n=3){return Array.from({length:n},()=>{const lv=rand(1,4);const p=pick(COACH_PERSONALITIES);return{name:generateCoachName(),personality:p,level:lv,age:rand(38,62),seasonsWithTeam:0,buyout:lv*3,backstory:pick(BS[p])};}).sort((a,b)=>b.level-a.level);}
+export function fireCoach(f){return{...f,coach:{name:'Interim Coach',level:1,personality:'Tactician',seasonsWithTeam:0,age:50},capDeadMoney:(f.capDeadMoney||0)+f.coach.level*2};}
+export function hireCoach(f,c){return{...f,coach:{...c,seasonsWithTeam:0}};}
+
+// ============================================================
+// TEAM & LEAGUE INIT
+// ============================================================
+function initTeam(td,lg){
+  const roster=generateRoster(lg);const rq=Math.round(roster.reduce((s,p)=>s+p.rating,0)/roster.length);
+  const cap=lg==='ngl'?NGL_SALARY_CAP:ABL_SALARY_CAP;const ts=roster.reduce((s,p)=>s+p.salary,0);
+  return{...td,league:lg,wins:0,losses:0,championships:0,fanRating:rand(45,80),rosterQuality:rq,totalSalary:r1(ts),capSpace:r1(cap-ts),finances:{revenue:r1(td.market*randFloat(1.5,2.5)),expenses:r1(td.market*randFloat(1.2,1.8)),profit:0},stadiumCapacity:rand(35000,82000),stadiumCondition:rand(60,95),stadiumAge:rand(1,25),coach:generateCoach(),players:roster,season:0,history:[],rivalIds:[],rivalryIntensity:50,playoffTeam:false,cityEconomy:CITY_ECONOMY[td.city]||65};
+}
+export function initializeLeague(){
+  const ngl=NGL_TEAMS.map(t=>initTeam(t,'ngl'));const abl=ABL_TEAMS.map(t=>initTeam(t,'abl'));
+  RIVALRIES.ngl.forEach(([a,b])=>{const A=ngl.find(t=>t.id===a),B=ngl.find(t=>t.id===b);if(A&&B){A.rivalIds=[...(A.rivalIds||[]),b];B.rivalIds=[...(B.rivalIds||[]),a];}});
+  RIVALRIES.abl.forEach(([a,b])=>{const A=abl.find(t=>t.id===a),B=abl.find(t=>t.id===b);if(A&&B){A.rivalIds=[...(A.rivalIds||[]),b];B.rivalIds=[...(B.rivalIds||[]),a];}});
+  [...ngl,...abl].forEach(t=>{t.finances.profit=t.finances.revenue-t.finances.expenses;});
+  return{ngl,abl};
+}
+
+// ============================================================
+// CREATE PLAYER FRANCHISE
+// ============================================================
+export function createPlayerFranchise(tmpl,lg){
+  const base=initTeam(tmpl,lg);const tier=getMarketTier(tmpl.market);
+  return{...base,isPlayerOwned:true,ownershipPct:100,
+    cash:STARTING_CASH[tier]||20,debt:0,debtInterestRate:DEBT_INTEREST,
+    mediaRep:50,communityRating:65,lockerRoomChemistry:65,
+    namingRightsActive:false,namingRightsDeal:null,namingRightsName:null,
+    localLegends:[],retiredNumbers:[],trophies:[],
+    fanDemographics:{casual:70,dieHard:30},
+    dynastyEra:null,leagueRank:null,capDeadMoney:0,
+    scoutingStaff:1,developmentStaff:1,medicalStaff:1,marketingStaff:1,
+    ticketPrice:TICKET_BASE_PRICE,merchMultiplier:1.0,sponsorLevel:1,tvTier:1,
+    trainingFacility:1,weightRoom:1,filmRoom:1,
+    cityEconomy:CITY_ECONOMY[tmpl.city]||65,economyCycle:'stable',
   };
 }
 
 // ============================================================
-// TEAM INITIALIZATION
+// GM REPUTATION TIERS
 // ============================================================
-function initTeam(teamData, league) {
-  const roster = generateRoster(league);
-  const rosterQuality = Math.round(roster.reduce((s, p) => s + p.rating, 0) / roster.length);
-  const cap = league === 'ngl' ? NGL_SALARY_CAP : ABL_SALARY_CAP;
-  const totalSalary = roster.reduce((s, p) => s + p.salary, 0);
-
-  return {
-    ...teamData,
-    league,
-    wins: 0,
-    losses: 0,
-    championships: 0,
-    fanRating: rand(45, 80),
-    rosterQuality,
-    totalSalary: Math.round(totalSalary * 10) / 10,
-    capSpace: Math.round((cap - totalSalary) * 10) / 10,
-    finances: {
-      revenue: Math.round(teamData.market * randFloat(1.5, 2.5)),
-      expenses: Math.round(teamData.market * randFloat(1.2, 1.8)),
-      profit: 0,
-    },
-    stadiumCapacity: rand(35000, 82000),
-    stadiumCondition: rand(60, 95),
-    stadiumAge: rand(1, 25),
-    coach: generateCoach(),
-    players: roster,
-    season: 0,
-    history: [],
-    rivalIds: [],
-    rivalryIntensity: 50,
-    // Will be set by AI team sim
-    playoffTeam: false,
-    divisionWinner: false,
-  };
+export const GM_TIERS=[
+  {min:0,label:'Unknown GM',badge:'👤'},
+  {min:30,label:'Respected GM',badge:'📋'},
+  {min:60,label:'Elite GM',badge:'⭐'},
+  {min:85,label:'Hall of Fame GM',badge:'🏆'},
+];
+export function getGMTier(rep){
+  for(let i=GM_TIERS.length-1;i>=0;i--)if(rep>=GM_TIERS[i].min)return GM_TIERS[i];
+  return GM_TIERS[0];
 }
 
 // ============================================================
-// LEAGUE INITIALIZATION
+// LOCAL ECONOMY CYCLES
 // ============================================================
-export function initializeLeague() {
-  const nglTeams = NGL_TEAMS.map(t => initTeam(t, 'ngl'));
-  const ablTeams = ABL_TEAMS.map(t => initTeam(t, 'abl'));
-
-  // Assign rivalries
-  RIVALRIES.ngl.forEach(([a, b]) => {
-    const teamA = nglTeams.find(t => t.id === a);
-    const teamB = nglTeams.find(t => t.id === b);
-    if (teamA && teamB) {
-      teamA.rivalIds = [...(teamA.rivalIds || []), b];
-      teamB.rivalIds = [...(teamB.rivalIds || []), a];
-    }
-  });
-  RIVALRIES.abl.forEach(([a, b]) => {
-    const teamA = ablTeams.find(t => t.id === a);
-    const teamB = ablTeams.find(t => t.id === b);
-    if (teamA && teamB) {
-      teamA.rivalIds = [...(teamA.rivalIds || []), b];
-      teamB.rivalIds = [...(teamB.rivalIds || []), a];
-    }
-  });
-
-  // Calculate initial finances
-  [...nglTeams, ...ablTeams].forEach(t => {
-    t.finances.profit = t.finances.revenue - t.finances.expenses;
-  });
-
-  return { ngl: nglTeams, abl: ablTeams };
+export function updateCityEconomy(f){
+  const roll=Math.random();
+  if(f.economyCycle==='stable'){
+    if(roll<0.15)return{...f,economyCycle:'boom',cityEconomy:clamp((f.cityEconomy||65)+rand(5,12),40,100)};
+    if(roll<0.25)return{...f,economyCycle:'recession',cityEconomy:clamp((f.cityEconomy||65)-rand(8,15),30,100)};
+  }else if(f.economyCycle==='boom'){
+    if(roll<0.3)return{...f,economyCycle:'stable'};
+  }else if(f.economyCycle==='recession'){
+    if(roll<0.35)return{...f,economyCycle:'stable',cityEconomy:clamp((f.cityEconomy||65)+rand(3,8),30,100)};
+  }
+  return f;
 }
 
 // ============================================================
-// FRANCHISE CREATION (Player-owned)
+// NAMING RIGHTS
 // ============================================================
-export function createPlayerFranchise(teamTemplate, league) {
-  const base = initTeam(teamTemplate, league);
-  return {
-    ...base,
-    isPlayerOwned: true,
-    ownershipPct: 100,
-    // Extended player-owned fields
-    mediaRep: 50,
-    communityRating: 65,
-    lockerRoomChemistry: 65,
-    debt: 0,
-    debtInterestRate: 0.08,
-    namingRightsActive: false,
-    namingRightsDeal: null,
-    localLegends: [],
-    retiredNumbers: [],
-    fanDemographics: { casual: 70, dieHard: 30 },
-    insurancePolicies: [],
-    dynastyEra: null,
-    seasonNewspapers: [],
-    leagueRank: null,
-    capDeadMoney: 0,
-    // Staff levels (0-3)
-    scoutingStaff: 1,
-    developmentStaff: 1,
-    medicalStaff: 1,
-    marketingStaff: 1,
-    // Business
-    ticketPrice: 75,
-    merchMultiplier: 1.0,
-    sponsorLevel: 1,
-    tvTier: 1,
-    // Facilities
-    trainingFacility: 1,
-    weightRoom: 1,
-    filmRoom: 1,
+export function generateNamingRightsOffer(f){
+  if(f.namingRightsActive)return null;
+  const baseValue=Math.round(f.market*0.12+f.fanRating*0.05+f.mediaRep*0.03);
+  const corps=['Apex Industries','Meridian Corp','Quantum Holdings','Vanguard Systems','Pinnacle Group','Atlas Financial','Sovereign Energy','Nexus Global','Titan Industries','Zenith Corp'];
+  return{company:pick(corps),annualPay:clamp(baseValue,2,8),years:rand(5,15)};
+}
+export function acceptNamingRights(f,offer){
+  return{...f,namingRightsActive:true,namingRightsDeal:offer.annualPay,namingRightsName:offer.company,namingRightsYears:offer.years};
+}
+
+// ============================================================
+// CBA EVENTS (every 5 seasons)
+// ============================================================
+export function generateCBAEvent(season){
+  if(season%5!==0||season===0)return null;
+  return{
+    id:'cba_'+season,title:'Collective Bargaining Agreement',
+    description:`The players\' union is demanding a new CBA. Revenue sharing, salary caps, and roster rules are all on the table. The league faces a potential ${rand(10,30)}-game lockout if negotiations fail.`,
+    choices:[
+      {label:'Accept player demands',capChange:5,moraleBonus:8,revenuePenalty:-3,desc:'Higher cap, happier players, lower owner revenue'},
+      {label:'Negotiate compromise',capChange:2,moraleBonus:2,revenuePenalty:-1,desc:'Moderate changes, minimal disruption'},
+      {label:'Hardline stance',capChange:-3,moraleBonus:-10,revenuePenalty:0,strikeRisk:0.4,desc:'Risk a lockout but protect owner revenue'},
+    ],
   };
 }
 
 // ============================================================
 // SEASON SIMULATION — AI TEAMS
-// Fast deterministic sim for all 62 AI teams
 // ============================================================
-export function simulateAITeamSeason(team, season, leagueTeams) {
-  const league = team.league;
-  const totalGames = league === 'ngl' ? 17 : 82;
-
-  // Base win probability from roster quality
-  let winProb = (team.rosterQuality - 40) / 60; // 40 rating = 0%, 100 = 1.0
-  winProb = clamp(winProb, 0.15, 0.85);
-
-  // Coaching modifier
-  winProb += team.coach.level * 0.03;
-
-  // Fan/morale modifier
-  winProb += (team.fanRating - 50) * 0.001;
-
-  // Slight randomness for season variance
-  winProb += randFloat(-0.08, 0.08);
-  winProb = clamp(winProb, 0.1, 0.92);
-
-  // Simulate wins
-  let wins = 0;
-  for (let g = 0; g < totalGames; g++) {
-    if (Math.random() < winProb) wins++;
-  }
-  const losses = totalGames - wins;
-
-  // Update team
-  team.wins = wins;
-  team.losses = losses;
-  team.season = season;
-
-  // Financial sim
-  const attendance = predictAttendance(
-    team.fanRating, wins / totalGames, 80,
-    team.stadiumCondition, team.market, team.rivalIds.length > 0 ? 0.5 : 0
-  );
-  const ticketRevenue = attendance * team.stadiumCapacity * 80 * totalGames / 1_000_000; // in millions
-  const tvRevenue = team.market * randFloat(0.8, 1.2);
-  const merchRevenue = team.market * (wins / totalGames) * randFloat(0.3, 0.6);
-  team.finances.revenue = Math.round((ticketRevenue + tvRevenue + merchRevenue) * 10) / 10;
-  team.finances.expenses = Math.round(team.totalSalary + team.market * randFloat(0.3, 0.6));
-  team.finances.profit = Math.round((team.finances.revenue - team.finances.expenses) * 10) / 10;
-
-  // Fan rating adjustment
-  const winPct = wins / totalGames;
-  if (winPct > 0.6) team.fanRating = clamp(team.fanRating + rand(1, 4), 0, 100);
-  else if (winPct < 0.35) team.fanRating = clamp(team.fanRating - rand(1, 5), 0, 100);
-
-  // Stadium aging
-  team.stadiumAge++;
-  if (team.stadiumAge > 15) {
-    team.stadiumCondition = clamp(team.stadiumCondition - rand(1, 3), 20, 100);
-  }
-
-  // Player development (simplified for AI)
-  team.players.forEach(p => {
-    p.age++;
-    p.seasonsPlayed++;
-    const delta = predictDevelopment(p.age, p.rating, 65, 1, p.trait, league);
-    p.rating = clamp(p.rating + delta, 40, 99);
-  });
-
-  // Retirements
-  team.players = team.players.filter(p => {
-    if (p.age >= 35 && Math.random() < 0.3) return false;
-    if (p.age >= 38) return false;
-    return true;
-  });
-
-  // Fill roster back up with rookies
-  const positions = league === 'ngl' ? NGL_POSITIONS : ABL_POSITIONS;
-  const targetSize = league === 'ngl' ? NGL_ROSTER_SIZE : ABL_ROSTER_SIZE;
-  while (team.players.length < targetSize) {
-    const pos = positions[team.players.length % positions.length];
-    team.players.push(generatePlayer(pos, league, { age: rand(22, 24), rating: rand(55, 72) }));
-  }
-
-  // Recalculate roster quality
-  team.rosterQuality = Math.round(team.players.reduce((s, p) => s + p.rating, 0) / team.players.length);
-
-  // Coach changes (random)
-  team.coach.seasonsWithTeam++;
-  if (winPct < 0.35 && team.coach.seasonsWithTeam >= 2 && Math.random() < 0.5) {
-    team.coach = generateCoach();
-  }
-
-  // Save history
-  team.history.push({
-    season,
-    wins,
-    losses,
-    rosterQuality: team.rosterQuality,
-    revenue: team.finances.revenue,
-    fanRating: team.fanRating,
-  });
-
+export function simAITeam(team,season){
+  const lg=team.league;const games=lg==='ngl'?17:82;
+  let wp=(team.rosterQuality-40)/60+team.coach.level*0.03+(team.fanRating-50)*0.001+randFloat(-0.08,0.08);
+  wp=clamp(wp,0.1,0.92);let w=0;for(let g=0;g<games;g++)if(Math.random()<wp)w++;
+  team.wins=w;team.losses=games-w;team.season=season;
+  const att=calcAttendance(80,team.fanRating,w/games,team.market,team.stadiumCondition);
+  team.finances.revenue=r1(att*team.stadiumCapacity*80*games/1e6+team.market*randFloat(0.8,1.2)+team.market*(w/games)*randFloat(0.3,0.6));
+  team.finances.expenses=r1(team.totalSalary+team.market*randFloat(0.3,0.6));
+  team.finances.profit=r1(team.finances.revenue-team.finances.expenses);
+  if(w/games>0.6)team.fanRating=clamp(team.fanRating+rand(1,4),0,100);
+  else if(w/games<0.35)team.fanRating=clamp(team.fanRating-rand(1,5),0,100);
+  team.stadiumAge++;if(team.stadiumAge>15)team.stadiumCondition=clamp(team.stadiumCondition-rand(1,3),20,100);
+  team.players.forEach(p=>{p.age++;p.seasonsPlayed++;const d=predictDev(p.age,p.rating,65,1,p.trait,lg);p.rating=clamp(p.rating+d,40,99);});
+  team.players=team.players.filter(p=>!(p.age>=35&&Math.random()<0.3)&&p.age<38);
+  const pos=lg==='ngl'?NGL_POSITIONS:ABL_POSITIONS;const tgt=lg==='ngl'?NGL_ROSTER_SIZE:ABL_ROSTER_SIZE;
+  while(team.players.length<tgt)team.players.push(generatePlayer(pos[team.players.length%pos.length],lg,{age:rand(22,24),rating:rand(55,72)}));
+  team.rosterQuality=Math.round(team.players.reduce((s,p)=>s+p.rating,0)/team.players.length);
+  team.coach.seasonsWithTeam++;if(w/games<0.35&&team.coach.seasonsWithTeam>=2&&Math.random()<0.5)team.coach=generateCoach();
+  team.history.push({season,wins:w,losses:games-w,rosterQuality:team.rosterQuality,revenue:team.finances.revenue,fanRating:team.fanRating});
   return team;
 }
 
 // ============================================================
-// PLAYER FRANCHISE SEASON SIMULATION
+// PLAYER FRANCHISE SEASON SIM
 // ============================================================
-export function simulatePlayerSeason(franchise, season) {
-  const league = franchise.league;
-  const totalGames = league === 'ngl' ? 17 : 82;
-
-  // --- Win probability calculation ---
-  let winProb = (franchise.rosterQuality - 40) / 60;
-
-  // Coaching
-  winProb += franchise.coach.level * 0.035;
+export function simPlayerSeason(f,season){
+  const lg=f.league;const games=lg==='ngl'?17:82;
+  // Economy cycle
+  f=updateCityEconomy(f);
+  const econMod=f.economyCycle==='boom'?1.10:f.economyCycle==='recession'?0.85:1.0;
+  // Win prob
+  let wp=(f.rosterQuality-40)/60+f.coach.level*0.035+(f.lockerRoomChemistry-50)*0.002+f.trainingFacility*0.015+f.filmRoom*0.01;
+  wp=clamp(wp+randFloat(-0.06,0.06),0.08,0.94);
+  // Injuries
+  f.players.forEach(p=>{
+    const risk=predictInjury(p.age,p.seasonsPlayed,f.medicalStaff,p.trait,p.rating);
+    if(Math.random()<risk){p.injured=true;const sr=Math.random();
+      if(sr<0.5){p.injurySeverity='minor';p.gamesOut=rand(2,4);}
+      else if(sr<0.85){p.injurySeverity='moderate';p.gamesOut=rand(6,10);}
+      else{p.injurySeverity='severe';p.gamesOut=games;}
+    }else{p.injured=false;p.injurySeverity=null;p.gamesOut=0;}
+  });
+  wp-=f.players.filter(p=>p.injured&&p.rating>=80).length*0.04;wp=clamp(wp,0.05,0.94);
+  let w=0;for(let g=0;g<games;g++)if(Math.random()<wp)w++;
+  f.wins=w;f.losses=games-w;f.season=season;
+  const winPct=w/games;
+  // Revenue with economy modifier
+  const att=calcAttendance(f.ticketPrice,f.fanRating,winPct,f.market,f.stadiumCondition);
+  const gate=att*f.stadiumCapacity*f.ticketPrice*games/1e6*econMod;
+  const tv=f.market*(0.5+(f.tvTier||1)*0.3)*randFloat(0.9,1.1);
+  const merch=f.market*(f.merchMultiplier||1)*winPct*randFloat(0.3,0.5)*econMod;
+  const spon=(f.sponsorLevel||1)*f.market*0.08*randFloat(0.9,1.1);
+  const naming=f.namingRightsActive?(f.namingRightsDeal||3):0;
+  const totalRev=gate+tv+merch+spon+naming;
+  const staff=(f.scoutingStaff+f.developmentStaff+f.medicalStaff+f.marketingStaff)*2;
+  const fac=(f.trainingFacility+f.weightRoom+f.filmRoom)*1.5;
+  const maint=f.stadiumAge>15?f.stadiumAge*0.3:1;
+  const interest=(f.debt||0)*DEBT_INTEREST;
+  const totalExp=f.totalSalary+staff+fac+maint+interest+(f.capDeadMoney||0);
+  const profit=totalRev-totalExp;
+  f.finances={revenue:r1(totalRev),expenses:r1(totalExp),profit:r1(profit)};
+  f.cash=r1((f.cash||0)+profit);
+  // Naming rights countdown
+  if(f.namingRightsActive&&f.namingRightsYears){f.namingRightsYears--;if(f.namingRightsYears<=0){f.namingRightsActive=false;f.namingRightsDeal=null;f.namingRightsName=null;}}
+  // Fan rating
+  let fd=0;if(winPct>0.7)fd=rand(3,6);else if(winPct>0.55)fd=rand(1,3);
+  else if(winPct<0.3)fd=-rand(3,7);else if(winPct<0.4)fd=-rand(1,3);
+  fd+=f.marketingStaff*0.5;f.fanRating=clamp(Math.round(f.fanRating+fd),0,100);
+  // Demographics
+  if(winPct>0.6){f.fanDemographics.dieHard=clamp(f.fanDemographics.dieHard+rand(1,3),10,70);f.fanDemographics.casual=100-f.fanDemographics.dieHard;}
+  else if(winPct<0.35){f.fanDemographics.casual=clamp(f.fanDemographics.casual+rand(2,5),30,90);f.fanDemographics.dieHard=100-f.fanDemographics.casual;}
   // Chemistry
-  winProb += (franchise.lockerRoomChemistry - 50) * 0.002;
-  // Training facilities
-  winProb += franchise.trainingFacility * 0.015;
-  // Film room
-  winProb += franchise.filmRoom * 0.01;
+  let cd=0;f.players.forEach(p=>{if(p.trait==='leader'&&p.morale>60)cd+=2;if(p.trait==='volatile')cd-=rand(2,5);if(p.trait==='showman')cd+=winPct>0.5?2:-3;});
+  f.lockerRoomChemistry=clamp(Math.round(f.lockerRoomChemistry+cd/f.players.length*3),0,100);
+  // Player dev
+  f.players.forEach(p=>{
+    p.age++;p.seasonsPlayed++;p.seasonsWithTeam++;
+    if(!p.injured||p.injurySeverity!=='severe'){const d=predictDev(p.age,p.rating,p.morale,f.developmentStaff,p.trait,lg);p.rating=clamp(p.rating+d,40,99);if(p.rating>p.careerStats.bestRating)p.careerStats.bestRating=p.rating;}
+    p.careerStats.seasons++;p.yearsLeft--;
+    if(winPct>0.6)p.morale=clamp(p.morale+rand(2,5),0,100);
+    else if(winPct<0.35)p.morale=clamp(p.morale-rand(2,6),0,100);
+    if(p.trait==='volatile')p.morale=clamp(p.morale+rand(-10,10),0,100);
+  });
+  // Check for local legends & retirements
+  const retiring=f.players.filter(p=>p.age>=35&&Math.random()<0.3);
+  retiring.forEach(p=>{if(p.seasonsWithTeam>=5&&p.rating>=70){f.localLegends=[...(f.localLegends||[]),{name:p.name,rating:p.careerStats.bestRating,seasons:p.seasonsWithTeam}];f.fanRating=clamp(f.fanRating+3,0,100);}});
+  f.players=f.players.filter(p=>!(p.age>=35&&Math.random()<0.5)&&p.age<39);
+  f.players.forEach(p=>{if(p.seasonsWithTeam>=5&&p.rating>=75)p.isLocalLegend=true;});
+  // Stadium & coach
+  f.stadiumAge++;if(f.stadiumAge>12)f.stadiumCondition=clamp(f.stadiumCondition-rand(1,3),20,100);
+  f.coach.seasonsWithTeam++;f.coach.age++;
+  if(winPct>0.65)f.mediaRep=clamp(f.mediaRep+rand(1,4),0,100);else if(winPct<0.3)f.mediaRep=clamp(f.mediaRep-rand(1,3),0,100);
+  if(f.communityRating>55)f.communityRating--;else if(f.communityRating<45)f.communityRating++;
+  f.rosterQuality=Math.round(f.players.reduce((s,p)=>s+p.rating,0)/Math.max(1,f.players.length));
+  f.totalSalary=r1(f.players.reduce((s,p)=>s+p.salary,0));
+  // Championship check (rank #1 = championship)
+  // (set after standings calculated in simulateFullSeason)
+  f.history.push({season,wins:w,losses:games-w,winPct:r1(winPct),rosterQuality:f.rosterQuality,revenue:f.finances.revenue,expenses:f.finances.expenses,profit:f.finances.profit,fanRating:f.fanRating,cash:r1(f.cash),chemistry:f.lockerRoomChemistry,mediaRep:f.mediaRep,economy:f.economyCycle,injuries:f.players.filter(p=>p.injured).map(p=>({name:p.name,severity:p.injurySeverity}))});
+  return f;
+}
 
-  winProb = clamp(winProb + randFloat(-0.06, 0.06), 0.08, 0.94);
-
-  // --- Injuries ---
-  franchise.players.forEach(p => {
-    const risk = predictInjuryRisk(p.age, p.seasonsPlayed, franchise.medicalStaff, p.trait, p.rating);
-    if (Math.random() < risk) {
-      p.injured = true;
-      const severityRoll = Math.random();
-      if (severityRoll < 0.5) {
-        p.injurySeverity = 'minor';
-        p.gamesOut = rand(2, 4);
-      } else if (severityRoll < 0.85) {
-        p.injurySeverity = 'moderate';
-        p.gamesOut = rand(6, 10);
-      } else {
-        p.injurySeverity = 'severe';
-        p.gamesOut = totalGames;
-      }
-    } else {
-      p.injured = false;
-      p.injurySeverity = null;
-      p.gamesOut = 0;
+// ============================================================
+// FULL LEAGUE SIM + REVENUE SHARING + CHAMPIONSHIPS
+// ============================================================
+export function simulateFullSeason(lt,pf,season){
+  const ul={
+    ngl:lt.ngl.map(t=>pf.some(p=>p.id===t.id)?t:simAITeam({...t},season)),
+    abl:lt.abl.map(t=>pf.some(p=>p.id===t.id)?t:simAITeam({...t},season)),
+  };
+  const uf=pf.map(f=>simPlayerSeason({...f},season));
+  uf.forEach(p=>{const arr=ul[p.league];const i=arr.findIndex(t=>t.id===p.id);if(i>=0)arr[i]={...arr[i],wins:p.wins,losses:p.losses,rosterQuality:p.rosterQuality,fanRating:p.fanRating};});
+  const ns=[...ul.ngl].sort((a,b)=>b.wins-a.wins);const as2=[...ul.abl].sort((a,b)=>b.wins-a.wins);
+  ns.forEach((t,i)=>{t.playoffTeam=i<14;t.leagueRank=i+1;});
+  as2.forEach((t,i)=>{t.playoffTeam=i<16;t.leagueRank=i+1;});
+  // Championships & rankings
+  uf.forEach(p=>{
+    const s=(p.league==='ngl'?ns:as2).find(t=>t.id===p.id);
+    if(s){p.leagueRank=s.leagueRank;p.playoffTeam=s.playoffTeam;
+      if(s.leagueRank===1){p.championships=(p.championships||0)+1;p.trophies=[...(p.trophies||[]),{season,wins:p.wins,losses:p.losses}];}
     }
   });
+  // Revenue sharing
+  const all=[...ul.ngl,...ul.abl];const totalRev=all.reduce((s,t)=>s+(t.finances?.revenue||0),0);
+  const pool=totalRev*REVENUE_SHARE_PCT;const perTeam=pool/all.length;
+  uf.forEach(p=>{const share=r1(perTeam-p.finances.revenue*REVENUE_SHARE_PCT);p.cash=r1(p.cash+share);p.revShareReceived=share;});
+  return{leagueTeams:ul,franchises:uf,standings:{ngl:ns,abl:as2}};
+}
 
-  // Injury impact on win probability
-  const injuredStars = franchise.players.filter(p => p.injured && p.rating >= 80).length;
-  winProb -= injuredStars * 0.04;
-  winProb = clamp(winProb, 0.05, 0.94);
+// ============================================================
+// DRAFT & FREE AGENTS
+// ============================================================
+export function generateDraftProspects(lg,count,scoutLvl=1){
+  const pos=lg==='ngl'?NGL_POSITIONS:ABL_POSITIONS;
+  return Array.from({length:count},()=>{const p=pick(pos);const br=rand(50,78);const acc=scoutLvl*5;
+    return{id:generateId(),name:generatePlayerName(),position:p,age:rand(21,23),projectedRating:clamp(br+rand(-acc,acc),45,85),trueRating:clamp(br,45,85),upside:pick(['low','mid','high']),trait:generateTrait()};
+  }).sort((a,b)=>b.projectedRating-a.projectedRating);
+}
+export function draftPlayer(p,lg){
+  const cap=lg==='ngl'?NGL_SALARY_CAP:ABL_SALARY_CAP;const rs=lg==='ngl'?NGL_ROSTER_SIZE:ABL_ROSTER_SIZE;
+  return{...generatePlayer(p.position,lg,{age:p.age,rating:p.trueRating,trait:p.trait,yearsLeft:4,seasonsPlayed:0,seasonsWithTeam:0}),name:p.name,salary:r1(cap/rs*0.4),isDrafted:true};
+}
+export function generateFreeAgents(lg,n=20){
+  const pos=lg==='ngl'?NGL_POSITIONS:ABL_POSITIONS;
+  return Array.from({length:n},()=>generatePlayer(pick(pos),lg,{age:rand(25,34),rating:rand(55,82),yearsLeft:0})).sort((a,b)=>b.rating-a.rating);
+}
 
-  // --- Simulate games ---
-  let wins = 0;
-  for (let g = 0; g < totalGames; g++) {
-    if (Math.random() < winProb) wins++;
-  }
-  const losses = totalGames - wins;
+// ============================================================
+// CAP, VALUATION, DEBT
+// ============================================================
+export function calculateCapSpace(f){
+  const cap=f.league==='ngl'?NGL_SALARY_CAP:ABL_SALARY_CAP;const inf=Math.pow(1+CAP_INFLATION_RATE,f.season||0);
+  const adj=r1(cap*inf);const ts=f.players.reduce((s,p)=>s+p.salary,0);const dm=f.capDeadMoney||0;
+  return{cap:adj,used:r1(ts+dm),space:r1(adj-ts-dm),deadMoney:dm};
+}
+export function calculateValuation(f){
+  return Math.round(f.market*3+(f.wins/(f.wins+f.losses+0.01))*50+f.fanRating*0.5+(f.stadiumCondition||70)*0.2+(f.championships||0)*15+(CITY_ECONOMY[f.city]||65)*0.3);
+}
+export function maxLoan(f){return Math.round(calculateValuation(f)*MAX_DEBT_RATIO);}
+export function takeLoan(f,amt){const mx=maxLoan(f)-(f.debt||0);const a=Math.min(amt,mx);return{...f,cash:r1((f.cash||0)+a),debt:r1((f.debt||0)+a)};}
+export function repayDebt(f,amt){const a=Math.min(amt,f.debt||0,f.cash||0);return{...f,cash:r1(f.cash-a),debt:r1((f.debt||0)-a)};}
 
-  franchise.wins = wins;
-  franchise.losses = losses;
-  franchise.season = season;
-
-  // --- Attendance & Revenue ---
-  const attendancePct = predictAttendance(
-    franchise.fanRating, wins / totalGames, franchise.ticketPrice,
-    franchise.stadiumCondition, franchise.market,
-    franchise.rivalIds.length > 0 ? franchise.rivalryIntensity / 100 : 0
-  );
-  const gateRevenue = attendancePct * franchise.stadiumCapacity * franchise.ticketPrice * totalGames / 1_000_000;
-  const tvRevenue = franchise.market * (0.5 + franchise.tvTier * 0.3) * randFloat(0.9, 1.1);
-  const merchRevenue = franchise.market * franchise.merchMultiplier * (wins / totalGames) * randFloat(0.3, 0.5);
-  const sponsorRevenue = franchise.sponsorLevel * franchise.market * 0.08 * randFloat(0.9, 1.1);
-  const namingRevenue = franchise.namingRightsActive ? (franchise.namingRightsDeal || 3) : 0;
-
-  const totalRevenue = gateRevenue + tvRevenue + merchRevenue + sponsorRevenue + namingRevenue;
-  const staffCosts = (franchise.scoutingStaff + franchise.developmentStaff + franchise.medicalStaff + franchise.marketingStaff) * 2;
-  const facilityCosts = (franchise.trainingFacility + franchise.weightRoom + franchise.filmRoom) * 1.5;
-  const stadiumMaintenance = franchise.stadiumAge > 15 ? franchise.stadiumAge * 0.3 : 1;
-  const debtInterest = franchise.debt * franchise.debtInterestRate;
-  const totalExpenses = franchise.totalSalary + staffCosts + facilityCosts + stadiumMaintenance + debtInterest + franchise.capDeadMoney;
-
-  franchise.finances.revenue = Math.round(totalRevenue * 10) / 10;
-  franchise.finances.expenses = Math.round(totalExpenses * 10) / 10;
-  franchise.finances.profit = Math.round((totalRevenue - totalExpenses) * 10) / 10;
-
-  // --- Fan Rating ---
-  const winPct = wins / totalGames;
-  let fanDelta = 0;
-  if (winPct > 0.7) fanDelta = rand(3, 6);
-  else if (winPct > 0.55) fanDelta = rand(1, 3);
-  else if (winPct < 0.3) fanDelta = -rand(3, 7);
-  else if (winPct < 0.4) fanDelta = -rand(1, 3);
-  // Marketing staff helps
-  fanDelta += franchise.marketingStaff * 0.5;
-  franchise.fanRating = clamp(Math.round(franchise.fanRating + fanDelta), 0, 100);
-
-  // --- Fan Demographics ---
-  if (winPct > 0.6) {
-    franchise.fanDemographics.dieHard = clamp(franchise.fanDemographics.dieHard + rand(1, 3), 10, 70);
-    franchise.fanDemographics.casual = 100 - franchise.fanDemographics.dieHard;
-  } else if (winPct < 0.35) {
-    franchise.fanDemographics.casual = clamp(franchise.fanDemographics.casual + rand(2, 5), 30, 90);
-    franchise.fanDemographics.dieHard = 100 - franchise.fanDemographics.casual;
-  }
-
-  // --- Locker Room Chemistry ---
-  let chemDelta = 0;
-  franchise.players.forEach(p => {
-    if (p.trait === 'leader' && p.morale > 60) chemDelta += 2;
-    if (p.trait === 'volatile') chemDelta -= rand(2, 5);
-    if (p.trait === 'showman') chemDelta += winPct > 0.5 ? 2 : -3;
+// ============================================================
+// STAKES
+// ============================================================
+export function generateStakeOffers(lt,cash,season){
+  if(cash<15||season<3)return[];
+  const all=[...lt.ngl,...lt.abl].filter(t=>!t.isPlayerOwned).sort(()=>Math.random()-0.5).slice(0,rand(1,3));
+  return all.map(t=>{const v=calculateValuation(t);const pct=pick([10,15,20,25]);
+    return{id:generateId(),teamId:t.id,teamName:`${t.city} ${t.name}`,league:t.league,stakePct:pct,price:Math.round(v*(pct/100)*randFloat(0.85,1.15)),valuation:v,record:`${t.wins}-${t.losses}`,market:t.market};
   });
-  franchise.lockerRoomChemistry = clamp(Math.round(franchise.lockerRoomChemistry + chemDelta / franchise.players.length * 3), 0, 100);
+}
+export function calcStakeIncome(stakes,lt){
+  return stakes.reduce((tot,s)=>{const all=[...(lt.ngl||[]),...(lt.abl||[])];const t=all.find(x=>x.id===s.teamId);if(!t)return tot;return tot+r1((t.finances.profit||0)*(s.stakePct/100));},0);
+}
 
-  // --- Player Development ---
-  franchise.players.forEach(p => {
-    p.age++;
-    p.seasonsPlayed++;
-    p.seasonsWithTeam++;
-    if (!p.injured || p.injurySeverity !== 'severe') {
-      const delta = predictDevelopment(p.age, p.rating, p.morale, franchise.developmentStaff, p.trait, league);
-      p.rating = clamp(p.rating + delta, 40, 99);
-      if (p.rating > p.careerStats.bestRating) p.careerStats.bestRating = p.rating;
-    }
-    p.careerStats.seasons++;
+// ============================================================
+// PRESS CONFERENCE
+// ============================================================
+export function genPressConference(f){
+  const wp=f.wins/(f.wins+f.losses||1);const out=[];
+  if(wp>0.6)out.push({id:'pc1',prompt:'Reporter: "Can you guarantee a championship?"',options:[
+    {label:'Guarantee it',text:'"We\'re bringing the trophy home."',fanBonus:8,mediaBonus:-5,moraleBonus:10,risk:'guarantee'},
+    {label:'Stay humble',text:'"Results will follow hard work."',fanBonus:2,mediaBonus:5,moraleBonus:3},
+    {label:'Deflect with humor',text:'"I guarantee the postgame spread."',fanBonus:3,mediaBonus:8,moraleBonus:1},
+  ]});
+  else if(wp<0.35)out.push({id:'pc1',prompt:'Reporter: "Is it time for a full rebuild?"',options:[
+    {label:'Admit it',text:'"We\'re building for the future."',fanBonus:-3,mediaBonus:6,moraleBonus:-5},
+    {label:'Stay defiant',text:'"We\'re closer than people think."',fanBonus:4,mediaBonus:-2,moraleBonus:6},
+  ]});
+  else out.push({id:'pc1',prompt:'Reporter: "What\'s the plan to contend?"',options:[
+    {label:'Bold moves',text:'"Expect upgrades soon."',fanBonus:5,mediaBonus:3,moraleBonus:-2},
+    {label:'Trust process',text:'"Our core is developing."',fanBonus:1,mediaBonus:2,moraleBonus:4},
+  ]});
+  out.push({id:'pc2',prompt:`Reporter: "What are the ${f.name} doing for ${f.city}?"`,options:[
+    {label:'Highlight charity',communityBonus:5,mediaBonus:4,fanBonus:2},
+    {label:'Deflect to sport',communityBonus:-3,mediaBonus:-2,fanBonus:1},
+  ]});
+  return out;
+}
 
-    // Contract countdown
-    p.yearsLeft--;
+// ============================================================
+// RIVALRY EVENT
+// ============================================================
+export function genRivalryEvent(f,lt){
+  if(!f.rivalIds?.length)return null;
+  const all=[...(lt.ngl||[]),...(lt.abl||[])];const rival=all.find(t=>f.rivalIds.includes(t.id));
+  if(!rival||rival.wins<=f.wins)return null;
+  return{id:'rivalry',title:`${rival.city} ${rival.name} Rivalry`,
+    description:`The ${rival.city} ${rival.name} (${rival.wins}-${rival.losses}) are outperforming you.`,
+    choices:[{label:'Attack ads',cost:2,fanBonus:3,mediaBonus:-4},{label:'Focus inward',fanBonus:-1,moraleBonus:3},{label:'Fan rally',cost:1,fanBonus:5,communityBonus:3}]};
+}
 
-    // Morale adjustments
-    if (winPct > 0.6) p.morale = clamp(p.morale + rand(2, 5), 0, 100);
-    else if (winPct < 0.35) p.morale = clamp(p.morale - rand(2, 6), 0, 100);
-    if (p.trait === 'volatile') p.morale = clamp(p.morale + rand(-10, 10), 0, 100);
-  });
-
-  // --- Stadium Aging ---
-  franchise.stadiumAge++;
-  if (franchise.stadiumAge > 12) {
-    franchise.stadiumCondition = clamp(franchise.stadiumCondition - rand(1, 3), 20, 100);
-  }
-
-  // --- Coach tenure ---
-  franchise.coach.seasonsWithTeam++;
-  franchise.coach.age++;
-
-  // --- Media Rep ---
-  if (winPct > 0.65) franchise.mediaRep = clamp(franchise.mediaRep + rand(1, 4), 0, 100);
-  else if (winPct < 0.3) franchise.mediaRep = clamp(franchise.mediaRep - rand(1, 3), 0, 100);
-
-  // --- Community Rating (passive drift toward 50) ---
-  if (franchise.communityRating > 55) franchise.communityRating -= 1;
-  else if (franchise.communityRating < 45) franchise.communityRating += 1;
-
-  // --- Local Legends check ---
-  franchise.players.forEach(p => {
-    if (p.seasonsWithTeam >= 5 && p.rating >= 75 && !p.isLocalLegend) {
-      p.isLocalLegend = true;
-    }
-  });
-
-  // --- Save season history ---
-  franchise.history.push({
+// ============================================================
+// NEWSPAPER GENERATION
+// ============================================================
+export function generateNewspaper(standings,playerFr,season,lt){
+  const top=standings[0];const pf=playerFr[0];
+  const allTeams=[...(lt.ngl||[]),...(lt.abl||[])];
+  const mvpTeam=allTeams.sort((a,b)=>b.rosterQuality-a.rosterQuality)[0];
+  return{
     season,
-    wins,
-    losses,
-    winPct: Math.round(winPct * 1000) / 1000,
-    rosterQuality: franchise.rosterQuality,
-    revenue: franchise.finances.revenue,
-    expenses: franchise.finances.expenses,
-    profit: franchise.finances.profit,
-    fanRating: franchise.fanRating,
-    chemistry: franchise.lockerRoomChemistry,
-    mediaRep: franchise.mediaRep,
-    injuries: franchise.players.filter(p => p.injured).map(p => ({
-      name: p.name, severity: p.injurySeverity
-    })),
-  });
-
-  return franchise;
-}
-
-// ============================================================
-// FULL LEAGUE SEASON SIMULATION
-// ============================================================
-export function simulateFullSeason(leagueTeams, playerFranchises, season) {
-  // Simulate all AI teams
-  const updatedLeague = {
-    ngl: leagueTeams.ngl.map(t => {
-      // Skip if player owns this team
-      if (playerFranchises.some(pf => pf.id === t.id)) return t;
-      return simulateAITeamSeason({ ...t }, season, leagueTeams);
-    }),
-    abl: leagueTeams.abl.map(t => {
-      if (playerFranchises.some(pf => pf.id === t.id)) return t;
-      return simulateAITeamSeason({ ...t }, season, leagueTeams);
-    }),
+    headline:`${top.city} ${top.name} Claim Top Spot with ${top.wins}-${top.losses} Record`,
+    stories:[
+      pf?`The ${pf.city} ${pf.name} finished the season at ${pf.wins}-${pf.losses}${pf.playoffTeam?' and earned a playoff berth':'. The offseason will be critical'}.`:'',
+      `Around the league, ${mvpTeam?.city||'several'} ${mvpTeam?.name||'franchises'} boasted the highest roster quality at ${mvpTeam?.rosterQuality||'—'}.`,
+      `The free agent market is expected to be active this offseason with several high-profile players hitting the market.`,
+      `Stadium projects across the league continue to reshape the competitive landscape as cities invest in their franchises.`,
+    ].filter(Boolean),
+    gmOfYear:pf&&pf.leagueRank<=3?`${pf.city} ${pf.name} GM`:null,
   };
-
-  // Simulate player franchises
-  const updatedFranchises = playerFranchises.map(f => simulatePlayerSeason({ ...f }, season));
-
-  // Merge player results into league standings
-  updatedFranchises.forEach(pf => {
-    const leagueArr = updatedLeague[pf.league];
-    const idx = leagueArr.findIndex(t => t.id === pf.id);
-    if (idx >= 0) {
-      leagueArr[idx] = { ...leagueArr[idx], wins: pf.wins, losses: pf.losses, rosterQuality: pf.rosterQuality, fanRating: pf.fanRating };
-    }
-  });
-
-  // Calculate standings and rankings
-  const nglStandings = [...updatedLeague.ngl].sort((a, b) => b.wins - a.wins);
-  const ablStandings = [...updatedLeague.abl].sort((a, b) => b.wins - a.wins);
-
-  // Tag playoff teams (top 14 NGL, top 16 ABL)
-  nglStandings.forEach((t, i) => { t.playoffTeam = i < 14; t.leagueRank = i + 1; });
-  ablStandings.forEach((t, i) => { t.playoffTeam = i < 16; t.leagueRank = i + 1; });
-
-  // Update player franchise rankings
-  updatedFranchises.forEach(pf => {
-    const standings = pf.league === 'ngl' ? nglStandings : ablStandings;
-    const entry = standings.find(t => t.id === pf.id);
-    if (entry) {
-      pf.leagueRank = entry.leagueRank;
-      pf.playoffTeam = entry.playoffTeam;
-    }
-  });
-
-  return {
-    leagueTeams: updatedLeague,
-    franchises: updatedFranchises,
-    standings: { ngl: nglStandings, abl: ablStandings },
-  };
-}
-
-// ============================================================
-// DRAFT SYSTEM
-// ============================================================
-export function generateDraftProspects(league, count, scoutingLevel = 1) {
-  const positions = league === 'ngl' ? NGL_POSITIONS : ABL_POSITIONS;
-  const prospects = [];
-
-  for (let i = 0; i < count; i++) {
-    const pos = pick(positions);
-    const baseRating = rand(50, 78);
-    // Better scouting reveals more accurate projections
-    const accuracy = scoutingLevel * 5; // 5-15 point accuracy window
-    const projectedRating = baseRating + rand(-accuracy, accuracy);
-    const upside = pick(['low', 'mid', 'high']);
-    const trueUpside = upside === 'high' ? rand(5, 15) : upside === 'mid' ? rand(0, 8) : rand(-2, 4);
-
-    prospects.push({
-      id: generateId(),
-      name: generatePlayerName(),
-      position: pos,
-      age: rand(21, 23),
-      projectedRating: clamp(projectedRating, 45, 85),
-      trueRating: clamp(baseRating, 45, 85),
-      upside,
-      trueUpside,
-      trait: generateTrait(),
-      scouted: false,
-    });
-  }
-
-  // Sort by projected rating
-  return prospects.sort((a, b) => b.projectedRating - a.projectedRating);
-}
-
-export function draftPlayer(prospect, league) {
-  const cap = league === 'ngl' ? NGL_SALARY_CAP : ABL_SALARY_CAP;
-  const rosterSize = league === 'ngl' ? NGL_ROSTER_SIZE : ABL_ROSTER_SIZE;
-  // Rookie contract scale (cheap)
-  const rookieSalary = Math.round((cap / rosterSize) * 0.4 * 10) / 10;
-
-  return {
-    ...generatePlayer(prospect.position, league, {
-      age: prospect.age,
-      rating: prospect.trueRating,
-      trait: prospect.trait,
-      yearsLeft: 4, // rookie contract
-      seasonsPlayed: 0,
-      seasonsWithTeam: 0,
-    }),
-    name: prospect.name,
-    salary: rookieSalary,
-    isDrafted: true,
-    draftUpside: prospect.trueUpside,
-  };
-}
-
-// ============================================================
-// FREE AGENT POOL
-// ============================================================
-export function generateFreeAgents(league, count = 20) {
-  const positions = league === 'ngl' ? NGL_POSITIONS : ABL_POSITIONS;
-  return Array.from({ length: count }, () => {
-    const pos = pick(positions);
-    return generatePlayer(pos, league, {
-      age: rand(25, 34),
-      rating: rand(55, 82),
-      yearsLeft: 0, // needs new contract
-    });
-  }).sort((a, b) => b.rating - a.rating);
-}
-
-// ============================================================
-// SALARY CAP HELPERS
-// ============================================================
-export function calculateCapSpace(franchise) {
-  const cap = franchise.league === 'ngl' ? NGL_SALARY_CAP : ABL_SALARY_CAP;
-  const seasonInflation = Math.pow(1 + CAP_INFLATION_RATE, franchise.season || 0);
-  const adjustedCap = Math.round(cap * seasonInflation * 10) / 10;
-  const totalSalary = franchise.players.reduce((s, p) => s + p.salary, 0);
-  const deadMoney = franchise.capDeadMoney || 0;
-  return {
-    cap: adjustedCap,
-    used: Math.round((totalSalary + deadMoney) * 10) / 10,
-    space: Math.round((adjustedCap - totalSalary - deadMoney) * 10) / 10,
-    deadMoney,
-  };
-}
-
-// ============================================================
-// FRANCHISE VALUATION
-// ============================================================
-export function calculateValuation(franchise) {
-  const base = franchise.market * 3; // market multiplier
-  const winBonus = (franchise.wins / (franchise.wins + franchise.losses + 0.01)) * 50;
-  const fanBonus = franchise.fanRating * 0.5;
-  const stadiumFactor = franchise.stadiumCondition * 0.2;
-  const champBonus = franchise.championships * 15;
-  const economyFactor = (CITY_ECONOMY_BASE[franchise.city] || 65) * 0.3;
-
-  return Math.round(base + winBonus + fanBonus + stadiumFactor + champBonus + economyFactor);
 }
