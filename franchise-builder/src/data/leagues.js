@@ -8,10 +8,13 @@ export const MARKET_TIERS = {
   1: { label: 'Elite', min: 85, color: '#D4A843', desc: 'Top media markets, massive revenue' },
   2: { label: 'Major', min: 72, color: '#2A5FA0', desc: 'Large markets with strong fan bases' },
   3: { label: 'Mid-Market', min: 62, color: '#1A6B3A', desc: 'Competitive cities, solid support' },
-  4: { label: 'Small', min: 55, color: '#C47B18', desc: 'Build from the ground up' },
-  5: { label: 'Budget', min: 0, color: '#C8202A', desc: 'Underdog — cheap entry, max challenge' },
+  4: { label: 'Small', min: 59, color: '#C47B18', desc: 'Scrappy markets — lower revenue, loyal fans' },
+  5: { label: 'Budget', min: 0, color: '#C8202A', desc: 'Underdog — cheapest entry, maximum challenge' },
 };
-export function getMarketTier(m) { return m >= 85 ? 1 : m >= 72 ? 2 : m >= 62 ? 3 : m >= 55 ? 4 : 5; }
+// Tier 5 (Budget) captures the 4 smallest-market teams (market < 59):
+//   NGL — Green Bay Frost (55), Jacksonville Gators (56)
+//   ABL — Oklahoma City Drillers (58), Detroit Motors (58)
+export function getMarketTier(m) { return m >= 85 ? 1 : m >= 72 ? 2 : m >= 62 ? 3 : m >= 59 ? 4 : 5; }
 export function getMarketTierInfo(m) { return MARKET_TIERS[getMarketTier(m)]; }
 
 // --- ECONOMICS ---
