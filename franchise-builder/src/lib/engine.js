@@ -412,14 +412,41 @@ export function initializeLeague() {
  */
 export function createPlayerFranchise(tmpl, lg) {
   const base = initTeam(tmpl, lg);
-  const tier = getMarketTier(tmpl.market);
+  const askingPrice = getFranchiseAskingPrice(tmpl);
+  const startingCapital = 30; // always $30M starting capital
+  const startingDebt = Math.max(0, askingPrice - startingCapital);
+  const startingCash = Math.max(0, startingCapital - askingPrice);
+
+  // Generate 3 initial slot players
+  const { star1, star2, corePiece } = generateInitialSlots(lg, tmpl.market, 50);
+  const slotPlayers = [star1, star2, corePiece].filter(Boolean);
+  const budget = SLOT_BUDGET[lg] || 80;
+  const usedSalary = slotPlayers.reduce((s, p) => s + p.salary, 0);
+  const remaining = Math.max(0, budget - usedSalary);
+  const depth = Math.round(clamp(remaining / budget * 100, 1, 100));
+
   return {
     ...base,
     isPlayerOwned: true,
     ownershipPct: 100,
-    cash: STARTING_CASH[tier] || 20,
-    debt: 0,
+    cash: startingCash,
+    debt: startingDebt,
     debtInterestRate: DEBT_INTEREST,
+    askingPrice,
+
+    // 3-slot roster model
+    star1,
+    star2,
+    corePiece,
+    depthQuality: depth,
+    slotBudget: budget,
+    players: slotPlayers,
+    totalSalary: r1(usedSalary),
+    rosterQuality: Math.round(
+      (star1?.rating || 0) * 0.40 + (star2?.rating || 0) * 0.30 +
+      (corePiece?.rating || 0) * 0.20 + depth * 0.10
+    ),
+
     mediaRep: 50,
     communityRating: 65,
     lockerRoomChemistry: 65,
@@ -624,11 +651,16 @@ export function simPlayerSeason(f, season) {
   f = updateCityEconomy(f);
   const econMod = f.economyCycle === 'boom' ? 1.10 : f.economyCycle === 'recession' ? 0.85 : 1.0;
 
-  // Win prob
-  let wp = (f.rosterQuality - 40) / 60 + f.coach.level * 0.035 + (f.lockerRoomChemistry - 50) * 0.002 + f.trainingFacility * 0.015 + f.filmRoom * 0.01;
-  wp = clamp(wp + randFloat(-0.06, 0.06), 0.08, 0.94);
+  // Win prob — coaching staff is the biggest multiplier
+  const slotQ = f.star1 !== undefined ? calcSlotQuality(f) : (f.rosterQuality || 70);
+  const playerFactor = (slotQ - 65) / 35;
+  const coachFactor = f.coach.level * 0.10; // 0.10–0.40, dominant factor
+  const facilityFactor = ((f.trainingFacility || 1) + (f.filmRoom || 1)) * 0.01;
+  const chemFactor = ((f.lockerRoomChemistry || 65) - 50) * 0.002;
+  let wp = 0.25 + playerFactor * 0.30 + coachFactor + facilityFactor + chemFactor;
+  wp = clamp(wp + randFloat(-0.06, 0.06), 0.05, 0.94);
 
-  // Injuries
+  // Injuries (works on f.players = slot players for 3-slot model)
   f.players.forEach(p => {
     const risk = predictInjury(p.age, p.seasonsPlayed, f.medicalStaff, p.trait, p.rating);
     if (Math.random() < risk) {
@@ -732,8 +764,23 @@ export function simPlayerSeason(f, season) {
       f.fanRating = clamp(f.fanRating + 3, 0, 100);
     }
   });
-  f.players = f.players.filter(p => !(p.age >= 35 && Math.random() < 0.5) && p.age < 39);
-  f.players.forEach(p => { if (p.seasonsWithTeam >= 5 && p.rating >= 75) p.isLocalLegend = true; });
+
+  // 3-slot model: handle contract expiry and sync slot references
+  if (f.star1 !== undefined) {
+    // Contract expiry — expired players leave (60–70% chance)
+    if (f.star1 && f.star1.yearsLeft <= 0) { if (Math.random() < 0.6) f.star1 = null; }
+    if (f.star2 && f.star2.yearsLeft <= 0) { if (Math.random() < 0.6) f.star2 = null; }
+    if (f.corePiece && f.corePiece.yearsLeft <= 0) { if (Math.random() < 0.7) f.corePiece = null; }
+    // Age-out retirement (35+ slot players)
+    if (f.star1 && f.star1.age >= 36 && Math.random() < 0.4) f.star1 = null;
+    if (f.star2 && f.star2.age >= 36 && Math.random() < 0.4) f.star2 = null;
+    if (f.corePiece && f.corePiece.age >= 37 && Math.random() < 0.5) f.corePiece = null;
+    f.players = [f.star1, f.star2, f.corePiece].filter(Boolean);
+    f.players.forEach(p => { if (p.seasonsWithTeam >= 5 && p.rating >= 75) p.isLocalLegend = true; });
+  } else {
+    f.players = f.players.filter(p => !(p.age >= 35 && Math.random() < 0.5) && p.age < 39);
+    f.players.forEach(p => { if (p.seasonsWithTeam >= 5 && p.rating >= 75) p.isLocalLegend = true; });
+  }
 
   // Stadium & coach
   f.stadiumAge++;
@@ -744,7 +791,13 @@ export function simPlayerSeason(f, season) {
   else if (winPct < 0.3) f.mediaRep = clamp(f.mediaRep - rand(1, 3), 0, 100);
   if (f.communityRating > 55) f.communityRating--;
   else if (f.communityRating < 45) f.communityRating++;
-  f.rosterQuality = Math.round(f.players.reduce((s, p) => s + p.rating, 0) / Math.max(1, f.players.length));
+
+  if (f.star1 !== undefined) {
+    f.depthQuality = calcDepthQuality(f);
+    f.rosterQuality = calcSlotQuality(f);
+  } else {
+    f.rosterQuality = Math.round(f.players.reduce((s, p) => s + p.rating, 0) / Math.max(1, f.players.length));
+  }
   f.totalSalary = r1(f.players.reduce((s, p) => s + p.salary, 0));
 
   // Championship check (rank #1 = championship) — set after standings calculated in simulateFullSeason
@@ -789,11 +842,16 @@ export function simPlayerSeasonFirstHalf(f, season) {
   f = updateCityEconomy(f);
   const econMod = f.economyCycle === 'boom' ? 1.10 : f.economyCycle === 'recession' ? 0.85 : 1.0;
 
-  // Win prob
-  let wp = (f.rosterQuality - 40) / 60 + f.coach.level * 0.035 + (f.lockerRoomChemistry - 50) * 0.002 + f.trainingFacility * 0.015 + f.filmRoom * 0.01;
-  wp = clamp(wp + randFloat(-0.06, 0.06), 0.08, 0.94);
+  // Win prob — coaching staff is the biggest multiplier
+  const slotQ = f.star1 !== undefined ? calcSlotQuality(f) : (f.rosterQuality || 70);
+  const playerFactor = (slotQ - 65) / 35;
+  const coachFactor = f.coach.level * 0.10; // 0.10–0.40, dominant factor
+  const facilityFactor = ((f.trainingFacility || 1) + (f.filmRoom || 1)) * 0.01;
+  const chemFactor = ((f.lockerRoomChemistry || 65) - 50) * 0.002;
+  let wp = 0.25 + playerFactor * 0.30 + coachFactor + facilityFactor + chemFactor;
+  wp = clamp(wp + randFloat(-0.06, 0.06), 0.05, 0.94);
 
-  // Injuries
+  // Injuries (works on f.players = slot players for 3-slot model)
   f.players.forEach(p => {
     const risk = predictInjury(p.age, p.seasonsPlayed, f.medicalStaff, p.trait, p.rating);
     if (Math.random() < risk) {
@@ -931,8 +989,21 @@ export function simPlayerSeasonSecondHalf(f, season) {
       f.fanRating = clamp(f.fanRating + 3, 0, 100);
     }
   });
-  f.players = f.players.filter(p => !(p.age >= 35 && Math.random() < 0.5) && p.age < 39);
-  f.players.forEach(p => { if (p.seasonsWithTeam >= 5 && p.rating >= 75) p.isLocalLegend = true; });
+
+  // 3-slot model: contract expiry and slot sync
+  if (f.star1 !== undefined) {
+    if (f.star1 && f.star1.yearsLeft <= 0) { if (Math.random() < 0.6) f.star1 = null; }
+    if (f.star2 && f.star2.yearsLeft <= 0) { if (Math.random() < 0.6) f.star2 = null; }
+    if (f.corePiece && f.corePiece.yearsLeft <= 0) { if (Math.random() < 0.7) f.corePiece = null; }
+    if (f.star1 && f.star1.age >= 36 && Math.random() < 0.4) f.star1 = null;
+    if (f.star2 && f.star2.age >= 36 && Math.random() < 0.4) f.star2 = null;
+    if (f.corePiece && f.corePiece.age >= 37 && Math.random() < 0.5) f.corePiece = null;
+    f.players = [f.star1, f.star2, f.corePiece].filter(Boolean);
+    f.players.forEach(p => { if (p.seasonsWithTeam >= 5 && p.rating >= 75) p.isLocalLegend = true; });
+  } else {
+    f.players = f.players.filter(p => !(p.age >= 35 && Math.random() < 0.5) && p.age < 39);
+    f.players.forEach(p => { if (p.seasonsWithTeam >= 5 && p.rating >= 75) p.isLocalLegend = true; });
+  }
 
   // Stadium & coach
   f.stadiumAge++;
@@ -943,7 +1014,13 @@ export function simPlayerSeasonSecondHalf(f, season) {
   else if (winPct < 0.3) f.mediaRep = clamp(f.mediaRep - rand(1, 3), 0, 100);
   if (f.communityRating > 55) f.communityRating--;
   else if (f.communityRating < 45) f.communityRating++;
-  f.rosterQuality = Math.round(f.players.reduce((s, p) => s + p.rating, 0) / Math.max(1, f.players.length));
+
+  if (f.star1 !== undefined) {
+    f.depthQuality = calcDepthQuality(f);
+    f.rosterQuality = calcSlotQuality(f);
+  } else {
+    f.rosterQuality = Math.round(f.players.reduce((s, p) => s + p.rating, 0) / Math.max(1, f.players.length));
+  }
   f.totalSalary = r1(f.players.reduce((s, p) => s + p.salary, 0));
 
   f.history.push({
@@ -1541,4 +1618,178 @@ export function generateNewspaper(standings, playerFr, season, lt) {
     ].filter(Boolean),
     gmOfYear: pf && pf.leagueRank <= 3 ? `${pf.city} ${pf.name} GM` : null,
   };
+}
+
+// ============================================================
+// 3-SLOT ROSTER SYSTEM
+// ============================================================
+
+export const SLOT_BUDGET = { ngl: 80, abl: 42 };
+
+/** Rep cost multiplier: low rep = pay premium for talent */
+export function repCostMultiplier(gmRep) {
+  if (gmRep < 35) return 1.35;
+  if (gmRep < 55) return 1.15;
+  if (gmRep < 70) return 1.0;
+  return 0.90;
+}
+
+/** Weighted slot quality score (0–100) used for win probability */
+export function calcSlotQuality(franchise) {
+  let weighted = 0, denom = 0;
+  if (franchise.star1) { weighted += franchise.star1.rating * 40; denom += 40; }
+  if (franchise.star2) { weighted += franchise.star2.rating * 30; denom += 30; }
+  if (franchise.corePiece) { weighted += franchise.corePiece.rating * 20; denom += 20; }
+  weighted += (franchise.depthQuality || 50) * 10; denom += 10;
+  return denom > 0 ? Math.round(weighted / denom) : 50;
+}
+
+/** Depth quality 1–100: remaining slot budget after star salaries */
+export function calcDepthQuality(franchise) {
+  const budget = SLOT_BUDGET[franchise.league] || 80;
+  const used = [franchise.star1, franchise.star2, franchise.corePiece]
+    .filter(Boolean)
+    .reduce((s, p) => s + (p.salary || 0), 0);
+  const remaining = Math.max(0, budget - used);
+  return Math.round(clamp(remaining / budget * 100, 1, 100));
+}
+
+/** Generate a named player for a specific slot type */
+export function generateSlotPlayer(slotType, league, gmRep = 50) {
+  const ratingRanges = { star1: [70, 90], star2: [64, 84], corePiece: [55, 78] };
+  const [lo, hi] = ratingRanges[slotType] || [55, 78];
+  const repBonus = gmRep > 70 ? 3 : gmRep < 35 ? -3 : 0;
+  const rating = clamp(rand(lo, hi) + repBonus, lo - 2, hi + 3);
+  const pos = pick(league === 'ngl' ? NGL_POSITIONS : ABL_POSITIONS);
+  const budget = SLOT_BUDGET[league] || 80;
+  const budgetShare = slotType === 'star1' ? 0.37 : slotType === 'star2' ? 0.25 : 0.14;
+  const trait = generateTrait();
+  let baseSal = budget * budgetShare * (rating / 80) * randFloat(0.85, 1.15);
+  if (trait === 'mercenary') baseSal *= 1.35;
+  if (trait === 'hometown') baseSal *= 0.8;
+  const maxSal = slotType === 'star1' ? 40 : slotType === 'star2' ? 28 : 16;
+  return {
+    id: generateId(),
+    name: generatePlayerName(),
+    position: pos,
+    age: rand(22, 31),
+    rating: clamp(rating, 40, 99),
+    morale: rand(60, 85),
+    trait,
+    salary: r1(clamp(baseSal * repCostMultiplier(gmRep), 2, maxSal)),
+    yearsLeft: rand(1, 4),
+    seasonsPlayed: rand(1, 8),
+    injured: false,
+    injurySeverity: null,
+    gamesOut: 0,
+    isLocalLegend: false,
+    seasonsWithTeam: 1,
+    careerStats: { seasons: rand(1, 8), bestRating: rating },
+    slotType,
+  };
+}
+
+/** Generate the 3 initial named slots for a new franchise */
+export function generateInitialSlots(league, market, gmRep = 50) {
+  const tier = getMarketTier(market);
+  const tierBonus = { 1: 7, 2: 4, 3: 1, 4: -2, 5: -5 }[tier] || 0;
+  const effectiveRep = clamp(gmRep + tierBonus, 20, 85);
+  return {
+    star1: generateSlotPlayer('star1', league, effectiveRep),
+    star2: generateSlotPlayer('star2', league, effectiveRep),
+    corePiece: generateSlotPlayer('corePiece', league, effectiveRep),
+  };
+}
+
+/** Get asking price for a franchise based on market size */
+export function getFranchiseAskingPrice(team) {
+  const m = team.market;
+  const base = m >= 88 ? 68 : m >= 82 ? 54 : m >= 75 ? 42 : m >= 68 ? 32 : m >= 62 ? 24 : m >= 58 ? 18 : 13;
+  return Math.round(base * randFloat(0.88, 1.18));
+}
+
+/** One-line flavor description for a franchise card */
+export function getFranchiseFlavor(team, askingPrice) {
+  const tier = getMarketTier(team.market);
+  const debt = Math.max(0, askingPrice - 30);
+  const flavors = {
+    1: ['Large-market powerhouse — expectations are sky-high', 'Premium franchise in a media giant city', 'Big-city titan — resources to win, pressure to perform'],
+    2: ['Established major-market franchise with a hungry fanbase', 'Storied team ready for the right GM to unlock its potential', 'Strong market foundation — ready to build a winner'],
+    3: ['Mid-market contender with a proven, loyal fan base', 'Competitive city franchise — solid bones, room to grow', 'A franchise with history — and a chip on its shoulder'],
+    4: ['Small-market team with a passionate, devoted fanbase', 'Scrappy underdog — low ceiling, maximum heart', 'Tight budgets, loyal fans, draft lottery upside'],
+    5: ['Struggling basement franchise — maximum rebuild potential', 'Every dynasty starts somewhere — yours starts here', 'Rock bottom. The only direction is up.'],
+  };
+  const base = pick(flavors[tier] || flavors[4]);
+  if (debt > 0) return `${base} — starts $${debt}M in debt`;
+  return base;
+}
+
+/** Generate 2 draft pick positions for a franchise based on standings */
+export function generateDraftPickPositions(franchise, leagueTeams) {
+  const teams = leagueTeams[franchise.league] || [];
+  const sorted = [...teams].sort((a, b) => a.wins - b.wins); // worst → best
+  const rank = sorted.findIndex(t => t.id === franchise.id);
+  const pickPos1 = rank >= 0 ? rank + 1 : Math.round(teams.length / 2);
+  const offset = Math.round(teams.length / 2);
+  const pickPos2 = Math.min(teams.length, pickPos1 + offset);
+  return [
+    { id: generateId(), round: 1, pickPos: pickPos1, season: franchise.season },
+    { id: generateId(), round: 2, pickPos: pickPos2, season: franchise.season },
+  ];
+}
+
+/** Generate an AI trade offer for one of the player's draft picks */
+export function generatePickTradeOffer(pick) {
+  const earlyBonus = Math.max(0, 8 - pick.pickPos);
+  const cashVal = Math.round((3 + earlyBonus * 1.5) * randFloat(0.85, 1.25));
+  const offerType = Math.random() < 0.55 ? 'cash' : 'swap_cash';
+  const aiTeamNames = [
+    'Dallas Lone Stars', 'Bay City Gold', 'Boston Ironclad', 'New York Titans',
+    'Los Angeles Crown', 'Chicago Wolves', 'Miami Surge', 'Atlanta Phoenix',
+    'Seattle Rain', 'Miami Tide', 'New York Skyline', 'Los Angeles Legends',
+  ];
+  const offeringTeam = pick(aiTeamNames);
+  if (offerType === 'cash') {
+    return { id: generateId(), pickRef: pick, offeringTeam, type: 'cash', cashValue: cashVal, label: `$${cashVal}M cash` };
+  }
+  const cashComp = Math.round(cashVal * 0.45);
+  return { id: generateId(), pickRef: pick, offeringTeam, type: 'swap_cash', cashValue: cashComp, nextPickSeason: pick.season + 1, label: `Next season R1 + $${cashComp}M` };
+}
+
+/** Generate offseason free agent pool gated by GM rep */
+export function generateOffseasonFAPool(league, gmRep = 50, n = 10) {
+  const pos = league === 'ngl' ? NGL_POSITIONS : ABL_POSITIONS;
+  const maxRating = gmRep < 35 ? 72 : gmRep < 60 ? 80 : 87;
+  const minRating = gmRep < 35 ? 55 : 57;
+  const costMult = repCostMultiplier(gmRep);
+  return Array.from({ length: n }, () => {
+    const rating = rand(minRating, maxRating);
+    const p = generatePlayer(pick(pos), league, { age: rand(23, 33), rating, yearsLeft: rand(1, 3) });
+    p.salary = r1(p.salary * costMult);
+    return p;
+  }).sort((a, b) => b.rating - a.rating);
+}
+
+/** Put a player in a slot (returns updated franchise or null if over budget) */
+export function signToSlot(franchise, slotName, player) {
+  const budget = SLOT_BUDGET[franchise.league] || 80;
+  const others = ['star1', 'star2', 'corePiece'].filter(s => s !== slotName);
+  const otherSalary = others.reduce((s, sl) => s + (franchise[sl]?.salary || 0), 0);
+  if (otherSalary + player.salary > budget) return null;
+  const updated = { ...franchise, [slotName]: { ...player, slotType: slotName } };
+  updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
+  updated.depthQuality = calcDepthQuality(updated);
+  updated.rosterQuality = calcSlotQuality(updated);
+  updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
+  return updated;
+}
+
+/** Release a player from a slot */
+export function releaseSlot(franchise, slotName) {
+  const updated = { ...franchise, [slotName]: null };
+  updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
+  updated.depthQuality = calcDepthQuality(updated);
+  updated.rosterQuality = calcSlotQuality(updated);
+  updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
+  return updated;
 }
