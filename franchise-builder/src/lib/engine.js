@@ -654,11 +654,11 @@ export function simPlayerSeason(f, season) {
   // Win prob — coaching staff is the biggest multiplier
   const slotQ = f.star1 !== undefined ? calcSlotQuality(f) : (f.rosterQuality || 70);
   const playerFactor = (slotQ - 65) / 35;
-  const coachFactor = f.coach.level * 0.10; // 0.10–0.40, dominant factor
+  const coachFactor = f.coach.level * 0.0625; // Phase 2: reduced from 0.10
   const facilityFactor = ((f.trainingFacility || 1) + (f.filmRoom || 1)) * 0.01;
   const chemFactor = ((f.lockerRoomChemistry || 65) - 50) * 0.002;
   let wp = 0.25 + playerFactor * 0.30 + coachFactor + facilityFactor + chemFactor;
-  wp = clamp(wp + randFloat(-0.06, 0.06), 0.05, 0.94);
+  wp = clamp(wp + randFloat(-0.10, 0.10), 0.05, 0.78); // Phase 2: wider variance, hard cap 0.78
 
   // Injuries (works on f.players = slot players for 3-slot model)
   f.players.forEach(p => {
@@ -675,8 +675,14 @@ export function simPlayerSeason(f, season) {
       p.gamesOut = 0;
     }
   });
-  wp -= f.players.filter(p => p.injured && p.rating >= 80).length * 0.04;
-  wp = clamp(wp, 0.05, 0.94);
+  // Phase 2: injury WP impact by severity (removed flat -0.04 per 80+ rated)
+  f.players.forEach(p => {
+    if (!p.injured) return;
+    if (p.injurySeverity === 'minor') wp -= 0.02;
+    else if (p.injurySeverity === 'moderate') wp -= 0.04;
+    else if (p.injurySeverity === 'severe') wp -= 0.07;
+  });
+  wp = clamp(wp, 0.05, 0.78);
 
   let w = 0;
   for (let g = 0; g < games; g++) if (Math.random() < wp) w++;
@@ -845,11 +851,11 @@ export function simPlayerSeasonFirstHalf(f, season) {
   // Win prob — coaching staff is the biggest multiplier
   const slotQ = f.star1 !== undefined ? calcSlotQuality(f) : (f.rosterQuality || 70);
   const playerFactor = (slotQ - 65) / 35;
-  const coachFactor = f.coach.level * 0.10; // 0.10–0.40, dominant factor
+  const coachFactor = f.coach.level * 0.0625; // Phase 2: reduced from 0.10
   const facilityFactor = ((f.trainingFacility || 1) + (f.filmRoom || 1)) * 0.01;
   const chemFactor = ((f.lockerRoomChemistry || 65) - 50) * 0.002;
   let wp = 0.25 + playerFactor * 0.30 + coachFactor + facilityFactor + chemFactor;
-  wp = clamp(wp + randFloat(-0.06, 0.06), 0.05, 0.94);
+  wp = clamp(wp + randFloat(-0.10, 0.10), 0.05, 0.78); // Phase 2: wider variance, hard cap 0.78
 
   // Injuries (works on f.players = slot players for 3-slot model)
   f.players.forEach(p => {
@@ -866,8 +872,14 @@ export function simPlayerSeasonFirstHalf(f, season) {
       p.gamesOut = 0;
     }
   });
-  wp -= f.players.filter(p => p.injured && p.rating >= 80).length * 0.04;
-  wp = clamp(wp, 0.05, 0.94);
+  // Phase 2: injury WP impact by severity (removed flat -0.04 per 80+ rated)
+  f.players.forEach(p => {
+    if (!p.injured) return;
+    if (p.injurySeverity === 'minor') wp -= 0.02;
+    else if (p.injurySeverity === 'moderate') wp -= 0.04;
+    else if (p.injurySeverity === 'severe') wp -= 0.07;
+  });
+  wp = clamp(wp, 0.05, 0.78);
 
   let w = 0;
   for (let g = 0; g < halfGames; g++) if (Math.random() < wp) w++;
@@ -897,7 +909,7 @@ export function simPlayerSeasonSecondHalf(f, season) {
   const games = lg === 'ngl' ? 17 : 82;
   const halfGames = f._halfGames || Math.floor(games / 2);
   const remainingGames = games - halfGames;
-  const wp = f._halfWinProb || clamp((f.rosterQuality - 40) / 60, 0.05, 0.94);
+  const wp = f._halfWinProb || clamp((f.rosterQuality - 40) / 60, 0.05, 0.78);
   const econMod = f._halfEconMod || 1.0;
 
   // Simulate remaining games from half-season starting point
@@ -1795,6 +1807,166 @@ export function releaseSlot(franchise, slotName) {
   updated.rosterQuality = calcSlotQuality(updated);
   updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
   return updated;
+}
+
+// ============================================================
+// CONTRACT EXTENSIONS
+// ============================================================
+
+/**
+ * Generates extension demand events for any slot player entering their final year.
+ * @param {Object} f - Franchise state
+ * @param {number} gmRep - GM reputation (0-100)
+ * @returns {Object[]} Array of extension demand events
+ */
+export function generateExtensionDemands(f, gmRep) {
+  const events = [];
+  const slots = [
+    { key: 'star1', label: 'Star 1' },
+    { key: 'star2', label: 'Star 2' },
+    { key: 'corePiece', label: 'Core Piece' },
+  ];
+  for (const { key, label } of slots) {
+    const p = f[key];
+    if (!p || p.yearsLeft !== 1) continue;
+
+    // Extension cost: 10-25% salary increase
+    let extMult = 1.10 + (p.rating / 100) * 0.15; // 10-25% increase
+    if (p.trait === 'mercenary') extMult *= 1.20;
+    if (p.trait === 'leader') extMult *= 1.05;
+    if (p.trait === 'hometown') extMult *= 0.90;
+    // GM rep discount (max 10%)
+    const repDiscount = Math.min(0.10, (gmRep - 50) / 500);
+    extMult = Math.max(1.05, extMult - repDiscount);
+    const extSalary = r1(p.salary * extMult);
+    const extYears = rand(2, 3);
+
+    events.push({
+      id: `ext_${p.id}`,
+      type: 'extension_demand',
+      title: `${p.name} Extension Demand`,
+      description: `${p.name} (${label}, ${p.rating} rtg) is entering the final year of their contract and wants to discuss an extension. They are seeking $${extSalary}M/yr for ${extYears} years — a ${Math.round((extMult - 1) * 100)}% raise.`,
+      playerId: p.id,
+      slotKey: key,
+      extSalary,
+      extYears,
+      player: p,
+      choices: [
+        {
+          label: `Sign Extension — $${extSalary}M/yr × ${extYears}yr`,
+          action: 'sign',
+          moraleBonus: 10,
+          chemBonus: 5,
+          cost: 0,
+        },
+        {
+          label: 'Let them play out the year',
+          action: 'play_out',
+          moraleBonus: 0,
+          chemBonus: 0,
+          cost: 0,
+        },
+        {
+          label: 'Release now',
+          action: 'release',
+          moraleBonus: 0,
+          chemBonus: 0,
+          cost: 0,
+        },
+      ],
+      resolved: false,
+    });
+  }
+  return events;
+}
+
+/**
+ * Applies a contract extension to a franchise slot player.
+ * @param {Object} f - Franchise state
+ * @param {string} slotKey - 'star1' | 'star2' | 'corePiece'
+ * @param {number} extSalary - New salary
+ * @param {number} extYears - Years added
+ * @returns {Object} Updated franchise state
+ */
+export function applyExtension(f, slotKey, extSalary, extYears) {
+  const p = f[slotKey];
+  if (!p) return f;
+  const updated = {
+    ...f,
+    [slotKey]: { ...p, salary: extSalary, yearsLeft: extYears },
+    lockerRoomChemistry: clamp((f.lockerRoomChemistry || 65) + 5, 0, 100),
+  };
+  updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
+  updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
+  return updated;
+}
+
+// ============================================================
+// OWNER / MEDIA PRESSURE SYSTEM
+// ============================================================
+
+/**
+ * Checks if a losing-season pressure event should trigger and returns it.
+ * @param {Object} f - Franchise state (must have consecutiveLosingSeason field)
+ * @param {number} season - Current season number
+ * @returns {Object|null} Pressure event or null
+ */
+export function checkPressureEvent(f, season) {
+  const games = f.league === 'ngl' ? 17 : 82;
+  const wp = f.wins / Math.max(1, games);
+  const consecutive = f.consecutiveLosingSeason || 0;
+
+  if (wp >= 0.400) return null; // No pressure
+
+  const newConsecutive = consecutive + 1;
+  if (newConsecutive === 1) {
+    return {
+      id: 'pressure_1_' + season,
+      type: 'pressure',
+      title: 'Media Heat Rising',
+      description: `The ${f.city} media is starting to ask hard questions. Another season below .400 win rate has not gone unnoticed. Critics are calling for changes.`,
+      severity: 'warning',
+      gmRepDelta: -3,
+      fanRatingDelta: -2,
+      choices: [{ label: 'Hold firm', action: 'dismiss' }],
+    };
+  } else if (newConsecutive === 2) {
+    return {
+      id: 'pressure_2_' + season,
+      type: 'pressure',
+      title: 'Sponsorship Fallout',
+      description: `Two consecutive losing seasons have damaged the franchise's appeal. Sponsors are pulling back — sponsorship revenue will be reduced by 15% next season, and your naming rights deal has come under threat.`,
+      severity: 'warning',
+      gmRepDelta: -7,
+      sponsorPenalty: 0.85, // multiplier
+      choices: [{ label: 'Accept consequences', action: 'dismiss' }],
+    };
+  } else if (newConsecutive === 3) {
+    return {
+      id: 'pressure_3_' + season,
+      type: 'pressure',
+      title: 'League Intervention',
+      description: `The league has taken notice of three consecutive losing seasons. An intervention is required.`,
+      severity: 'critical',
+      gmRepDelta: -12,
+      choices: [
+        { label: 'Accept roster audit (release lowest-morale non-star)', action: 'audit' },
+        { label: 'Pay $10M league fine', action: 'fine', cost: 10 },
+      ],
+    };
+  } else if (newConsecutive >= 4) {
+    return {
+      id: 'pressure_4_' + season,
+      type: 'pressure',
+      title: 'Ownership Ultimatum',
+      description: `The ownership group has had enough. Win at least 40% of games next season or the franchise will be forced into a sale. Your GM tenure hangs in the balance.`,
+      severity: 'critical',
+      gmRepDelta: -15,
+      ultimatum: true,
+      choices: [{ label: 'Accept the challenge', action: 'dismiss' }],
+    };
+  }
+  return null;
 }
 
 // ============================================================

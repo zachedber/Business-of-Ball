@@ -18,6 +18,7 @@ import {
   generateDraftPickPositions, generatePickTradeOffer,
   generateOffseasonFAPool, signToSlot, releaseSlot, repCostMultiplier,
   simulatePlayoffs, simulateAIFreeAgency,
+  generateExtensionDemands, applyExtension, checkPressureEvent,
 } from '@/lib/engine';
 import {
   NGL_TEAMS, ABL_TEAMS, MARKET_TIERS, getMarketTier, getMarketTierInfo,
@@ -2226,6 +2227,49 @@ export default function App() {
     setEvents(prev => prev.map(event => {
       if (event.id !== eventId) return event;
       const choice = event.choices[choiceIdx];
+
+      // Extension demand events
+      if (event.type === 'extension_demand') {
+        setFr(prevFr => prevFr.map((f, i) => {
+          if (i !== activeIdx) return f;
+          if (choice.action === 'sign') {
+            return applyExtension(f, event.slotKey, event.extSalary, event.extYears);
+          } else if (choice.action === 'release') {
+            const updated = { ...f, [event.slotKey]: null };
+            updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
+            updated.totalSalary = Math.round(updated.players.reduce((s, p) => s + p.salary, 0) * 10) / 10;
+            return updated;
+          }
+          // play_out: no change
+          return f;
+        }));
+        return { ...event, resolved: true };
+      }
+
+      // Pressure events
+      if (event.type === 'pressure') {
+        if (event.gmRepDelta) setGmRep(r => clamp(r + event.gmRepDelta, 0, 100));
+        setFr(prevFr => prevFr.map((f, i) => {
+          if (i !== activeIdx) return f;
+          let updated = { ...f };
+          if (event.fanRatingDelta) updated.fanRating = clamp(updated.fanRating + event.fanRatingDelta, 0, 100);
+          if (event.sponsorPenalty) updated.sponsorLevel = Math.max(0, (updated.sponsorLevel || 1) * event.sponsorPenalty);
+          if (choice.action === 'fine') updated.cash = Math.round(((updated.cash || 0) - (choice.cost || 10)) * 10) / 10;
+          if (choice.action === 'audit') {
+            // Release lowest-morale non-star (core piece or depth)
+            const slots = ['corePiece'];
+            for (const slot of slots) {
+              if (updated[slot]) { updated = { ...updated, [slot]: null }; break; }
+            }
+            updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
+            updated.totalSalary = Math.round(updated.players.reduce((s, p) => s + p.salary, 0) * 10) / 10;
+          }
+          return updated;
+        }));
+        return { ...event, resolved: true };
+      }
+
+      // Default: standard event handling
       setFr(prevFr => prevFr.map((f, i) => {
         if (i !== activeIdx) return f;
         const updated = { ...f };
@@ -2451,7 +2495,26 @@ export default function App() {
 
       // Offseason events
       const offseasonEvents = await generateOffseasonEvents(f);
-      setEvents(offseasonEvents.map(e => ({ ...e, resolved: false })));
+
+      // Phase 2: extension demands (for slot players in final year)
+      const extDemands = generateExtensionDemands(f, gmRep);
+
+      // Phase 2: consecutive losing season tracking + pressure event
+      const games = f.league === 'ngl' ? 17 : 82;
+      const winPct = f.wins / Math.max(1, games);
+      const isLosing = winPct < 0.400;
+      const prevConsecutive = f.consecutiveLosingSeason || 0;
+      const newConsecutive = isLosing ? prevConsecutive + 1 : 0;
+      // Update franchise consecutive field
+      setFr(prev => prev.map((x, i) => i === activeIdx ? { ...x, consecutiveLosingSeason: newConsecutive } : x));
+      const pressureEvt = checkPressureEvent({ ...f, consecutiveLosingSeason: prevConsecutive }, season);
+
+      const allEvents = [
+        ...offseasonEvents.map(e => ({ ...e, resolved: false })),
+        ...extDemands,
+        ...(pressureEvt ? [{ ...pressureEvt, resolved: false }] : []),
+      ];
+      setEvents(allEvents);
 
       // Draft flow
       const picks = generateDraftPickPositions(f, result.leagueTeams[f.league] || []);
