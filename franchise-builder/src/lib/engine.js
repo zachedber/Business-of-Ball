@@ -647,6 +647,11 @@ export function simPlayerSeason(f, season) {
   const lg = f.league;
   const games = lg === 'ngl' ? 17 : 82;
 
+  // Phase 3: Roll deferred dead cap into current season cap dead money
+  if (f.deferredDeadCap > 0) {
+    f = { ...f, capDeadMoney: r1((f.capDeadMoney || 0) + f.deferredDeadCap), deferredDeadCap: 0 };
+  }
+
   // Economy cycle
   f = updateCityEconomy(f);
   const econMod = f.economyCycle === 'boom' ? 1.10 : f.economyCycle === 'recession' ? 0.85 : 1.0;
@@ -692,7 +697,9 @@ export function simPlayerSeason(f, season) {
   const winPct = w / games;
 
   // Revenue with economy modifier
-  const att = calcAttendance(f.ticketPrice, f.fanRating, winPct, f.market, f.stadiumCondition, f.rosterQuality || 70);
+  // Phase 3: naming rights attendance penalty (-3% fill rate — corporate feel)
+  const attRaw = calcAttendance(f.ticketPrice, f.fanRating, winPct, f.market, f.stadiumCondition, f.rosterQuality || 70);
+  const att = f.namingRightsActive ? Math.max(0.25, attRaw - 0.03) : attRaw;
   const gate = att * f.stadiumCapacity * f.ticketPrice * games / 1e6 * econMod;
   const tv = f.market * (0.5 + (f.tvTier || 1) * 0.3) * randFloat(0.9, 1.1);
   const merch = f.market * (f.merchMultiplier || 1) * winPct * randFloat(0.3, 0.5) * econMod;
@@ -726,6 +733,14 @@ export function simPlayerSeason(f, season) {
   else if (winPct < 0.4) fd = -rand(1, 3);
   fd += f.marketingStaff * 0.5;
   f.fanRating = clamp(Math.round(f.fanRating + fd), 0, 100);
+
+  // Phase 3: naming rights sponsor pull-out if fans drop below 45
+  if (f.namingRightsActive && f.fanRating < 45) {
+    f.namingRightsActive = false;
+    f.namingRightsDeal = null;
+    f.namingRightsName = null;
+    f.namingRightsYears = 0;
+  }
 
   // Demographics
   if (winPct > 0.6) {
@@ -844,6 +859,11 @@ export function simPlayerSeasonFirstHalf(f, season) {
   const games = lg === 'ngl' ? 17 : 82;
   const halfGames = Math.floor(games / 2);
 
+  // Phase 3: Roll deferred dead cap into current season cap dead money
+  if (f.deferredDeadCap > 0) {
+    f = { ...f, capDeadMoney: r1((f.capDeadMoney || 0) + f.deferredDeadCap), deferredDeadCap: 0 };
+  }
+
   // Economy cycle
   f = updateCityEconomy(f);
   const econMod = f.economyCycle === 'boom' ? 1.10 : f.economyCycle === 'recession' ? 0.85 : 1.0;
@@ -923,7 +943,9 @@ export function simPlayerSeasonSecondHalf(f, season) {
   const winPct = w / games;
 
   // Revenue with economy modifier
-  const att = calcAttendance(f.ticketPrice, f.fanRating, winPct, f.market, f.stadiumCondition, f.rosterQuality || 70);
+  // Phase 3: naming rights attendance penalty (-3% fill rate — corporate feel)
+  const attRaw = calcAttendance(f.ticketPrice, f.fanRating, winPct, f.market, f.stadiumCondition, f.rosterQuality || 70);
+  const att = f.namingRightsActive ? Math.max(0.25, attRaw - 0.03) : attRaw;
   const gate = att * f.stadiumCapacity * f.ticketPrice * games / 1e6 * econMod;
   const tv = f.market * (0.5 + (f.tvTier || 1) * 0.3) * randFloat(0.9, 1.1);
   const merch = f.market * (f.merchMultiplier || 1) * winPct * randFloat(0.3, 0.5) * econMod;
@@ -957,6 +979,14 @@ export function simPlayerSeasonSecondHalf(f, season) {
   else if (winPct < 0.4) fd = -rand(1, 3);
   fd += f.marketingStaff * 0.5;
   f.fanRating = clamp(Math.round(f.fanRating + fd), 0, 100);
+
+  // Phase 3: naming rights sponsor pull-out if fans drop below 45
+  if (f.namingRightsActive && f.fanRating < 45) {
+    f.namingRightsActive = false;
+    f.namingRightsDeal = null;
+    f.namingRightsName = null;
+    f.namingRightsYears = 0;
+  }
 
   // Demographics
   if (winPct > 0.6) {
@@ -1377,7 +1407,10 @@ export function calcStakeIncome(stakes, lt) {
     const all = [...(lt.ngl || []), ...(lt.abl || [])];
     const t = all.find(x => x.id === s.teamId);
     if (!t) return tot;
-    return tot + r1((t.finances.profit || 0) * (s.stakePct / 100));
+    // Phase 3: volatile dividends — ±20% random variance
+    const base = (t.finances.profit || 0) * (s.stakePct / 100);
+    const volatility = base * randFloat(-0.20, 0.20);
+    return tot + r1(base + volatility);
   }, 0);
 }
 
@@ -1799,9 +1832,19 @@ export function signToSlot(franchise, slotName, player) {
   return updated;
 }
 
-/** Release a player from a slot */
+/** Release a player from a slot (Phase 3: 60/40 dead cap split across 2 seasons) */
 export function releaseSlot(franchise, slotName) {
-  const updated = { ...franchise, [slotName]: null };
+  const p = franchise[slotName];
+  // Dead cap: remaining salary × years left — 60% this season, 40% deferred to next
+  const remainingValue = p && p.yearsLeft > 0 ? r1(p.salary * p.yearsLeft) : 0;
+  const dead60 = r1(remainingValue * 0.6);
+  const dead40 = r1(remainingValue * 0.4);
+  const updated = {
+    ...franchise,
+    [slotName]: null,
+    capDeadMoney: r1((franchise.capDeadMoney || 0) + dead60),
+    deferredDeadCap: r1((franchise.deferredDeadCap || 0) + dead40),
+  };
   updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
   updated.depthQuality = calcDepthQuality(updated);
   updated.rosterQuality = calcSlotQuality(updated);

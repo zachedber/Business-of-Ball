@@ -355,7 +355,7 @@ function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve,
       </div>
       {tab === 'home' && <HomeTab fr={fr} onSim={onSim} simming={simming} recap={recap} grade={grade} events={events} onResolve={onResolve} pressConf={pressConf} onPressConf={onPressConf} newspaper={newspaper} newspaperDismissed={newspaperDismissed} onDismissNewspaper={onDismissNewspaper} cbaEvent={cbaEvent} onCBA={onCBA} namingOffer={namingOffer} onNaming={onNaming} notifications={notifications} onDismissNotif={onDismissNotif} />}
       {tab === 'slots' && <SlotsTab fr={fr} setFr={setFr} gmRep={gmRep} />}
-      {tab === 'coach' && <CoachTab fr={fr} setFr={setFr} />}
+      {tab === 'coach' && <CoachTab fr={fr} setFr={setFr} gmRep={gmRep} />}
       {tab === 'biz' && <BizTab fr={fr} setFr={setFr} />}
       {tab === 'facilities' && <FacTab fr={fr} setFr={setFr} onCashChange={onCashChange} />}
       {tab === 'legacy' && <LegacyTab fr={fr} />}
@@ -696,7 +696,10 @@ function SlotsTab({ fr, setFr, gmRep }) {
 // ============================================================
 // COACH TAB
 // ============================================================
-function CoachTab({ fr, setFr }) {
+// Phase 3: coach level rep requirements
+const COACH_REP_GATE = { 3: 55, 4: 75 };
+
+function CoachTab({ fr, setFr, gmRep }) {
   const [candidates, setCandidates] = useState(null);
   const [confirmFire, setConfirmFire] = useState(false);
   const coach = fr.coach;
@@ -730,18 +733,29 @@ function CoachTab({ fr, setFr }) {
       {candidates && (
         <div className="card" style={{ padding: 16 }}>
           <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Coaching Candidates</h3>
-          {candidates.map(cd => (
-            <div key={cd.name} className="card" style={{ padding: '12px 14px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-              <div>
-                <div className="font-display" style={{ fontSize: '0.85rem', fontWeight: 600 }}>{cd.name}</div>
-                <div className="font-body" style={{ fontSize: '0.75rem', color: 'var(--ink-soft)' }}>{cd.personality} · Lvl {cd.level}</div>
-                <div className="font-body" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', fontStyle: 'italic', marginTop: 3 }}>{cd.backstory}</div>
+          {candidates.map(cd => {
+            const repRequired = COACH_REP_GATE[cd.level];
+            const repLocked = repRequired && gmRep < repRequired;
+            return (
+              <div key={cd.name} className="card" style={{ padding: '12px 14px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <div>
+                  <div className="font-display" style={{ fontSize: '0.85rem', fontWeight: 600 }}>{cd.name}</div>
+                  <div className="font-body" style={{ fontSize: '0.75rem', color: 'var(--ink-soft)' }}>{cd.personality} · Lvl {cd.level}</div>
+                  <div className="font-body" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', fontStyle: 'italic', marginTop: 3 }}>{cd.backstory}</div>
+                  {repLocked && <div style={{ fontSize: '0.62rem', color: 'var(--red)', marginTop: 2 }}>Requires {repRequired} GM Rep (you have {Math.round(gmRep)})</div>}
+                </div>
+                <button
+                  className="btn-primary"
+                  style={{ fontSize: '0.65rem', padding: '5px 12px', opacity: repLocked ? 0.4 : 1 }}
+                  disabled={repLocked}
+                  title={repLocked ? `Need ${repRequired} GM Rep` : ''}
+                  onClick={() => { setFr(() => hireCoach(fr, cd)); setCandidates(null); }}
+                >
+                  Hire
+                </button>
               </div>
-              <button className="btn-primary" style={{ fontSize: '0.65rem', padding: '5px 12px' }} onClick={() => { setFr(() => hireCoach(fr, cd)); setCandidates(null); }}>
-                Hire
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -1044,6 +1058,7 @@ function MarketScreen({ lt, cash, stakes, season, setStakes, setCash }) {
 
   function buyStake(offer) {
     if (cash < offer.price) return;
+    if (stakes.length >= 3) return; // Phase 3: max 3 stakes
     setCash(c => Math.round((c - offer.price) * 10) / 10);
     setStakes(prev => [...prev, { id: generateId(), teamId: offer.teamId, teamName: offer.teamName, league: offer.league, stakePct: offer.stakePct, purchasePrice: offer.price, purchaseSeason: season }]);
     setOffers(prev => prev.filter(x => x.id !== offer.id));
@@ -1107,9 +1122,9 @@ function MarketScreen({ lt, cash, stakes, season, setStakes, setCash }) {
                 <button
                   className="btn-primary"
                   style={{ fontSize: '0.65rem', padding: '5px 12px' }}
-                  disabled={cash < offer.price}
+                  disabled={cash < offer.price || stakes.length >= 3}
                   onClick={() => buyStake(offer)}
-                  title={cash < offer.price ? 'Insufficient liquid capital' : ''}
+                  title={stakes.length >= 3 ? 'Max 3 stakes allowed' : cash < offer.price ? 'Insufficient liquid capital' : ''}
                 >
                   Buy ${offer.price}M
                 </button>
@@ -2487,10 +2502,22 @@ export default function App() {
       // Press conference + CBA + naming rights
       setPressConf(genPressConference(f));
       setCbaEvent(generateCBAEvent(season));
-      if (!f.namingRightsActive && Math.random() < 0.3) {
+      // Phase 3: naming rights offer requires fan rating >= 55
+      if (!f.namingRightsActive && f.fanRating >= 55 && Math.random() < 0.3) {
         setNamingOffer(generateNamingRightsOffer(f));
       } else {
         setNamingOffer(null);
+      }
+
+      // Phase 3: rival stake fan penalty (-2 fan per rival stake held)
+      if (stakes.length > 0 && f.rivalIds?.length > 0) {
+        const rivalStakeCount = stakes.filter(s => f.rivalIds.includes(s.teamId)).length;
+        if (rivalStakeCount > 0) {
+          setFr(prev => prev.map((x, i) => i === activeIdx
+            ? { ...x, fanRating: clamp(x.fanRating - rivalStakeCount * 2, 0, 100) }
+            : x
+          ));
+        }
       }
 
       // Offseason events
