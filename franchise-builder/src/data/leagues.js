@@ -41,6 +41,50 @@ export const PLAYER_TRAITS = ['mercenary','volatile','hometown','leader','showma
 export const TRAIT_WEIGHTS = [0.12, 0.1, 0.12, 0.12, 0.1, 0.08, 0.08, 0.1];
 export const COACH_PERSONALITIES = ['Players Coach', 'Disciplinarian', 'Tactician', 'Showman'];
 
+// --- STADIUM SYSTEM ---
+export const STADIUM_TIERS = {
+  small: { label: 'Small',  capacityRange: [38000, 54000], upgradeCost: 0,   minSeason: 0,  gateMultiplier: 1.00, maintMultiplier: 1.00 },
+  mid:   { label: 'Mid',    capacityRange: [55000, 62000], upgradeCost: 45,  minSeason: 3,  gateMultiplier: 1.18, maintMultiplier: 1.15 },
+  large: { label: 'Large',  capacityRange: [63000, 70000], upgradeCost: 80,  minSeason: 6,  gateMultiplier: 1.38, maintMultiplier: 1.30 },
+  mega:  { label: 'Mega',   capacityRange: [71000, 85000], upgradeCost: 130, minSeason: 10, gateMultiplier: 1.60, maintMultiplier: 1.45 },
+};
+export const STADIUM_TIER_ORDER = ['small', 'mid', 'large', 'mega'];
+export const STADIUM_SUFFIXES = ['Memorial Stadium', 'Municipal Stadium', 'Community Stadium', 'Athletic Stadium', 'Civic Stadium'];
+export const STADIUM_NAMING_FLAVORS = ['Stadium', 'Field', 'Arena', 'Park', 'Center'];
+export const STADIUM_BUILD_TIMELINE = {
+  mid:   { seasons: 2, baseCost: 120 },
+  large: { seasons: 2, baseCost: 200 },
+  mega:  { seasons: 3, baseCost: 280 },
+};
+export function getStadiumTierFromCapacity(cap) {
+  if (cap >= 71000) return 'mega';
+  if (cap >= 63000) return 'large';
+  if (cap >= 55000) return 'mid';
+  return 'small';
+}
+
+// Market-tier to stadium capacity range
+export const MARKET_STADIUM_CAPACITY = {
+  1: [68000, 72000],
+  2: [62000, 67000],
+  3: [54000, 61000],
+  4: [45000, 53000],
+  5: [38000, 44000],
+};
+
+// --- COACHING STAFF ---
+export const HEAD_COACH_PERSONALITIES = ['demanding','cerebral','fiery','composed','motivator','tactician','old-school','innovative','defensive-minded','offensive-guru','player-dev','culture-builder'];
+export const OC_SCHEMES = ['run_heavy', 'pass_heavy', 'balanced'];
+export const DC_SCHEMES = ['aggressive', 'zone', 'bend_dont_break'];
+export const PDC_SPECIALTIES = ['skill_positions', 'linemen', 'all_around'];
+export const DEVELOPMENT_FOCUSES = ['youth', 'veterans', 'stars'];
+export const LOCKER_ROOM_STYLES = ['disciplinarian', 'players_coach', 'analytics'];
+export const STAFF_SALARIES = {
+  oc:  { 1: 1.0, 2: 2.5, 3: 4.5 },
+  dc:  { 1: 1.0, 2: 2.5, 3: 4.5 },
+  pdc: { 1: 0.8, 2: 1.8, 3: 3.0 },
+};
+
 export const CITY_ECONOMY = {
   'New York':92,'Los Angeles':90,'Chicago':82,'Dallas':80,'Houston':78,'Philadelphia':75,
   'Boston':85,'Miami':78,'Atlanta':76,'Bay City':88,'Seattle':80,'Denver':74,'Las Vegas':77,
@@ -136,6 +180,18 @@ export const ABL_TEAMS = [
   { id:'abl-phx', name:'Scorchers', city:'Phoenix', division:'Pacific', market:72 },
   { id:'abl-sac', name:'Monarchs', city:'Sacramento', division:'Pacific', market:64 },
 ];
+
+// NGL Conference assignments: East = Northeast + Southeast, West = Midwest + West
+export const NGL_CONFERENCES = {
+  East: [
+    'ngl-bos','ngl-nyt','ngl-nye','ngl-phi','ngl-bal','ngl-buf','ngl-pit','ngl-wdc',
+    'ngl-mia','ngl-atl','ngl-car','ngl-tbb','ngl-nol','ngl-nas','ngl-jax','ngl-orl',
+  ],
+  West: [
+    'ngl-chi','ngl-grb','ngl-min','ngl-det','ngl-cle','ngl-ind','ngl-cin','ngl-kc',
+    'ngl-dal','ngl-hou','ngl-den','ngl-sea','ngl-bay','ngl-lac','ngl-las','ngl-lvg',
+  ],
+};
 
 export const RIVALRIES = {
   ngl: [
