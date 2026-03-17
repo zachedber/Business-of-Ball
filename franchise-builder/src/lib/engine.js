@@ -8,6 +8,10 @@ import {
   COACH_PERSONALITIES, CITY_ECONOMY, MARKET_TIERS, getMarketTier,
   UPGRADE_COSTS, TICKET_BASE_PRICE, TICKET_ELASTICITY, STARTING_CASH,
   REVENUE_SHARE_PCT, MAX_DEBT_RATIO, DEBT_INTEREST, NGL_CONFERENCES,
+  STADIUM_TIERS, STADIUM_TIER_ORDER, STADIUM_SUFFIXES, STADIUM_NAMING_FLAVORS,
+  STADIUM_BUILD_TIMELINE, getStadiumTierFromCapacity, MARKET_STADIUM_CAPACITY,
+  HEAD_COACH_PERSONALITIES, OC_SCHEMES, DC_SCHEMES, PDC_SPECIALTIES,
+  DEVELOPMENT_FOCUSES, LOCKER_ROOM_STYLES, STAFF_SALARIES,
 } from '@/data/leagues';
 import { generatePlayerName, generateCoachName } from '@/data/names';
 
@@ -255,10 +259,12 @@ export function generateRoster(lg) {
 export function generateCoach() {
   return {
     name: generateCoachName(),
-    personality: pick(COACH_PERSONALITIES),
+    personality: pick(HEAD_COACH_PERSONALITIES),
     level: rand(1, 3),
     age: rand(40, 65),
     seasonsWithTeam: 0,
+    developmentFocus: pick(DEVELOPMENT_FOCUSES),
+    lockerRoomStyle: pick(LOCKER_ROOM_STYLES),
   };
 }
 
@@ -342,6 +348,12 @@ function initTeam(td, lg) {
   const rq = Math.round(roster.reduce((s, p) => s + p.rating, 0) / roster.length);
   const cap = lg === 'ngl' ? NGL_SALARY_CAP : ABL_SALARY_CAP;
   const ts = roster.reduce((s, p) => s + p.salary, 0);
+  // Market-based stadium capacity
+  const marketTier = getMarketTier(td.market);
+  const capRange = MARKET_STADIUM_CAPACITY[marketTier] || [45000, 55000];
+  const stadiumCapacity = rand(capRange[0], capRange[1]);
+  const stadiumTier = getStadiumTierFromCapacity(stadiumCapacity);
+  const stadiumName = `${td.city} ${pick(STADIUM_SUFFIXES)}`;
   return {
     ...td,
     league: lg,
@@ -357,7 +369,10 @@ function initTeam(td, lg) {
       expenses: r1(td.market * randFloat(1.2, 1.8)),
       profit: 0,
     },
-    stadiumCapacity: rand(35000, 82000),
+    stadiumCapacity,
+    stadiumTier,
+    stadiumName,
+    stadiumDisplayName: stadiumName,
     stadiumCondition: rand(60, 95),
     stadiumAge: rand(1, 25),
     coach: generateCoach(),
@@ -473,6 +488,24 @@ export function createPlayerFranchise(tmpl, lg) {
     filmRoom: 1,
     cityEconomy: CITY_ECONOMY[tmpl.city] || 65,
     economyCycle: 'stable',
+
+    // Stadium system (Phase A1)
+    luxuryBoxes: 0,
+    clubSeatSections: 0,
+    stadiumProject: null,
+    newStadiumHoneymoon: 0,
+    publicFundingCommitment: null,
+    stadiumUnderConstruction: false,
+    pendingStadiumEvent: null,
+
+    // Coaching staff (Phase A2)
+    offensiveCoordinator: generateOC(),
+    defensiveCoordinator: generateDC(),
+    playerDevCoach: generatePDC(),
+    schemeFit: 50,
+    staffChemistry: 65,
+    staffChemistryStreakYears: 0,
+    dynastyCohesionBonus: false,
   };
 }
 
@@ -655,15 +688,26 @@ export function simPlayerSeason(f, season) {
   // Economy cycle
   f = updateCityEconomy(f);
   const econMod = f.economyCycle === 'boom' ? 1.10 : f.economyCycle === 'recession' ? 0.85 : 1.0;
+  // A1: Advance stadium project if one is in progress
+  if (f.stadiumProject) f = advanceStadiumProject(f, season);
 
   // Win prob — coaching staff is the biggest multiplier
   const slotQ = f.star1 !== undefined ? calcSlotQuality(f) : (f.rosterQuality || 70);
   const playerFactor = (slotQ - 65) / 35;
-  const coachFactor = f.coach.level * 0.0625; // Phase 2: reduced from 0.10
+  const coachFactor = f.coach.level * 0.0625;
   const facilityFactor = ((f.trainingFacility || 1) + (f.filmRoom || 1)) * 0.01;
   const chemFactor = ((f.lockerRoomChemistry || 65) - 50) * 0.002;
-  let wp = 0.25 + playerFactor * 0.30 + coachFactor + facilityFactor + chemFactor;
-  wp = clamp(wp + randFloat(-0.10, 0.10), 0.05, 0.78); // Phase 2: wider variance, hard cap 0.78
+  // A2: OC/DC scheme bonuses, scheme fit modifier, staff chemistry
+  const _oc = f.offensiveCoordinator;
+  const _dc = f.defensiveCoordinator;
+  const ocBonus = _oc ? (_oc.scheme === 'run_heavy' ? 0.01 : _oc.scheme === 'pass_heavy' ? 0.015 : 0.005) : 0;
+  const dcBonus = _dc ? (_dc.scheme === 'aggressive' ? 0.015 : _dc.scheme === 'zone' ? 0.01 : 0.005) : 0;
+  const schemeFitScore = f.schemeFit || 50;
+  const schemeFitBonus = schemeFitScore >= 75 ? 0.03 : schemeFitScore >= 50 ? 0 : schemeFitScore >= 25 ? -0.02 : -0.05;
+  const staffChemBonus = ((f.staffChemistry || 65) - 65) * 0.001;
+  const ocVariance = (_oc?.scheme === 'balanced') ? 0.07 : 0.10;
+  let wp = 0.25 + playerFactor * 0.30 + coachFactor + facilityFactor + chemFactor + ocBonus + dcBonus + schemeFitBonus + staffChemBonus;
+  wp = clamp(wp + randFloat(-ocVariance, ocVariance), 0.05, 0.78);
 
   // Injuries (works on f.players = slot players for 3-slot model)
   f.players.forEach(p => {
@@ -700,17 +744,30 @@ export function simPlayerSeason(f, season) {
   // Phase 3: naming rights attendance penalty (-3% fill rate — corporate feel)
   const attRaw = calcAttendance(f.ticketPrice, f.fanRating, winPct, f.market, f.stadiumCondition, f.rosterQuality || 70);
   const att = f.namingRightsActive ? Math.max(0.25, attRaw - 0.03) : attRaw;
-  const gate = att * f.stadiumCapacity * f.ticketPrice * games / 1e6 * econMod;
+  // A1: Stadium tier gate multiplier, construction penalty, honeymoon bonus
+  const _stadTier = STADIUM_TIERS[f.stadiumTier || 'small'];
+  const tierGateMult = _stadTier ? _stadTier.gateMultiplier : 1.0;
+  const constructionPenalty = f.stadiumUnderConstruction ? 0.80 : 1.0;
+  const honeymoonBonus = (f.newStadiumHoneymoon || 0) > 0 ? 1.25 : 1.0;
+  const gate = att * f.stadiumCapacity * f.ticketPrice * games / 1e6 * econMod * tierGateMult * constructionPenalty * honeymoonBonus;
   const tv = f.market * (0.5 + (f.tvTier || 1) * 0.3) * randFloat(0.9, 1.1);
   const merch = f.market * (f.merchMultiplier || 1) * winPct * randFloat(0.3, 0.5) * econMod;
   const spon = (f.sponsorLevel || 1) * f.market * 0.08 * randFloat(0.9, 1.1);
   const naming = f.namingRightsActive ? (f.namingRightsDeal || 3) : 0;
-  const totalRev = gate + tv + merch + spon + naming;
+  // A1: Premium seating revenue
+  const luxuryBoxRev = (f.luxuryBoxes || 0) * 0.8;
+  const clubSeatRev = (f.clubSeatSections || 0) * 0.15 * clamp(0.8 + winPct * 0.4, 0.8, 1.2);
+  const totalRev = gate + tv + merch + spon + naming + luxuryBoxRev + clubSeatRev;
   const staff = (f.scoutingStaff + f.developmentStaff + f.medicalStaff + f.marketingStaff) * 2;
   const fac = (f.trainingFacility + f.weightRoom + f.filmRoom) * 1.5;
-  const maint = f.stadiumAge > 15 ? f.stadiumAge * 0.3 : 1;
+  // A1: Tier-based maintenance multiplier
+  const maintBase = f.stadiumAge > 15 ? f.stadiumAge * 0.3 : 1;
+  const maintMult = _stadTier ? _stadTier.maintMultiplier : 1.0;
+  const maint = maintBase * maintMult;
   const interest = (f.debt || 0) * DEBT_INTEREST;
-  const totalExp = f.totalSalary + staff + fac + maint + interest + (f.capDeadMoney || 0);
+  // A2: Coordinator salaries
+  const coordSalaries = calcCoordSalaries(f);
+  const totalExp = f.totalSalary + staff + fac + maint + interest + (f.capDeadMoney || 0) + coordSalaries;
   const profit = totalRev - totalExp;
   f.finances = { revenue: r1(totalRev), expenses: r1(totalExp), profit: r1(profit) };
   f.cash = r1((f.cash || 0) + profit);
@@ -724,6 +781,8 @@ export function simPlayerSeason(f, season) {
       f.namingRightsName = null;
     }
   }
+  // A1: Honeymoon countdown
+  if ((f.newStadiumHoneymoon || 0) > 0) f.newStadiumHoneymoon--;
 
   // Fan rating
   let fd = 0;
@@ -732,6 +791,8 @@ export function simPlayerSeason(f, season) {
   else if (winPct < 0.3) fd = -rand(3, 7);
   else if (winPct < 0.4) fd = -rand(1, 3);
   fd += f.marketingStaff * 0.5;
+  // A1: Construction fan penalty
+  if (f.stadiumUnderConstruction) fd -= 8;
   f.fanRating = clamp(Math.round(f.fanRating + fd), 0, 100);
 
   // Phase 3: naming rights sponsor pull-out if fans drop below 45
@@ -820,6 +881,9 @@ export function simPlayerSeason(f, season) {
     f.rosterQuality = Math.round(f.players.reduce((s, p) => s + p.rating, 0) / Math.max(1, f.players.length));
   }
   f.totalSalary = r1(f.players.reduce((s, p) => s + p.salary, 0));
+  // A2: Update staff chemistry and scheme fit at end of season
+  f = updateStaffChemistry(f);
+  f.schemeFit = calculateSchemeFit(f);
 
   // Championship check (rank #1 = championship) — set after standings calculated in simulateFullSeason
   f.history.push({
@@ -867,15 +931,26 @@ export function simPlayerSeasonFirstHalf(f, season) {
   // Economy cycle
   f = updateCityEconomy(f);
   const econMod = f.economyCycle === 'boom' ? 1.10 : f.economyCycle === 'recession' ? 0.85 : 1.0;
+  // A1: Advance stadium project if one is in progress
+  if (f.stadiumProject) f = advanceStadiumProject(f, season);
 
   // Win prob — coaching staff is the biggest multiplier
   const slotQ = f.star1 !== undefined ? calcSlotQuality(f) : (f.rosterQuality || 70);
   const playerFactor = (slotQ - 65) / 35;
-  const coachFactor = f.coach.level * 0.0625; // Phase 2: reduced from 0.10
+  const coachFactor = f.coach.level * 0.0625;
   const facilityFactor = ((f.trainingFacility || 1) + (f.filmRoom || 1)) * 0.01;
   const chemFactor = ((f.lockerRoomChemistry || 65) - 50) * 0.002;
-  let wp = 0.25 + playerFactor * 0.30 + coachFactor + facilityFactor + chemFactor;
-  wp = clamp(wp + randFloat(-0.10, 0.10), 0.05, 0.78); // Phase 2: wider variance, hard cap 0.78
+  // A2: OC/DC scheme bonuses, scheme fit modifier, staff chemistry
+  const _oc = f.offensiveCoordinator;
+  const _dc = f.defensiveCoordinator;
+  const ocBonus = _oc ? (_oc.scheme === 'run_heavy' ? 0.01 : _oc.scheme === 'pass_heavy' ? 0.015 : 0.005) : 0;
+  const dcBonus = _dc ? (_dc.scheme === 'aggressive' ? 0.015 : _dc.scheme === 'zone' ? 0.01 : 0.005) : 0;
+  const schemeFitScore = f.schemeFit || 50;
+  const schemeFitBonus = schemeFitScore >= 75 ? 0.03 : schemeFitScore >= 50 ? 0 : schemeFitScore >= 25 ? -0.02 : -0.05;
+  const staffChemBonus = ((f.staffChemistry || 65) - 65) * 0.001;
+  const ocVariance = (_oc?.scheme === 'balanced') ? 0.07 : 0.10;
+  let wp = 0.25 + playerFactor * 0.30 + coachFactor + facilityFactor + chemFactor + ocBonus + dcBonus + schemeFitBonus + staffChemBonus;
+  wp = clamp(wp + randFloat(-ocVariance, ocVariance), 0.05, 0.78);
 
   // Injuries (works on f.players = slot players for 3-slot model)
   f.players.forEach(p => {
@@ -946,17 +1021,30 @@ export function simPlayerSeasonSecondHalf(f, season) {
   // Phase 3: naming rights attendance penalty (-3% fill rate — corporate feel)
   const attRaw = calcAttendance(f.ticketPrice, f.fanRating, winPct, f.market, f.stadiumCondition, f.rosterQuality || 70);
   const att = f.namingRightsActive ? Math.max(0.25, attRaw - 0.03) : attRaw;
-  const gate = att * f.stadiumCapacity * f.ticketPrice * games / 1e6 * econMod;
+  // A1: Stadium tier gate multiplier, construction penalty, honeymoon bonus
+  const _stadTier = STADIUM_TIERS[f.stadiumTier || 'small'];
+  const tierGateMult = _stadTier ? _stadTier.gateMultiplier : 1.0;
+  const constructionPenalty = f.stadiumUnderConstruction ? 0.80 : 1.0;
+  const honeymoonBonus = (f.newStadiumHoneymoon || 0) > 0 ? 1.25 : 1.0;
+  const gate = att * f.stadiumCapacity * f.ticketPrice * games / 1e6 * econMod * tierGateMult * constructionPenalty * honeymoonBonus;
   const tv = f.market * (0.5 + (f.tvTier || 1) * 0.3) * randFloat(0.9, 1.1);
   const merch = f.market * (f.merchMultiplier || 1) * winPct * randFloat(0.3, 0.5) * econMod;
   const spon = (f.sponsorLevel || 1) * f.market * 0.08 * randFloat(0.9, 1.1);
   const naming = f.namingRightsActive ? (f.namingRightsDeal || 3) : 0;
-  const totalRev = gate + tv + merch + spon + naming;
+  // A1: Premium seating revenue
+  const luxuryBoxRev = (f.luxuryBoxes || 0) * 0.8;
+  const clubSeatRev = (f.clubSeatSections || 0) * 0.15 * clamp(0.8 + winPct * 0.4, 0.8, 1.2);
+  const totalRev = gate + tv + merch + spon + naming + luxuryBoxRev + clubSeatRev;
   const staff = (f.scoutingStaff + f.developmentStaff + f.medicalStaff + f.marketingStaff) * 2;
   const fac = (f.trainingFacility + f.weightRoom + f.filmRoom) * 1.5;
-  const maint = f.stadiumAge > 15 ? f.stadiumAge * 0.3 : 1;
+  // A1: Tier-based maintenance multiplier
+  const maintBase = f.stadiumAge > 15 ? f.stadiumAge * 0.3 : 1;
+  const maintMult = _stadTier ? _stadTier.maintMultiplier : 1.0;
+  const maint = maintBase * maintMult;
   const interest = (f.debt || 0) * DEBT_INTEREST;
-  const totalExp = f.totalSalary + staff + fac + maint + interest + (f.capDeadMoney || 0);
+  // A2: Coordinator salaries
+  const coordSalaries = calcCoordSalaries(f);
+  const totalExp = f.totalSalary + staff + fac + maint + interest + (f.capDeadMoney || 0) + coordSalaries;
   const profit = totalRev - totalExp;
   f.finances = { revenue: r1(totalRev), expenses: r1(totalExp), profit: r1(profit) };
   f.cash = r1((f.cash || 0) + profit);
@@ -970,6 +1058,8 @@ export function simPlayerSeasonSecondHalf(f, season) {
       f.namingRightsName = null;
     }
   }
+  // A1: Honeymoon countdown
+  if ((f.newStadiumHoneymoon || 0) > 0) f.newStadiumHoneymoon--;
 
   // Fan rating
   let fd = 0;
@@ -978,6 +1068,8 @@ export function simPlayerSeasonSecondHalf(f, season) {
   else if (winPct < 0.3) fd = -rand(3, 7);
   else if (winPct < 0.4) fd = -rand(1, 3);
   fd += f.marketingStaff * 0.5;
+  // A1: Construction fan penalty
+  if (f.stadiumUnderConstruction) fd -= 8;
   f.fanRating = clamp(Math.round(f.fanRating + fd), 0, 100);
 
   // Phase 3: naming rights sponsor pull-out if fans drop below 45
@@ -1064,6 +1156,9 @@ export function simPlayerSeasonSecondHalf(f, season) {
     f.rosterQuality = Math.round(f.players.reduce((s, p) => s + p.rating, 0) / Math.max(1, f.players.length));
   }
   f.totalSalary = r1(f.players.reduce((s, p) => s + p.salary, 0));
+  // A2: Update staff chemistry and scheme fit at end of season
+  f = updateStaffChemistry(f);
+  f.schemeFit = calculateSchemeFit(f);
 
   f.history.push({
     season,
@@ -1850,6 +1945,396 @@ export function releaseSlot(franchise, slotName) {
   updated.rosterQuality = calcSlotQuality(updated);
   updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
   return updated;
+}
+
+// ============================================================
+// STADIUM SYSTEM (Phase A1)
+// ============================================================
+
+/** Helper: total staff salary expense for coordinators */
+function calcCoordSalaries(f) {
+  let total = 0;
+  if (f.offensiveCoordinator) total += STAFF_SALARIES.oc[f.offensiveCoordinator.level] || 1;
+  if (f.defensiveCoordinator) total += STAFF_SALARIES.dc[f.defensiveCoordinator.level] || 1;
+  if (f.playerDevCoach) total += STAFF_SALARIES.pdc[f.playerDevCoach.level] || 0.8;
+  return total;
+}
+
+/** Upgrade a stadium to the next tier (one tier at a time) */
+export function applyStadiumUpgrade(f, season) {
+  const currentIdx = STADIUM_TIER_ORDER.indexOf(f.stadiumTier || 'small');
+  const nextTier = STADIUM_TIER_ORDER[currentIdx + 1];
+  if (!nextTier) return null; // already at max
+  const tierData = STADIUM_TIERS[nextTier];
+  if (season < tierData.minSeason) return null; // too early
+  if ((f.cash || 0) < tierData.upgradeCost) return null; // can't afford
+  const capRange = tierData.capacityRange;
+  const newCap = rand(capRange[0], capRange[1]);
+  return {
+    ...f,
+    stadiumTier: nextTier,
+    stadiumCapacity: newCap,
+    stadiumCondition: 95,
+    stadiumAge: 0,
+    cash: r1((f.cash || 0) - tierData.upgradeCost),
+    stadiumUnderConstruction: true,   // disruption this season
+    pendingStadiumEvent: { type: 'upgrade_started', tier: nextTier, cost: tierData.upgradeCost },
+  };
+}
+
+/** Generate a random construction event */
+export function generateConstructionEvent() {
+  const roll = Math.random();
+  if (roll < 0.15) return { type: 'cost_overrun',        headline: 'Cost Overrun',          desc: 'Unexpected material costs have increased the project budget.', additionalCost: rand(8, 15) };
+  if (roll < 0.28) return { type: 'labor_dispute',       headline: 'Labor Dispute',          desc: 'Workers have walked off the job. Construction is delayed.', delay: 1, sunkCost: 3 };
+  if (roll < 0.40) return { type: 'favorable_weather',   headline: 'Favorable Weather',      desc: 'Perfect conditions kept construction ahead of schedule. $5M returned from contingency.', cashback: 5 };
+  if (roll < 0.55) return { type: 'community_protest',   headline: 'Community Protest',      desc: 'Local residents are pushing back on the project.', communityDelta: -10 };
+  return { type: 'no_event', headline: 'Smooth Construction', desc: 'Construction proceeding on schedule with no major incidents.' };
+}
+
+/** Start a new stadium construction project */
+export function startStadiumProject(f, targetTier, publicFundingPct, season) {
+  const timeline = STADIUM_BUILD_TIMELINE[targetTier];
+  if (!timeline) return f;
+  const privateCostFraction = (100 - (publicFundingPct || 0)) / 100;
+  const totalCost = r1(timeline.baseCost * privateCostFraction);
+  // First-season down payment (30% of private cost)
+  const downPayment = r1(totalCost * 0.3);
+  if ((f.cash || 0) < downPayment) return f; // can't afford down payment
+  return {
+    ...f,
+    cash: r1((f.cash || 0) - downPayment),
+    stadiumProject: {
+      active: true,
+      targetTier,
+      totalCost,
+      paidSoFar: downPayment,
+      seasonStarted: season,
+      currentPhase: 'planning',
+      seasonsRemaining: timeline.seasons,
+      publicFundingPct: publicFundingPct || 0,
+      publicFundingStatus: publicFundingPct > 0 ? 'approved' : 'not_applied',
+    },
+  };
+}
+
+/** Calculate probability of public funding approval */
+export function calculatePublicFundingApproval(f, fundingTier) {
+  // fundingTier: 1=15%, 2=30%, 3=50%
+  const baseProbabilities = { 1: 0.75, 2: 0.45, 3: 0.20 };
+  let prob = baseProbabilities[fundingTier] || 0.45;
+  if ((f.communityRating || 50) >= 70) prob += 0.10;
+  if ((f.mediaRep || 50) >= 65) prob += 0.10;
+  if ((f.consecutiveLosingSeason || 0) >= 2) prob -= 0.15;
+  prob += Math.min(0.15, (f.championships || 0) * 0.05);
+  return clamp(prob, 0.05, 0.95);
+}
+
+/** Advance stadium project by one season. Returns updated franchise. */
+export function advanceStadiumProject(f, season) {
+  if (!f.stadiumProject?.active) return f;
+  let proj = { ...f.stadiumProject };
+  let updated = { ...f };
+
+  // Determine current phase
+  const elapsed = season - proj.seasonStarted;
+  const totalSeasons = STADIUM_BUILD_TIMELINE[proj.targetTier]?.seasons || 2;
+  if (totalSeasons === 2) {
+    proj.currentPhase = elapsed === 0 ? 'planning' : elapsed === 1 ? 'construction' : 'complete';
+  } else {
+    proj.currentPhase = elapsed === 0 ? 'planning' : elapsed === 1 ? 'construction' : elapsed === 2 ? 'final' : 'complete';
+  }
+
+  if (proj.currentPhase === 'complete') {
+    // Apply new stadium completion
+    const capRange = STADIUM_TIERS[proj.targetTier].capacityRange;
+    const newCap = rand(capRange[0], capRange[1]);
+    const namingFlavor = pick(STADIUM_NAMING_FLAVORS);
+    const newStadiumName = `New ${updated.city} ${namingFlavor}`;
+    // Terminate old naming rights with 50% buyout
+    let buyout = 0;
+    if (updated.namingRightsActive && updated.namingRightsDeal && updated.namingRightsYears > 0) {
+      buyout = r1(updated.namingRightsDeal * updated.namingRightsYears * 0.5);
+    }
+    updated = {
+      ...updated,
+      stadiumTier: proj.targetTier,
+      stadiumCapacity: newCap,
+      stadiumCondition: 100,
+      stadiumAge: 0,
+      stadiumName: newStadiumName,
+      stadiumDisplayName: newStadiumName,
+      namingRightsActive: false,
+      namingRightsDeal: null,
+      namingRightsName: null,
+      namingRightsYears: 0,
+      cash: r1((updated.cash || 0) + buyout),
+      fanRating: clamp((updated.fanRating || 50) + 15, 0, 100),
+      newStadiumHoneymoon: 2,
+      stadiumProject: null,
+      stadiumUnderConstruction: false,
+      pendingStadiumEvent: {
+        type: 'stadium_complete',
+        headline: 'New Stadium Opens!',
+        desc: `The new ${newStadiumName} has opened. Fans are electrified! Fan rating +15, gate revenue bonus for 2 seasons.${buyout > 0 ? ` Old naming rights deal bought out for $${buyout}M.` : ''}`,
+        newNamingOffer: true, // signal to generate new naming rights offer
+      },
+    };
+    return updated;
+  }
+
+  // Apply construction disruption for active build phases
+  if (['construction', 'final'].includes(proj.currentPhase)) {
+    const evt = generateConstructionEvent();
+    if (evt.type === 'cost_overrun') {
+      proj.totalCost = r1(proj.totalCost + evt.additionalCost);
+    } else if (evt.type === 'labor_dispute') {
+      proj.seasonStarted = (proj.seasonStarted || season) - 1; // delay by 1 season
+      updated.cash = r1((updated.cash || 0) - evt.sunkCost);
+    } else if (evt.type === 'favorable_weather') {
+      updated.cash = r1((updated.cash || 0) + (evt.cashback || 5));
+    } else if (evt.type === 'community_protest') {
+      updated.communityRating = clamp((updated.communityRating || 50) + evt.communityDelta, 0, 100);
+    }
+    // Annual construction payment (35% of remaining cost per construction season)
+    const remainingCost = proj.totalCost - proj.paidSoFar;
+    const payment = r1(remainingCost * 0.5);
+    proj.paidSoFar = r1(proj.paidSoFar + Math.min(payment, remainingCost));
+    updated.cash = r1((updated.cash || 0) - payment);
+    updated.pendingStadiumEvent = { ...evt };
+    updated.stadiumUnderConstruction = true;
+  }
+
+  updated.stadiumProject = proj;
+  return updated;
+}
+
+/** Generate a naming rights offer for a new stadium (40% higher value) */
+export function generateNewStadiumNamingRightsOffer(f) {
+  const baseValue = Math.round(f.market * 0.12 + f.fanRating * 0.05 + f.mediaRep * 0.03);
+  const corps = [
+    'Apex Industries', 'Meridian Corp', 'Quantum Holdings', 'Vanguard Systems',
+    'Pinnacle Group', 'Atlas Financial', 'Sovereign Energy', 'Nexus Global',
+    'Titan Industries', 'Zenith Corp',
+  ];
+  const flavor = pick(STADIUM_NAMING_FLAVORS);
+  return {
+    company: pick(corps),
+    annualPay: clamp(Math.round(baseValue * 1.4), 3, 12),
+    years: rand(8, 20),
+    flavor,
+    isNewStadium: true,
+  };
+}
+
+/** Purchase premium seating (luxury boxes or club seat sections) */
+export function purchasePremiumSeating(f, type, count) {
+  // type: 'luxury_box' or 'club_section'
+  const maxBoxes = { small: 0, mid: 20, large: 40, mega: 80 }[f.stadiumTier || 'small'] || 0;
+  const maxClub = { small: 0, mid: 5, large: 15, mega: 40 }[f.stadiumTier || 'small'] || 0;
+  if (type === 'luxury_box') {
+    const current = f.luxuryBoxes || 0;
+    const canAdd = Math.min(count, maxBoxes - current);
+    if (canAdd <= 0) return f;
+    const cost = r1(canAdd * 2); // $2M per box
+    if ((f.cash || 0) < cost) return f;
+    return { ...f, luxuryBoxes: current + canAdd, cash: r1((f.cash || 0) - cost) };
+  } else {
+    const current = f.clubSeatSections || 0;
+    const canAdd = Math.min(count, maxClub - current);
+    if (canAdd <= 0) return f;
+    const cost = r1(canAdd * 0.5); // $0.5M per 100-seat section
+    if ((f.cash || 0) < cost) return f;
+    return { ...f, clubSeatSections: current + canAdd, cash: r1((f.cash || 0) - cost) };
+  }
+}
+
+// ============================================================
+// COACHING STAFF (Phase A2)
+// ============================================================
+
+/** Generate an Offensive Coordinator */
+export function generateOC() {
+  const level = rand(1, 2);
+  return {
+    name: generateCoachName(),
+    role: 'OC',
+    scheme: pick(OC_SCHEMES),
+    level,
+    age: rand(35, 55),
+    seasonsWithTeam: 0,
+    salary: STAFF_SALARIES.oc[level] || 1,
+  };
+}
+
+/** Generate a Defensive Coordinator */
+export function generateDC() {
+  const level = rand(1, 2);
+  return {
+    name: generateCoachName(),
+    role: 'DC',
+    scheme: pick(DC_SCHEMES),
+    level,
+    age: rand(35, 55),
+    seasonsWithTeam: 0,
+    salary: STAFF_SALARIES.dc[level] || 1,
+  };
+}
+
+/** Generate a Player Development Coach */
+export function generatePDC() {
+  const level = rand(1, 2);
+  return {
+    name: generateCoachName(),
+    role: 'PDC',
+    specialty: pick(PDC_SPECIALTIES),
+    level,
+    age: rand(35, 55),
+    seasonsWithTeam: 0,
+    salary: STAFF_SALARIES.pdc[level] || 0.8,
+  };
+}
+
+/** Generate a pool of staff candidates for a role */
+export function generateStaffCandidates(role, gmRep = 50, n = 4) {
+  const maxLevel = gmRep > 60 ? 3 : gmRep > 35 ? 2 : 2;
+  return Array.from({ length: n }, () => {
+    const level = gmRep > 60 && Math.random() < 0.4 ? 3 : rand(1, Math.min(maxLevel, 2));
+    let candidate = { level, age: rand(35, 60), seasonsWithTeam: 0, salary: 0 };
+    if (role === 'OC') {
+      candidate = { ...candidate, name: generateCoachName(), role: 'OC', scheme: pick(OC_SCHEMES), salary: STAFF_SALARIES.oc[level] || 1 };
+    } else if (role === 'DC') {
+      candidate = { ...candidate, name: generateCoachName(), role: 'DC', scheme: pick(DC_SCHEMES), salary: STAFF_SALARIES.dc[level] || 1 };
+    } else {
+      candidate = { ...candidate, name: generateCoachName(), role: 'PDC', specialty: pick(PDC_SPECIALTIES), salary: STAFF_SALARIES.pdc[level] || 0.8 };
+    }
+    return candidate;
+  });
+}
+
+/** Fire a coordinator (offseason). Returns updated franchise or null if mid-season. */
+export function fireCoordinator(f, role) {
+  const fieldMap = { OC: 'offensiveCoordinator', DC: 'defensiveCoordinator', PDC: 'playerDevCoach' };
+  const field = fieldMap[role];
+  if (!field || !f[field]) return f;
+  const severance = f[field].salary || 1;
+  const wasLvl3 = f[field].level >= 3;
+  return {
+    ...f,
+    [field]: null,
+    cash: r1((f.cash || 0) - severance),
+    staffChemistry: clamp((f.staffChemistry || 65) - 10, 0, 100),
+    // If fired head-level staff, note instability
+    pendingStadiumEvent: wasLvl3 ? { type: 'staff_fired', headline: 'Elite Coordinator Released', desc: `Releasing a Level 3 coordinator draws scrutiny. GM Rep may be affected.` } : null,
+  };
+}
+
+/** Hire a coordinator candidate. Returns updated franchise. */
+export function hireCoordinator(f, role, candidate) {
+  const fieldMap = { OC: 'offensiveCoordinator', DC: 'defensiveCoordinator', PDC: 'playerDevCoach' };
+  const field = fieldMap[role];
+  if (!field) return f;
+  const firstSeasonSalary = candidate.salary || 1;
+  if ((f.cash || 0) < firstSeasonSalary) return f;
+  return {
+    ...f,
+    [field]: { ...candidate, seasonsWithTeam: 0 },
+    cash: r1((f.cash || 0) - firstSeasonSalary),
+  };
+}
+
+/** Calculate scheme fit (0-100) for a franchise */
+export function calculateSchemeFit(f) {
+  let fit = 50;
+  const players = [f.star1, f.star2, f.corePiece].filter(Boolean);
+  const avgAge = players.length > 0 ? players.reduce((s, p) => s + (p.age || 26), 0) / players.length : 26;
+  const maxRating = players.length > 0 ? Math.max(...players.map(p => p.rating || 0)) : 0;
+  const hc = f.coach;
+
+  // Head coach development focus fit
+  if (hc?.developmentFocus) {
+    if (hc.developmentFocus === 'youth' && avgAge < 26) fit += 10;
+    if (hc.developmentFocus === 'youth' && avgAge > 30) fit -= 8;
+    if (hc.developmentFocus === 'veterans' && avgAge > 28) fit += 10;
+    if (hc.developmentFocus === 'veterans' && avgAge < 25) fit -= 8;
+    if (hc.developmentFocus === 'stars' && maxRating >= 82) fit += 10;
+    if (hc.developmentFocus === 'stars' && maxRating < 78) fit -= 10;
+  }
+
+  // OC scheme fit
+  const oc = f.offensiveCoordinator;
+  if (oc) {
+    const skillPositions = ['QB','WR','RB','TE','PG','SG','SF'];
+    const runPositions = ['RB','FB','OL','C','OG','OT'];
+    const passPositions = ['QB','WR','TE'];
+    if (oc.scheme === 'run_heavy' && players.some(p => runPositions.includes(p.position))) fit += 8;
+    if (oc.scheme === 'pass_heavy' && players.some(p => passPositions.includes(p.position))) fit += 8;
+    if (oc.scheme === 'balanced') fit += 4;
+  }
+
+  // DC scheme fit
+  const dc = f.defensiveCoordinator;
+  if (dc) {
+    const hasEnforcer = players.some(p => p.trait === 'leader' || p.trait === 'clutch');
+    if (dc.scheme === 'aggressive' && hasEnforcer) fit += 6;
+    if (dc.scheme === 'zone' && hc?.lockerRoomStyle === 'analytics') fit += 6;
+    if (dc.scheme === 'bend_dont_break' && (f.fanRating || 50) > 65) fit += 4;
+  }
+
+  return clamp(fit, 0, 100);
+}
+
+/** Update staff chemistry at end of season */
+export function updateStaffChemistry(f) {
+  const hc = f.coach;
+  const oc = f.offensiveCoordinator;
+  const dc = f.defensiveCoordinator;
+  const pdc = f.playerDevCoach;
+  let delta = 0;
+
+  if (hc && oc && hc.lockerRoomStyle && hc.lockerRoomStyle === oc.scheme?.includes?.('analytics') ? 'analytics' : hc.lockerRoomStyle) {
+    // same philosophy: small bonus
+    delta += 1;
+  }
+  if (hc?.lockerRoomStyle === 'disciplinarian' && dc?.scheme === 'aggressive') delta += 4;
+  if (hc?.lockerRoomStyle === 'players_coach' && dc?.scheme === 'bend_dont_break') delta += 4;
+  if (hc?.lockerRoomStyle === 'analytics' && pdc?.level >= 3) delta += 5;
+
+  // New hires adjustment period
+  let newHires = 0;
+  if ((oc?.seasonsWithTeam || 0) === 0) newHires++;
+  if ((dc?.seasonsWithTeam || 0) === 0) newHires++;
+  if ((pdc?.seasonsWithTeam || 0) === 0) newHires++;
+  if ((hc?.seasonsWithTeam || 0) === 0) newHires++;
+  delta -= newHires * 3;
+
+  const newChem = clamp((f.staffChemistry || 65) + delta, 0, 100);
+
+  // Dynasty cohesion bonus check
+  let streakYears = f.staffChemistryStreakYears || 0;
+  let dynastyCohesionBonus = f.dynastyCohesionBonus || false;
+  if (newChem > 75) {
+    streakYears++;
+    if (streakYears >= 3 && !dynastyCohesionBonus) {
+      dynastyCohesionBonus = true;
+      delta += 5; // one-time bonus
+    }
+  } else {
+    streakYears = 0;
+  }
+
+  // Age coordinators
+  const aged = (coord) => coord ? { ...coord, age: (coord.age || 45) + 1, seasonsWithTeam: (coord.seasonsWithTeam || 0) + 1 } : null;
+
+  return {
+    ...f,
+    staffChemistry: clamp(newChem + (dynastyCohesionBonus && streakYears === 3 ? 5 : 0), 0, 100),
+    staffChemistryStreakYears: streakYears,
+    dynastyCohesionBonus,
+    offensiveCoordinator: aged(oc),
+    defensiveCoordinator: aged(dc),
+    playerDevCoach: aged(pdc),
+  };
 }
 
 // ============================================================

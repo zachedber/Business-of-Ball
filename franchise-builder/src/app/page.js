@@ -19,6 +19,10 @@ import {
   generateOffseasonFAPool, signToSlot, releaseSlot, repCostMultiplier,
   simulatePlayoffs, simulateAIFreeAgency,
   generateExtensionDemands, applyExtension, checkPressureEvent,
+  applyStadiumUpgrade, startStadiumProject, calculatePublicFundingApproval,
+  purchasePremiumSeating, generateNewStadiumNamingRightsOffer,
+  generateStaffCandidates, fireCoordinator, hireCoordinator,
+  calculateSchemeFit,
 } from '@/lib/engine';
 import {
   NGL_TEAMS, ABL_TEAMS, MARKET_TIERS, getMarketTier, getMarketTierInfo,
@@ -32,6 +36,8 @@ import {
 import TradeDeadlineScreen from '@/app/components/TradeDeadlineScreen';
 import NotificationsPanel, { NotificationBadge } from '@/app/components/NotificationsPanel';
 import AnalyticsScreen, { Sparkline } from '@/app/components/AnalyticsScreen';
+import StadiumTab from '@/app/components/StadiumTab';
+import StaffTab from '@/app/components/StaffTab';
 
 // ============================================================
 // TICKER
@@ -350,14 +356,16 @@ function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve,
         </div>
       </div>
       <div className="tab-nav" style={{ marginBottom: 12 }}>
-        {['home', 'slots', 'coach', 'biz', 'facilities', 'finance', 'legacy', 'history'].map(t => (
+        {['home', 'slots', 'coach', 'staff', 'biz', 'stadium', 'facilities', 'finance', 'legacy', 'history'].map(t => (
           <button key={t} className={`tab-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>{t}</button>
         ))}
       </div>
       {tab === 'home' && <HomeTab fr={fr} onSim={onSim} simming={simming} recap={recap} grade={grade} events={events} onResolve={onResolve} pressConf={pressConf} onPressConf={onPressConf} newspaper={newspaper} newspaperDismissed={newspaperDismissed} onDismissNewspaper={onDismissNewspaper} cbaEvent={cbaEvent} onCBA={onCBA} namingOffer={namingOffer} onNaming={onNaming} notifications={notifications} onDismissNotif={onDismissNotif} />}
       {tab === 'slots' && <SlotsTab fr={fr} setFr={setFr} gmRep={gmRep} />}
       {tab === 'coach' && <CoachTab fr={fr} setFr={setFr} gmRep={gmRep} />}
+      {tab === 'staff' && <StaffTab fr={fr} setFr={setFr} gmRep={gmRep} />}
       {tab === 'biz' && <BizTab fr={fr} setFr={setFr} />}
+      {tab === 'stadium' && <StadiumTab fr={fr} setFr={setFr} season={fr.season || 1} />}
       {tab === 'facilities' && <FacTab fr={fr} setFr={setFr} onCashChange={onCashChange} />}
       {tab === 'finance' && <DashFinanceTab fr={fr} />}
       {tab === 'legacy' && <LegacyTab fr={fr} />}
@@ -2563,6 +2571,16 @@ export default function App() {
         newNotifs.push({ id: 'profit_' + Date.now(), severity: 'info', message: `Your franchise turned $${af.finances.profit}M profit, increasing your liquid capital to $${Math.round((af.cash || 0) * 10) / 10}M.`, type: 'finance' });
       } else if (af.finances.profit < 0) {
         newNotifs.push({ id: 'loss_' + Date.now(), severity: 'warning', message: `Season loss of $${Math.abs(af.finances.profit)}M drained liquid capital to $${Math.round((af.cash || 0) * 10) / 10}M.`, type: 'finance' });
+      }
+      // A1: Stadium project events
+      if (af.pendingStadiumEvent) {
+        const sevt = af.pendingStadiumEvent;
+        newNotifs.push({ id: 'stad_' + Date.now(), severity: sevt.type === 'stadium_complete' ? 'success' : 'info', message: `${sevt.headline}: ${sevt.desc}`, type: 'stadium' });
+        if (sevt.newNamingOffer) {
+          setNamingOffer(generateNewStadiumNamingRightsOffer(af));
+        }
+        // Clear the pending event from franchise state
+        setFr(prev => prev.map((x, i) => i === activeIdx ? { ...x, pendingStadiumEvent: null } : x));
       }
       setNotifications(prev => [
         ...prev.filter(n => !['contract', 'cap', 'stadium', 'fans', 'player'].includes(n.type)),
