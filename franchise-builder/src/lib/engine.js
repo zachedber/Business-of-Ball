@@ -1882,8 +1882,8 @@ export function generateDraftPickPositions(franchise, leagueTeams) {
 }
 
 /** Generate an AI trade offer for one of the player's draft picks */
-export function generatePickTradeOffer(pick) {
-  const earlyBonus = Math.max(0, 8 - pick.pickPos);
+export function generatePickTradeOffer(draftPick) {
+  const earlyBonus = Math.max(0, 8 - draftPick.pickPos);
   const cashVal = Math.round((3 + earlyBonus * 1.5) * randFloat(0.85, 1.25));
   const offerType = Math.random() < 0.55 ? 'cash' : 'swap_cash';
   const aiTeamNames = [
@@ -1893,10 +1893,10 @@ export function generatePickTradeOffer(pick) {
   ];
   const offeringTeam = pick(aiTeamNames);
   if (offerType === 'cash') {
-    return { id: generateId(), pickRef: pick, offeringTeam, type: 'cash', cashValue: cashVal, label: `$${cashVal}M cash` };
+    return { id: generateId(), pickRef: draftPick, offeringTeam, type: 'cash', cashValue: cashVal, label: `$${cashVal}M cash` };
   }
   const cashComp = Math.round(cashVal * 0.45);
-  return { id: generateId(), pickRef: pick, offeringTeam, type: 'swap_cash', cashValue: cashComp, nextPickSeason: pick.season + 1, label: `Next season R1 + $${cashComp}M` };
+  return { id: generateId(), pickRef: draftPick, offeringTeam, type: 'swap_cash', cashValue: cashComp, nextPickSeason: draftPick.season + 1, label: `Next season R1 + $${cashComp}M` };
 }
 
 /** Generate offseason free agent pool gated by GM rep */

@@ -2651,7 +2651,7 @@ export default function App() {
       setEvents(allEvents);
 
       // Draft flow
-      const picks = generateDraftPickPositions(f, result.leagueTeams[f.league] || []);
+      const picks = generateDraftPickPositions(f, result.leagueTeams);
       const prospects = generateDraftProspects(f.league, 20, f.scoutingStaff);
       setDraftPicks(picks);
       setDraftProspects(prospects);
