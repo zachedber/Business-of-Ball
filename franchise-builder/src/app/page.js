@@ -17,6 +17,7 @@ import {
   getFranchiseAskingPrice, getFranchiseFlavor, generateInitialSlots,
   generateDraftPickPositions, generatePickTradeOffer,
   generateOffseasonFAPool, signToSlot, releaseSlot, repCostMultiplier,
+  simulatePlayoffs, simulateAIFreeAgency,
 } from '@/lib/engine';
 import {
   NGL_TEAMS, ABL_TEAMS, MARKET_TIERS, getMarketTier, getMarketTierInfo,
@@ -163,14 +164,16 @@ function FranchiseSelectionScreen({ onCreate }) {
       </p>
       <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap', alignItems: 'center' }}>
         <span className="stat-label" style={{ marginRight: 4 }}>Filter:</span>
-        {[['all', 'All Leagues'], ['ngl', 'NGL — Football'], ['abl', 'ABL — Basketball']].map(([val, label]) => (
+        {[['all', 'All Leagues', false], ['ngl', 'NGL — Football', false], ['abl', 'ABL — Basketball', true]].map(([val, label, comingSoon]) => (
           <button
             key={val}
             className={leagueFilter === val ? 'btn-primary' : 'btn-secondary'}
-            style={{ fontSize: '0.7rem', padding: '5px 12px' }}
-            onClick={() => setLeagueFilter(val)}
+            style={{ fontSize: '0.7rem', padding: '5px 12px', opacity: comingSoon ? 0.55 : 1, position: 'relative' }}
+            onClick={() => !comingSoon && setLeagueFilter(val)}
+            disabled={comingSoon}
+            title={comingSoon ? 'ABL — Coming Soon' : undefined}
           >
-            {label}
+            {label}{comingSoon && <span className="badge badge-amber" style={{ fontSize: '0.5rem', marginLeft: 5, verticalAlign: 'middle' }}>SOON</span>}
           </button>
         ))}
       </div>
@@ -179,18 +182,21 @@ function FranchiseSelectionScreen({ onCreate }) {
           const extras = getTeamExtras(team);
           const tierInfo = getMarketTierInfo(team.market);
           const isSelected = selected?.id === team.id && selected?.league === team.league;
+          const isABL = team.league === 'abl';
           return (
-            <button
+            <div
               key={`${team.league}-${team.id}`}
               className="card"
-              onClick={() => setSelected(isSelected ? null : team)}
+              onClick={() => !isABL && setSelected(isSelected ? null : team)}
               style={{
                 padding: '12px 14px',
-                cursor: 'pointer',
+                cursor: isABL ? 'not-allowed' : 'pointer',
                 textAlign: 'left',
                 border: isSelected ? '2px solid var(--red)' : '1px solid var(--cream-darker)',
-                background: isSelected ? '#fef5f5' : 'var(--cream)',
+                background: isSelected ? '#fef5f5' : isABL ? '#f5f5f0' : 'var(--cream)',
                 transition: 'border-color 0.15s',
+                position: 'relative',
+                opacity: isABL ? 0.7 : 1,
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
@@ -226,12 +232,22 @@ function FranchiseSelectionScreen({ onCreate }) {
               <p className="font-body" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)', lineHeight: 1.4, marginTop: 4, fontStyle: 'italic' }}>
                 {extras.flavor}
               </p>
-              {extras.askingPrice > STARTING && (
+              {extras.askingPrice > STARTING && !isABL && (
                 <div className="badge badge-red" style={{ fontSize: '0.55rem', marginTop: 6 }}>
                   DEBT: ${extras.askingPrice - STARTING}M
                 </div>
               )}
-            </button>
+              {isABL && (
+                <div style={{
+                  position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', background: 'rgba(245,245,240,0.82)', borderRadius: 2,
+                }}>
+                  <span className="font-display" style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--ink-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    Coming Soon
+                  </span>
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
@@ -1548,8 +1564,10 @@ function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, onPickMade, onAut
 // ============================================================
 // FREE AGENCY FLOW SCREEN
 // ============================================================
-function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, onDone, gmRep }) {
+function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSigningsLog, onDone, gmRep }) {
   const [pool, setPool] = useState(offseasonFAPool || []);
+  const [biddingWar, setBiddingWar] = useState(null); // { player, slotName, aiSalary, aiTeamName }
+  const [showTransactions, setShowTransactions] = useState(false);
   const budget = SLOT_BUDGET[fr.league] || 80;
   const usedBudget = ['star1', 'star2', 'corePiece'].reduce((s, k) => s + (fr[k]?.salary || 0), 0);
 
@@ -1559,9 +1577,37 @@ function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, onDone, gmRep }) {
     { key: 'corePiece', label: 'Core Piece' },
   ];
 
+  const aiTeamNames = ['Dallas Lone Stars', 'Bay City Gold', 'New York Titans', 'Chicago Wolves', 'Los Angeles Crown', 'Seattle Rain', 'Miami Surge'];
+
   function doSign(player, slotName) {
     setFr(prev => signToSlot(prev, slotName, player));
     setPool(prev => prev.filter(p => p.id !== player.id));
+  }
+
+  function attemptSign(player, slotName) {
+    // 25% chance another team is also interested — trigger bidding war
+    if (Math.random() < 0.25) {
+      const boostPct = 0.10 + Math.random() * 0.10;
+      const aiSalary = Math.round(player.salary * (1 + boostPct) * 10) / 10;
+      const aiTeamName = aiTeamNames[Math.floor(Math.random() * aiTeamNames.length)];
+      setBiddingWar({ player, slotName, aiSalary, aiTeamName });
+    } else {
+      doSign(player, slotName);
+    }
+  }
+
+  function acceptBid(matchBoost) {
+    if (!biddingWar) return;
+    const newSalary = Math.round(biddingWar.aiSalary * (1 + matchBoost) * 10) / 10;
+    const adjustedPlayer = { ...biddingWar.player, salary: newSalary };
+    doSign(adjustedPlayer, biddingWar.slotName);
+    setBiddingWar(null);
+  }
+
+  function walkAway() {
+    // AI gets the player — remove from pool
+    setPool(prev => prev.filter(p => p.id !== biddingWar?.player?.id));
+    setBiddingWar(null);
   }
 
   function doRelease(slotName) {
@@ -1649,7 +1695,7 @@ function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, onDone, gmRep }) {
                                 className="btn-secondary"
                                 style={{ fontSize: '0.58rem', padding: '3px 6px', opacity: (!canAfford || wouldOverBudget || slotFull) ? 0.4 : 1 }}
                                 disabled={!canAfford || wouldOverBudget || slotFull}
-                                onClick={() => doSign(p, key)}
+                                onClick={() => attemptSign(p, key)}
                                 title={slotFull ? 'Slot full' : !canAfford ? 'Insufficient cash' : wouldOverBudget ? 'Over budget' : `Sign to ${label}`}
                               >
                                 {label}
@@ -1667,10 +1713,326 @@ function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, onDone, gmRep }) {
         </div>
       )}
 
+      {pool.length === 0 && (
+        <div className="card" style={{ padding: 14, textAlign: 'center', color: 'var(--ink-muted)', fontSize: '0.8rem' }}>
+          Free agent pool exhausted.
+        </div>
+      )}
+
+      {/* Bidding War Modal */}
+      {biddingWar && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(30,26,20,0.55)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16,
+        }}>
+          <div className="card-elevated" style={{ maxWidth: 420, width: '100%', padding: 20, border: '2px solid var(--amber)' }}>
+            <h3 className="font-display" style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--amber)', marginBottom: 6 }}>
+              Bidding War!
+            </h3>
+            <p className="font-body" style={{ fontSize: '0.82rem', color: 'var(--ink-soft)', lineHeight: 1.55, marginBottom: 12 }}>
+              <strong>{biddingWar.aiTeamName}</strong> is also pursuing <strong>{biddingWar.player.name}</strong> and has
+              offered <strong>${biddingWar.aiSalary}M/yr</strong>.
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                className="btn-primary"
+                style={{ fontSize: '0.72rem', padding: '7px 14px' }}
+                disabled={(fr.cash || 0) < biddingWar.aiSalary}
+                onClick={() => acceptBid(0)}
+              >
+                Match — ${biddingWar.aiSalary}M/yr
+              </button>
+              <button
+                className="btn-secondary"
+                style={{ fontSize: '0.72rem', padding: '7px 14px', borderColor: 'var(--green)', color: 'var(--green)' }}
+                disabled={(fr.cash || 0) < Math.round(biddingWar.aiSalary * 1.10 * 10) / 10}
+                onClick={() => acceptBid(0.10)}
+              >
+                Outbid (+10%) — ${Math.round(biddingWar.aiSalary * 1.10 * 10) / 10}M/yr
+              </button>
+              <button
+                className="btn-secondary"
+                style={{ fontSize: '0.72rem', padding: '7px 14px', borderColor: 'var(--red)', color: 'var(--red)' }}
+                onClick={walkAway}
+              >
+                Walk Away
+              </button>
+            </div>
+            <p className="font-mono" style={{ fontSize: '0.6rem', color: 'var(--ink-muted)', marginTop: 8 }}>
+              Walk away = {biddingWar.aiTeamName} signs {biddingWar.player.name}.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* League Transactions Feed */}
+      {aiSigningsLog && aiSigningsLog.length > 0 && (
+        <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <h3 className="font-display" style={{ fontSize: '0.78rem', fontWeight: 700 }}>League Transactions</h3>
+            <button className="btn-secondary" style={{ fontSize: '0.58rem', padding: '3px 8px' }} onClick={() => setShowTransactions(t => !t)}>
+              {showTransactions ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          {showTransactions && (
+            <div style={{ maxHeight: 160, overflowY: 'auto' }}>
+              {aiSigningsLog.map((s, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px solid var(--cream-dark)', fontSize: '0.68rem' }}>
+                  <span className="font-body">{s.teamName}</span>
+                  <span className="font-mono" style={{ color: 'var(--ink-muted)' }}>signed {s.player.name} · {s.player.rating} rtg · ${s.player.salary}M</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div style={{ textAlign: 'center', marginTop: 12 }}>
         <button className="btn-gold" style={{ padding: '12px 32px', fontSize: '0.9rem' }} onClick={onDone}>
           Done — Start Next Season
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// PLAYOFF BRACKET SCREEN
+// ============================================================
+function PlayoffBracketScreen({ playoffResult, playerFranchise, season, onContinue, onDone }) {
+  const [roundIdx, setRoundIdx] = useState(0);
+  const { eastSeeds, westSeeds, rounds, champion, playerMadePlayoffs, playerEliminated, playerWonChampionship } = playoffResult;
+
+  const currentRound = rounds[roundIdx];
+  const isLastRound = roundIdx >= rounds.length - 1;
+
+  const pId = playerFranchise?.id;
+
+  function playerGameInRound(round) {
+    return round?.games.find(g => g.teamA?.id === pId || g.teamB?.id === pId) || null;
+  }
+
+  const playerGame = playerGameInRound(currentRound);
+  const playerElimThisRound = playerGame && playerGame.loser?.id === pId;
+  const playerWonThisRound = playerGame && playerGame.winner?.id === pId;
+
+  const isChampionshipRound = currentRound?.name === 'NGL Championship';
+
+  function advanceRound() {
+    if (isLastRound) {
+      onDone();
+    } else {
+      setRoundIdx(r => r + 1);
+    }
+  }
+
+  // Seed badge helper
+  function SeedBadge({ team, winnerOf }) {
+    const isPlayer = team?.id === pId;
+    const isChamp = champion?.id === team?.id;
+    return (
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        fontFamily: 'var(--font-mono)', fontSize: '0.68rem',
+        fontWeight: isPlayer ? 700 : 400,
+        color: isChamp ? 'var(--gold)' : isPlayer ? 'var(--red)' : 'var(--ink)',
+      }}>
+        <span style={{ fontSize: '0.55rem', color: 'var(--ink-muted)' }}>#{team?.seed}</span>
+        {' '}{team?.city} {team?.name}
+        {isPlayer && <span style={{ color: 'var(--red)', fontSize: '0.55rem' }}>YOU</span>}
+      </span>
+    );
+  }
+
+  // Seeds table (top 6 per conf) for reference
+  function SeedsPanel({ seeds, label }) {
+    return (
+      <div style={{ flex: '1 1 200px' }}>
+        <div className="font-display" style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-muted)', marginBottom: 6, letterSpacing: '0.08em' }}>
+          {label} Conference
+        </div>
+        {seeds.map(t => (
+          <div key={t.id} style={{
+            display: 'flex', justifyContent: 'space-between', padding: '4px 6px',
+            borderBottom: '1px solid var(--cream-dark)',
+            background: t.id === pId ? '#fef5f5' : 'transparent',
+            borderLeft: t.id === pId ? '3px solid var(--red)' : '3px solid transparent',
+          }}>
+            <span className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)', minWidth: 14 }}>#{t.seed}</span>
+            <span className="font-body" style={{ fontSize: '0.68rem', flex: 1, marginLeft: 6 }}>{t.city} {t.name}</span>
+            <span className="font-mono" style={{ fontSize: '0.62rem', color: 'var(--ink-muted)' }}>{t.wins}-{t.losses}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Championship celebration
+  if (isLastRound && playerWonChampionship) {
+    return (
+      <div style={{ maxWidth: 700, margin: '0 auto', padding: '30px 16px', textAlign: 'center' }}>
+        <div style={{ fontSize: '3rem', marginBottom: 12 }}>🏆</div>
+        <h2 className="font-display" style={{ fontSize: 'clamp(1.4rem,5vw,2.2rem)', fontWeight: 700, color: 'var(--gold)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          NGL Champions!
+        </h2>
+        <div style={{ width: 60, height: 3, background: 'var(--gold)', margin: '10px auto 14px' }} />
+        <p className="font-body" style={{ fontSize: '0.95rem', color: 'var(--ink-soft)', lineHeight: 1.65, marginBottom: 20 }}>
+          The {playerFranchise.city} {playerFranchise.name} have won the NGL Championship in Season {season}.
+          A dynasty is being built.
+        </p>
+        <div className="card" style={{ padding: '12px 16px', display: 'inline-block', marginBottom: 20, borderLeft: '4px solid var(--gold)' }}>
+          <div className="font-mono" style={{ fontSize: '0.75rem' }}>
+            {playerFranchise.city} {playerFranchise.name} defeated {currentRound.games[0]?.loser?.city} {currentRound.games[0]?.loser?.name}
+          </div>
+          <div className="font-body" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginTop: 4 }}>
+            {currentRound.games[0]?.narrative}
+          </div>
+        </div>
+        <div>
+          <button className="btn-gold" style={{ padding: '12px 32px' }} onClick={onContinue}>
+            Continue to Offseason
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Player eliminated
+  if (playerMadePlayoffs && playerElimThisRound) {
+    return (
+      <div style={{ maxWidth: 700, margin: '0 auto', padding: '30px 16px' }}>
+        <h2 className="font-display section-header" style={{ fontSize: '1.2rem' }}>Season Over — {currentRound.name} Exit</h2>
+        <div className="card" style={{ padding: 16, marginBottom: 12, borderLeft: '4px solid var(--red)' }}>
+          <p className="font-body" style={{ fontSize: '0.85rem', color: 'var(--ink-soft)', lineHeight: 1.6 }}>
+            {playerGame.narrative}
+          </p>
+          <div style={{ display: 'flex', gap: 20, marginTop: 10, flexWrap: 'wrap' }}>
+            <div><span className="stat-label">Final Record</span><div className="stat-value">{playerFranchise.wins}-{playerFranchise.losses}</div></div>
+            <div><span className="stat-label">Playoff Exit</span><div className="stat-value" style={{ color: 'var(--red)' }}>{currentRound.name}</div></div>
+          </div>
+        </div>
+        {/* Show remaining bracket results */}
+        <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+          <h3 className="font-display" style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 8 }}>Full {currentRound.name} Results</h3>
+          {currentRound.games.map((g, i) => (
+            <div key={i} style={{ padding: '5px 0', borderBottom: '1px solid var(--cream-dark)', fontSize: '0.72rem' }}>
+              <span className="font-body" style={{ color: 'var(--green)' }}>{g.winner?.city} {g.winner?.name}</span>
+              <span className="font-mono" style={{ color: 'var(--ink-muted)', margin: '0 6px' }}>def.</span>
+              <span className="font-body" style={{ color: 'var(--ink-muted)', textDecoration: 'line-through' }}>{g.loser?.city} {g.loser?.name}</span>
+              {g.isUpset && <span className="badge badge-amber" style={{ fontSize: '0.5rem', marginLeft: 6 }}>UPSET</span>}
+            </div>
+          ))}
+        </div>
+        <button className="btn-gold" style={{ padding: '12px 28px' }} onClick={onContinue}>
+          Continue to Offseason
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 800, margin: '0 auto', padding: '20px 12px' }}>
+      <h2 className="font-display section-header" style={{ fontSize: '1.2rem' }}>
+        NGL Playoffs — {currentRound?.name}
+      </h2>
+      <p className="font-mono" style={{ fontSize: '0.62rem', color: 'var(--ink-muted)', marginBottom: 14 }}>
+        Season {season} · Round {roundIdx + 1} of {rounds.length}
+      </p>
+
+      {/* Seedings reference — only show on first round */}
+      {roundIdx === 0 && (
+        <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+          <h3 className="font-display" style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 10 }}>Playoff Field (12 Teams)</h3>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            <SeedsPanel seeds={eastSeeds} label="East" />
+            <SeedsPanel seeds={westSeeds} label="West" />
+          </div>
+          <p className="font-mono" style={{ fontSize: '0.6rem', color: 'var(--ink-muted)', marginTop: 8 }}>
+            Seeds 1-2 per conference have a bye. Seeds 3-6 play Wild Card round.
+          </p>
+        </div>
+      )}
+
+      {/* Player's game highlight */}
+      {playerGame && playerMadePlayoffs && (
+        <div className="card" style={{ padding: 14, marginBottom: 12, borderLeft: '4px solid var(--red)' }}>
+          <h3 className="font-display" style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--red)', marginBottom: 6 }}>
+            Your Matchup — {currentRound.name}
+          </h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+            <SeedBadge team={playerGame.teamA} />
+            <span className="font-mono" style={{ color: 'var(--ink-muted)' }}>vs</span>
+            <SeedBadge team={playerGame.teamB} />
+          </div>
+          <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', lineHeight: 1.55, marginBottom: 6 }}>
+            {playerGame.narrative}
+          </p>
+          {playerWonThisRound && (
+            <span className="badge badge-green">ADVANCE</span>
+          )}
+          {playerElimThisRound && (
+            <span className="badge badge-red">ELIMINATED</span>
+          )}
+        </div>
+      )}
+
+      {/* All games this round */}
+      <div className="card" style={{ padding: 14, marginBottom: 14 }}>
+        <h3 className="font-display" style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 8 }}>
+          {currentRound?.name} Results
+        </h3>
+        {['East', 'West', 'Neutral'].map(conf => {
+          const confGames = currentRound?.games.filter(g => g.conf === conf);
+          if (!confGames || confGames.length === 0) return null;
+          return (
+            <div key={conf} style={{ marginBottom: 10 }}>
+              {conf !== 'Neutral' && (
+                <div className="font-mono" style={{ fontSize: '0.58rem', color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 4, letterSpacing: '0.06em' }}>
+                  {conf} Conference
+                </div>
+              )}
+              {confGames.map((g, i) => (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0',
+                  borderBottom: '1px solid var(--cream-dark)', flexWrap: 'wrap',
+                }}>
+                  <span className="font-mono" style={{ fontSize: '0.58rem', color: 'var(--ink-faint)', minWidth: 70 }}>{g.label}</span>
+                  <span className="font-body" style={{ fontSize: '0.72rem', color: 'var(--green)', fontWeight: 600, flex: '1 1 120px' }}>
+                    {g.winner?.city} {g.winner?.name}
+                    {g.winner?.id === pId && <span style={{ color: 'var(--red)', marginLeft: 4, fontSize: '0.55rem' }}>YOU</span>}
+                  </span>
+                  <span className="font-mono" style={{ fontSize: '0.6rem', color: 'var(--ink-muted)' }}>def.</span>
+                  <span className="font-body" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', flex: '1 1 100px', textDecoration: 'line-through' }}>
+                    {g.loser?.city} {g.loser?.name}
+                  </span>
+                  {g.isUpset && <span className="badge badge-amber" style={{ fontSize: '0.5rem' }}>UPSET</span>}
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Championship reveal */}
+      {isLastRound && !playerWonChampionship && (
+        <div className="card" style={{ padding: 14, marginBottom: 14, borderLeft: '4px solid var(--gold)' }}>
+          <div className="font-display" style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--gold)' }}>
+            NGL Champion: {champion?.city} {champion?.name}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 10 }}>
+        {!isLastRound && !playerElimThisRound && (
+          <button className="btn-primary" style={{ padding: '10px 24px' }} onClick={advanceRound}>
+            Next Round →
+          </button>
+        )}
+        {isLastRound && !playerWonChampionship && (
+          <button className="btn-gold" style={{ padding: '12px 28px' }} onClick={onContinue}>
+            Continue to Offseason
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1749,6 +2111,11 @@ export default function App() {
   const [simming, setSimming] = useState(false);
   const [tradeDeadlineActive, setTradeDeadlineActive] = useState(false);
   const [tradeDeadlineLeague, setTradeDeadlineLeague] = useState(null);
+
+  // Playoff state
+  const [playoffActive, setPlayoffActive] = useState(false);
+  const [playoffResult, setPlayoffResult] = useState(null);
+  const [aiSigningsLog, setAiSigningsLog] = useState([]);
 
   // Draft & free agency flow state
   const [draftActive, setDraftActive] = useState(false);
@@ -1837,6 +2204,7 @@ export default function App() {
     setCbaEvent(null); setNamingOffer(null);
     setNotifications([]); setTradeDeadlineActive(false);
     setDraftActive(false); setDraftDone(false); setFreeAgencyActive(false);
+    setPlayoffActive(false); setPlayoffResult(null); setAiSigningsLog([]);
     setScreen('setup');
   }
 
@@ -1918,6 +2286,7 @@ export default function App() {
     setNewspaper(null); setCbaEvent(null); setNotifications([]);
     setTradeDeadlineActive(false);
     setDraftActive(false); setDraftDone(false); setFreeAgencyActive(false);
+    setPlayoffActive(false); setPlayoffResult(null); setAiSigningsLog([]);
   }
 
   // ── Draft handlers ───────────────────────────────────────────
@@ -1940,8 +2309,11 @@ export default function App() {
     setDraftActive(false);
     setDraftDone(true);
     const af = fr[activeIdx];
-    const pool = generateOffseasonFAPool(af.league, gmRep, 10);
-    setOffseasonFAPool(pool);
+    // Generate larger pool, run AI signings first, then give player the remainder
+    const fullPool = generateOffseasonFAPool(af.league, gmRep, 18);
+    const { signed: aiSigned, remaining: playerPool } = simulateAIFreeAgency(fullPool, lt || { ngl: [], abl: [] }, af.league);
+    setAiSigningsLog(aiSigned);
+    setOffseasonFAPool(playerPool);
     setFreeAgencyActive(true);
   }
 
@@ -1973,9 +2345,52 @@ export default function App() {
     const result = simulateFullSeasonSecondHalf(tradeDeadlineLeague, fr, season);
     setLt(result.leagueTeams);
     setFr(result.franchises);
-    setSeason(s => s + 1);
 
     const af = result.franchises[activeIdx];
+
+    // NGL Playoffs — run bracket, show bracket UI before offseason
+    if (af && af.league === 'ngl') {
+      const pResult = simulatePlayoffs(result.leagueTeams.ngl, af);
+      if (pResult.playerWonChampionship) {
+        setFr(prev => prev.map((f, i) => i === activeIdx ? {
+          ...f,
+          championships: (f.championships || 0) + 1,
+          trophies: [...(f.trophies || []), { season, wins: af.wins, losses: af.losses }],
+          leagueRank: 1,
+        } : f));
+      }
+      setPlayoffResult(pResult);
+      // Store result snapshot so playoff-finished handler can use it
+      setTradeDeadlineLeague(result.leagueTeams); // reuse this slot to carry lt forward
+      setPlayoffActive(true);
+      setSimming(false);
+      return;
+    }
+
+    // ABL / fallback path
+    await runEndOfSeasonFlow(result, af, prevFranchise);
+    setSimming(false);
+    await doSave();
+  }
+
+  // Called by PlayoffBracketScreen when all rounds are viewed
+  async function handlePlayoffFinished() {
+    setPlayoffActive(false);
+    const afNow = fr[activeIdx];
+    const result = {
+      leagueTeams: lt,
+      franchises: fr,
+      standings: {
+        ngl: [...(lt?.ngl || [])].sort((a, b) => b.wins - a.wins),
+        abl: [...(lt?.abl || [])].sort((a, b) => b.wins - a.wins),
+      },
+    };
+    await runEndOfSeasonFlow(result, afNow, afNow);
+    await doSave();
+  }
+
+  async function runEndOfSeasonFlow(result, af, prevFranchise) {
+    setSeason(s => s + 1);
 
     // Stake income
     const stakeIncome = calcStakeIncome(stakes, result.leagueTeams);
@@ -2009,7 +2424,7 @@ export default function App() {
 
     // Narratives
     if (result.franchises.length > 0) {
-      const f = result.franchises[activeIdx];
+      const f = af || result.franchises[activeIdx];
       const [rc, gr] = await Promise.all([generateSeasonRecap(f), generateGMGrade(f)]);
       setRecap(rc);
       setGrade(gr);
@@ -2047,8 +2462,6 @@ export default function App() {
     }
 
     setFreeAg({ ngl: generateFreeAgents('ngl'), abl: generateFreeAgents('abl') });
-    setSimming(false);
-    await doSave();
   }
 
   // ── Render ───────────────────────────────────────────────────
@@ -2093,13 +2506,25 @@ export default function App() {
             fr={af}
             setFr={setActiveFr}
             offseasonFAPool={offseasonFAPool}
+            aiSigningsLog={aiSigningsLog}
             onDone={handleFreeAgencyDone}
             gmRep={gmRep}
           />
         )}
 
+        {/* Playoff bracket — shown after regular season for NGL franchises */}
+        {playoffActive && playoffResult && af && (
+          <PlayoffBracketScreen
+            playoffResult={playoffResult}
+            playerFranchise={af}
+            season={season}
+            onContinue={handlePlayoffFinished}
+            onDone={handlePlayoffFinished}
+          />
+        )}
+
         {/* Trade deadline overrides the dashboard screen */}
-        {tradeDeadlineActive && af && (
+        {tradeDeadlineActive && !playoffActive && af && (
           <TradeDeadlineScreen
             fr={af}
             setFr={setActiveFr}
@@ -2112,7 +2537,7 @@ export default function App() {
           />
         )}
 
-        {screen === 'dashboard' && af && !tradeDeadlineActive && !draftActive && !freeAgencyActive && (
+        {screen === 'dashboard' && af && !tradeDeadlineActive && !draftActive && !freeAgencyActive && !playoffActive && (
           <Dashboard
             fr={af}
             setFr={setActiveFr}

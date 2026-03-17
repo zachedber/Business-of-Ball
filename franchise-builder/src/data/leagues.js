@@ -137,6 +137,18 @@ export const ABL_TEAMS = [
   { id:'abl-sac', name:'Monarchs', city:'Sacramento', division:'Pacific', market:64 },
 ];
 
+// NGL Conference assignments: East = Northeast + Southeast, West = Midwest + West
+export const NGL_CONFERENCES = {
+  East: [
+    'ngl-bos','ngl-nyt','ngl-nye','ngl-phi','ngl-bal','ngl-buf','ngl-pit','ngl-wdc',
+    'ngl-mia','ngl-atl','ngl-car','ngl-tbb','ngl-nol','ngl-nas','ngl-jax','ngl-orl',
+  ],
+  West: [
+    'ngl-chi','ngl-grb','ngl-min','ngl-det','ngl-cle','ngl-ind','ngl-cin','ngl-kc',
+    'ngl-dal','ngl-hou','ngl-den','ngl-sea','ngl-bay','ngl-lac','ngl-las','ngl-lvg',
+  ],
+};
+
 export const RIVALRIES = {
   ngl: [
     ['ngl-nyt','ngl-nye'],['ngl-bos','ngl-nyt'],['ngl-phi','ngl-nye'],

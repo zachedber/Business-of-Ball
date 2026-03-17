@@ -7,7 +7,7 @@ import {
   CAP_INFLATION_RATE, PEAK_AGES, PLAYER_TRAITS, TRAIT_WEIGHTS,
   COACH_PERSONALITIES, CITY_ECONOMY, MARKET_TIERS, getMarketTier,
   UPGRADE_COSTS, TICKET_BASE_PRICE, TICKET_ELASTICITY, STARTING_CASH,
-  REVENUE_SHARE_PCT, MAX_DEBT_RATIO, DEBT_INTEREST,
+  REVENUE_SHARE_PCT, MAX_DEBT_RATIO, DEBT_INTEREST, NGL_CONFERENCES,
 } from '@/data/leagues';
 import { generatePlayerName, generateCoachName } from '@/data/names';
 
@@ -1080,12 +1080,13 @@ export function simulateFullSeason(lt, pf, season) {
   as2.forEach((t, i) => { t.playoffTeam = i < 16; t.leagueRank = i + 1; });
 
   // Championships & rankings
+  // NGL championships awarded via simulatePlayoffs. ABL keeps rank-1 logic.
   uf.forEach(p => {
     const s = (p.league === 'ngl' ? ns : as2).find(t => t.id === p.id);
     if (s) {
       p.leagueRank = s.leagueRank;
       p.playoffTeam = s.playoffTeam;
-      if (s.leagueRank === 1) {
+      if (s.leagueRank === 1 && p.league === 'abl') {
         p.championships = (p.championships || 0) + 1;
         p.trophies = [...(p.trophies || []), { season, wins: p.wins, losses: p.losses }];
       }
@@ -1151,12 +1152,14 @@ export function simulateFullSeasonSecondHalf(lt, pf, season) {
   as2.forEach((t, i) => { t.playoffTeam = i < 16; t.leagueRank = i + 1; });
 
   // Championships & rankings
+  // NGL championships are awarded via simulatePlayoffs — not here.
+  // ABL keeps the rank-1 championship logic (ABL is gated in UI).
   uf.forEach(p => {
     const s = (p.league === 'ngl' ? ns : as2).find(t => t.id === p.id);
     if (s) {
       p.leagueRank = s.leagueRank;
       p.playoffTeam = s.playoffTeam;
-      if (s.leagueRank === 1) {
+      if (s.leagueRank === 1 && p.league === 'abl') {
         p.championships = (p.championships || 0) + 1;
         p.trophies = [...(p.trophies || []), { season, wins: p.wins, losses: p.losses }];
       }
@@ -1792,4 +1795,184 @@ export function releaseSlot(franchise, slotName) {
   updated.rosterQuality = calcSlotQuality(updated);
   updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
   return updated;
+}
+
+// ============================================================
+// NGL PLAYOFF BRACKET — 12-TEAM, 2-CONFERENCE
+// ============================================================
+
+/**
+ * Simulates the full NGL 12-team playoff bracket (2 conferences of 6).
+ * Seeds 1-2 per conference get a bye. Includes upset variance and home
+ * field advantage (+0.05 WP) through conference championships; neutral site
+ * for the championship game.
+ *
+ * @param {Object[]} nglTeams - All NGL teams with wins/losses/rosterQuality/seed
+ * @param {Object|null} playerFranchise - The player's franchise (or null)
+ * @returns {Object} { eastSeeds, westSeeds, rounds, champion, playerMadePlayoffs, playerEliminated, playerWonChampionship }
+ */
+export function simulatePlayoffs(nglTeams, playerFranchise) {
+  const eastIds = new Set(NGL_CONFERENCES.East);
+  const westIds = new Set(NGL_CONFERENCES.West);
+
+  const eastAll = nglTeams.filter(t => eastIds.has(t.id)).sort((a, b) => b.wins - a.wins);
+  const westAll = nglTeams.filter(t => westIds.has(t.id)).sort((a, b) => b.wins - a.wins);
+
+  const eastSeeds = eastAll.slice(0, 6).map((t, i) => ({ ...t, seed: i + 1, conf: 'East' }));
+  const westSeeds = westAll.slice(0, 6).map((t, i) => ({ ...t, seed: i + 1, conf: 'West' }));
+
+  const playerMadePlayoffs = playerFranchise
+    ? [...eastSeeds, ...westSeeds].some(t => t.id === playerFranchise.id)
+    : false;
+
+  /** Simulate a single playoff game with upset variance & optional home advantage */
+  function simGame(teamA, teamB, neutralSite = false) {
+    const qA = teamA.rosterQuality || 70;
+    const qB = teamB.rosterQuality || 70;
+    // Base WP from quality difference (compressed — quality alone never decides)
+    let wpA = 0.5 + (qA - qB) / 200;
+
+    // Upset variance: underdog (higher seed #) gets +0.08 per seed gap, max +0.20
+    const seedDiff = Math.abs(teamA.seed - teamB.seed);
+    const upsetBonus = Math.min(0.20, seedDiff * 0.08);
+    if (teamA.seed > teamB.seed) wpA += upsetBonus;   // A is underdog
+    else if (teamB.seed > teamA.seed) wpA -= upsetBonus; // B is underdog
+
+    // Home field: top seed (lower #) hosts through conference championships
+    if (!neutralSite) {
+      if (teamA.seed < teamB.seed) wpA += 0.05;
+      else if (teamB.seed < teamA.seed) wpA -= 0.05;
+    }
+
+    wpA = clamp(wpA, 0.05, 0.95);
+    const winner = Math.random() < wpA ? teamA : teamB;
+    const loser = winner.id === teamA.id ? teamB : teamA;
+    const isUpset = winner.seed > loser.seed;
+    const narrative = isUpset
+      ? `${winner.city} ${winner.name} pull off the upset over #${loser.seed} ${loser.city} ${loser.name}.`
+      : `#${winner.seed} ${winner.city} ${winner.name} advance past ${loser.city} ${loser.name}.`;
+    return { teamA, teamB, winner, loser, wpA, narrative, isUpset };
+  }
+
+  const rounds = [];
+
+  // ── Wild Card Round: 3v6, 4v5 per conference ──────────────────────
+  const ewc1 = simGame(eastSeeds[2], eastSeeds[5]);
+  const ewc2 = simGame(eastSeeds[3], eastSeeds[4]);
+  const wwc1 = simGame(westSeeds[2], westSeeds[5]);
+  const wwc2 = simGame(westSeeds[3], westSeeds[4]);
+  rounds.push({
+    name: 'Wild Card',
+    games: [
+      { conf: 'East', label: `#3 vs #6`, ...ewc1 },
+      { conf: 'East', label: `#4 vs #5`, ...ewc2 },
+      { conf: 'West', label: `#3 vs #6`, ...wwc1 },
+      { conf: 'West', label: `#4 vs #5`, ...wwc2 },
+    ],
+  });
+
+  // ── Divisional Round: 1 vs worst WC winner, 2 vs best WC winner ───
+  const eWC = [ewc1.winner, ewc2.winner].sort((a, b) => a.seed - b.seed);
+  const wWC = [wwc1.winner, wwc2.winner].sort((a, b) => a.seed - b.seed);
+  const ediv1 = simGame(eastSeeds[0], eWC[1]); // 1 vs higher-seeded WC winner
+  const ediv2 = simGame(eastSeeds[1], eWC[0]); // 2 vs lower-seeded WC winner
+  const wdiv1 = simGame(westSeeds[0], wWC[1]);
+  const wdiv2 = simGame(westSeeds[1], wWC[0]);
+  rounds.push({
+    name: 'Divisional',
+    games: [
+      { conf: 'East', label: `#1 vs #${eWC[1].seed}`, ...ediv1 },
+      { conf: 'East', label: `#2 vs #${eWC[0].seed}`, ...ediv2 },
+      { conf: 'West', label: `#1 vs #${wWC[1].seed}`, ...wdiv1 },
+      { conf: 'West', label: `#2 vs #${wWC[0].seed}`, ...wdiv2 },
+    ],
+  });
+
+  // ── Conference Championships ──────────────────────────────────────
+  const eDivW = [ediv1.winner, ediv2.winner].sort((a, b) => a.seed - b.seed);
+  const wDivW = [wdiv1.winner, wdiv2.winner].sort((a, b) => a.seed - b.seed);
+  const eConf = simGame(eDivW[0], eDivW[1]);
+  const wConf = simGame(wDivW[0], wDivW[1]);
+  rounds.push({
+    name: 'Conference Championship',
+    games: [
+      { conf: 'East', label: 'East Championship', ...eConf },
+      { conf: 'West', label: 'West Championship', ...wConf },
+    ],
+  });
+
+  // ── NGL Championship (neutral site) ──────────────────────────────
+  const champ = simGame(eConf.winner, wConf.winner, true);
+  rounds.push({
+    name: 'NGL Championship',
+    games: [{ conf: 'Neutral', label: 'NGL Championship', ...champ }],
+  });
+
+  const champion = champ.winner;
+
+  // Track player journey
+  let playerEliminated = null;
+  let playerWonChampionship = false;
+  if (playerFranchise && playerMadePlayoffs) {
+    outer: for (const round of rounds) {
+      for (const game of round.games) {
+        if (game.loser?.id === playerFranchise.id) {
+          playerEliminated = { roundName: round.name, opponent: game.winner };
+          break outer;
+        }
+      }
+    }
+    if (champion.id === playerFranchise.id) playerWonChampionship = true;
+  } else if (playerFranchise && !playerMadePlayoffs) {
+    playerEliminated = { roundName: 'Regular Season', opponent: null };
+  }
+
+  return { eastSeeds, westSeeds, rounds, champion, playerMadePlayoffs, playerEliminated, playerWonChampionship };
+}
+
+// ============================================================
+// AI FREE AGENCY COMPETITION
+// ============================================================
+
+/**
+ * Simulates AI teams bidding on the free agent pool before the player acts.
+ * Removes signed players from the pool. Returns signed log and remaining pool.
+ * Target: ~40-60% of top-tier (75+) FAs signed by AI.
+ *
+ * @param {Object[]} pool - Full FA pool sorted by rating desc
+ * @param {Object} leagueTeams - { ngl, abl }
+ * @param {string} league - 'ngl' or 'abl'
+ * @returns {{ signed: Object[], remaining: Object[] }}
+ */
+export function simulateAIFreeAgency(pool, leagueTeams, league) {
+  const aiTeams = (leagueTeams[league] || [])
+    .filter(t => !t.isPlayerOwned)
+    .sort(() => Math.random() - 0.5)
+    .slice(0, 12); // 12 most active bidders this cycle
+
+  const signed = [];
+  const remaining = [...pool].sort((a, b) => b.rating - a.rating);
+
+  for (const team of aiTeams) {
+    if (remaining.length === 0) break;
+    const needScore = clamp(1 - (team.rosterQuality || 70) / 100, 0.05, 0.9);
+    const marketFactor = clamp(team.market / 95, 0.4, 1.0);
+    const target = remaining[0];
+    const isTopTier = target.rating >= 75;
+    // Calibrated to sign ~50% of top-tier FAs
+    const basePr = isTopTier ? 0.52 : 0.30;
+    const signPr = clamp(basePr + needScore * 0.18 + (marketFactor - 0.7) * 0.12, 0.10, 0.82);
+    if (Math.random() < signPr) {
+      signed.push({
+        id: generateId(),
+        player: { ...target },
+        teamName: `${team.city} ${team.name}`,
+        teamId: team.id,
+        league: team.league,
+      });
+      remaining.shift();
+    }
+  }
+
+  return { signed, remaining };
 }
