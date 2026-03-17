@@ -31,6 +31,7 @@ import {
 } from '@/lib/narrative';
 import TradeDeadlineScreen from '@/app/components/TradeDeadlineScreen';
 import NotificationsPanel, { NotificationBadge } from '@/app/components/NotificationsPanel';
+import AnalyticsScreen, { Sparkline } from '@/app/components/AnalyticsScreen';
 
 // ============================================================
 // TICKER
@@ -87,7 +88,7 @@ function Nav({ screen, setScreen, fr, gmRep, cash, notifCount }) {
       </div>
       {fr.length > 0 && (
         <div className="nav-links">
-          {[['portfolio', 'Empire'], ['dashboard', 'Team'], ['league', 'League'], ['market', 'Market'], ['finances', 'Finances']].map(([s, label]) => (
+          {[['portfolio', 'Empire'], ['dashboard', 'Team'], ['league', 'League'], ['market', 'Market'], ['finances', 'Finances'], ['analytics', 'Analytics']].map(([s, label]) => (
             <button
               key={s}
               className="tab-btn"
@@ -349,7 +350,7 @@ function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve,
         </div>
       </div>
       <div className="tab-nav" style={{ marginBottom: 12 }}>
-        {['home', 'slots', 'coach', 'biz', 'facilities', 'legacy', 'history'].map(t => (
+        {['home', 'slots', 'coach', 'biz', 'facilities', 'finance', 'legacy', 'history'].map(t => (
           <button key={t} className={`tab-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>{t}</button>
         ))}
       </div>
@@ -358,6 +359,7 @@ function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve,
       {tab === 'coach' && <CoachTab fr={fr} setFr={setFr} gmRep={gmRep} />}
       {tab === 'biz' && <BizTab fr={fr} setFr={setFr} />}
       {tab === 'facilities' && <FacTab fr={fr} setFr={setFr} onCashChange={onCashChange} />}
+      {tab === 'finance' && <DashFinanceTab fr={fr} />}
       {tab === 'legacy' && <LegacyTab fr={fr} />}
       {tab === 'history' && <HistTab fr={fr} />}
     </div>
@@ -822,6 +824,69 @@ function BizTab({ fr, setFr }) {
 }
 
 // ============================================================
+// DASHBOARD FINANCE TAB (Phase 4)
+// ============================================================
+function DashFinanceTab({ fr }) {
+  const history = fr.history || [];
+  if (history.length === 0) {
+    return (
+      <div className="fade-in card" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-muted)' }}>
+        <div className="font-body" style={{ fontSize: '0.85rem' }}>Complete Season 1 to see finance history.</div>
+      </div>
+    );
+  }
+  return (
+    <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div className="card" style={{ padding: 14 }}>
+        <h3 className="font-display section-header" style={{ fontSize: '0.85rem', marginBottom: 6 }}>Season-by-Season Finances</h3>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem', fontFamily: 'var(--font-mono, monospace)' }}>
+            <thead>
+              <tr style={{ borderBottom: '2px solid var(--cream-darker)' }}>
+                {['S', 'W-L', 'Revenue', 'Expenses', 'Profit', 'Cash', 'Fan', 'Chem'].map(h => (
+                  <th key={h} style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 600, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[...history].reverse().map((h, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid var(--cream-darker)' }}>
+                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>{h.season}</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>{h.wins}-{h.losses}</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--green)' }}>${h.revenue}M</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--red)' }}>${h.expenses}M</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right', color: (h.profit || 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>${h.profit || 0}M</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>${h.cash || 0}M</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>{h.fanRating || '—'}</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>{h.chemistry || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {/* Sparkline summary cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
+        {[
+          { label: 'Revenue', data: history.map(h => h.revenue || 0), color: '#1A6B3A' },
+          { label: 'Profit', data: history.map(h => h.profit || 0), color: '#D4A843' },
+          { label: 'Fan Rating', data: history.map(h => h.fanRating || 0), color: '#2A5FA0' },
+          { label: 'Win%', data: history.map(h => Math.round((h.winPct || 0) * 100)), color: '#C8202A' },
+        ].map(({ label, data, color }) => (
+          <div key={label} className="card" style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div className="stat-label">{label}</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="stat-value" style={{ fontSize: '0.85rem' }}>{data[data.length - 1]}{label === 'Win%' ? '%' : label === 'Fan Rating' ? '' : 'M'}</span>
+              <Sparkline data={data} color={color} height={22} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // FACILITIES TAB
 // ============================================================
 function FacTab({ fr, setFr, onCashChange }) {
@@ -1180,6 +1245,30 @@ function PortfolioScreen({ af, fr, stakes, lt, gmRep, dynasty, season, setScreen
           </div>
         ))}
       </div>
+      {/* Phase 4: Sparklines on franchise card */}
+      {af.history && af.history.length >= 2 && (
+        <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+          <h3 className="font-display" style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 8, color: 'var(--ink-soft)' }}>
+            {af.city} {af.name} — {af.history.length}yr trend
+          </h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+            {[
+              { label: 'Win%', data: af.history.map(h => Math.round((h.winPct || 0) * 100)), color: '#C8202A' },
+              { label: 'Revenue', data: af.history.map(h => h.revenue || 0), color: '#1A6B3A' },
+              { label: 'Fan Rating', data: af.history.map(h => h.fanRating || 0), color: '#2A5FA0' },
+              { label: 'Profit', data: af.history.map(h => h.profit || 0), color: '#D4A843' },
+            ].map(({ label, data, color }) => (
+              <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--cream-darker)' }}>
+                <div>
+                  <div className="stat-label" style={{ fontSize: '0.62rem' }}>{label}</div>
+                  <div className="font-mono" style={{ fontSize: '0.72rem', fontWeight: 600 }}>{data[data.length - 1]}{label === 'Win%' ? '%' : label === 'Fan Rating' ? '' : 'M'}</div>
+                </div>
+                <Sparkline data={data} color={color} height={24} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div style={{ marginBottom: 16 }}>
         <button className="btn-secondary" style={{ fontSize: '0.7rem' }} onClick={() => setScreen('finances')}>
           View Empire Finances
@@ -2697,6 +2786,10 @@ export default function App() {
         )}
 
         {screen === 'settings' && <Settings onDelete={handleDelete} setScreen={setScreen} />}
+
+        {screen === 'analytics' && af && (
+          <AnalyticsScreen fr={af} lt={lt} stakes={stakes} season={season} />
+        )}
       </main>
 
       {/* Save indicator */}
