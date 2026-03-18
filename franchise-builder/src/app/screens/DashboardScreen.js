@@ -261,11 +261,11 @@ function SlotsTab({ fr, setFr, gmRep }) {
   }
 
   function doRelease(slotName) {
-    setFr(prev => releaseSlot(prev, slotName));
+    setFr(prev => releaseSlot(prev, slotName) ?? prev);
   }
 
   function doSign(player, slotName) {
-    setFr(prev => signToSlot(prev, slotName, player));
+    setFr(prev => signToSlot(prev, slotName, player) ?? prev);
     setFaPool(prev => prev.filter(p => p.id !== player.id));
     setSigningSlot(null);
   }
@@ -440,6 +440,7 @@ function SlotsTab({ fr, setFr, gmRep }) {
                       onClick={() => {
                         setFr(prev => {
                           const promoted = signToSlot(prev, key, r);
+                          if (!promoted) return prev;
                           return { ...promoted, rookieSlots: (promoted.rookieSlots || []).filter((_, ri) => ri !== idx) };
                         });
                       }}

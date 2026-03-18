@@ -21,7 +21,7 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
   const aiTeamNames = ['Dallas Lone Stars', 'Bay City Gold', 'New York Titans', 'Chicago Wolves', 'Los Angeles Crown', 'Seattle Rain', 'Miami Surge'];
 
   function doSign(player, slotName) {
-    setFr(prev => signToSlot(prev, slotName, player));
+    setFr(prev => signToSlot(prev, slotName, player) ?? prev);
     setPool(prev => prev.filter(p => p.id !== player.id));
   }
 
@@ -52,7 +52,7 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
   }
 
   function doRelease(slotName) {
-    setFr(prev => releaseSlot(prev, slotName));
+    setFr(prev => releaseSlot(prev, slotName) ?? prev);
   }
 
   return (
