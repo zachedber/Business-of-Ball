@@ -1,0 +1,917 @@
+'use client';
+import { useState, useMemo } from 'react';
+import {
+  calculateCapSpace, calculateValuation, getGMTier,
+  projectRevenue, formatMoney, formatLabel,
+  SLOT_BUDGET, calcSlotQuality, calcDepthQuality,
+  generateOffseasonFAPool, signToSlot, releaseSlot,
+  maxLoan, takeLoan, repayDebt, canAfford,
+  getRivalryTier,
+  generateCoachCandidates, fireCoach, hireCoach,
+} from '@/lib/engine';
+import { UPGRADE_COSTS } from '@/data/leagues';
+import NotificationsPanel from '@/app/components/NotificationsPanel';
+import { Sparkline } from '@/app/components/AnalyticsScreen';
+import InfrastructureTab from '@/app/components/InfrastructureTab';
+import StaffTab from '@/app/components/StaffTab';
+import { MiniChart } from '@/app/components/SharedComponents';
+
+// ============================================================
+// DASHBOARD
+// ============================================================
+export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve, pressConf, onPressConf, newspaper, newspaperDismissed, onDismissNewspaper, cbaEvent, onCBA, namingOffer, onNaming, gmRep, notifications, onDismissNotif, onCashChange, leagueHistory }) {
+  const [tab, setTab] = useState('home');
+  const cap = useMemo(() => calculateCapSpace(fr), [fr]);
+  const val = useMemo(() => calculateValuation(fr), [fr]);
+  const gmTier = getGMTier(gmRep);
+  return (
+    <div style={{ maxWidth: 980, margin: '0 auto', padding: '12px 12px' }}>
+      <div className="card-elevated scoreboard scoreboard-hero" style={{ marginBottom: 14, '--team-color': fr.league === 'abl' ? 'var(--blue)' : 'var(--red)' }}>
+        <div>
+          <h2 className="font-display" style={{ fontSize: 'clamp(1.4rem, 5vw, 2rem)', fontWeight: 700, textTransform: 'uppercase', color: fr.primaryColor || 'var(--ink)', position: 'relative' }}>
+            {fr.city} {fr.name}
+          </h2>
+          <div className="font-mono" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', position: 'relative' }}>
+            {fr.league === 'ngl' ? 'NGL' : 'ABL'} · S{fr.season || 1} · {fr.coach.name}
+            {fr.economyCycle !== 'stable' ? ` · ${formatLabel(fr.economyCycle)}` : ''}
+            {' · '}<span style={{ color: 'var(--ink-muted)' }}>{gmTier.badge} {gmTier.label}</span>
+          </div>
+        </div>
+        <div className="scoreboard-stats">
+          {[
+            ['Record', `${fr.wins}-${fr.losses}`],
+            ['Rank', `#${fr.leagueRank || '—'}`, 'var(--red)'],
+            ['Value', `$${val}M`],
+            ['Cash', formatMoney(fr.cash || 0), (fr.cash || 0) > 5 ? 'var(--green)' : 'var(--red)'],
+          ].map(([label, value, color]) => (
+            <div key={label} style={{ textAlign: 'center', padding: '6px 0', position: 'relative' }}>
+              <div className="stat-label">{label}</div>
+              <div className="font-display" style={{ fontSize: label === 'Record' ? 'clamp(1.1rem, 4vw, 1.6rem)' : '1.2rem', fontWeight: 700, color: color || 'var(--ink)' }}>{value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="tab-nav" style={{ marginBottom: 12, '--team-color': fr.primaryColor || 'var(--red)' }}>
+        {[['home', '🏠 Home'], ['slots', '🧩 Slots'], ['staff', '🧠 Coach'], ['biz', '💼 Biz'], ['infra', '🏗 Facilities'], ['finance', '💳 Finance'], ['legacy', '🏆 Legacy'], ['history', '📚 History']].map(([key, label]) => (
+          <button key={key} className={`tab-btn ${tab === key ? 'active' : ''}`} onClick={() => setTab(key)}>{label}</button>
+        ))}
+      </div>
+      {tab === 'home' && <HomeTab fr={fr} onSim={onSim} simming={simming} recap={recap} grade={grade} events={events} onResolve={onResolve} pressConf={pressConf} onPressConf={onPressConf} newspaper={newspaper} newspaperDismissed={newspaperDismissed} onDismissNewspaper={onDismissNewspaper} cbaEvent={cbaEvent} onCBA={onCBA} namingOffer={namingOffer} onNaming={onNaming} notifications={notifications} onDismissNotif={onDismissNotif} />}
+      {tab === 'slots' && <SlotsTab fr={fr} setFr={setFr} gmRep={gmRep} />}
+      {tab === 'staff' && <StaffTab fr={fr} setFr={setFr} gmRep={gmRep} />}
+      {tab === 'biz' && <BizTab fr={fr} setFr={setFr} />}
+      {tab === 'infra' && <InfrastructureTab fr={fr} setFr={setFr} season={fr.season || 1} onCashChange={onCashChange} />}
+      {tab === 'finance' && <DashFinanceTab fr={fr} />}
+      {tab === 'legacy' && <LegacyTab fr={fr} leagueHistory={leagueHistory} />}
+      {tab === 'history' && <HistTab fr={fr} />}
+    </div>
+  );
+}
+
+
+// ============================================================
+// HOME TAB
+// ============================================================
+function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressConf, onPressConf, newspaper, newspaperDismissed, onDismissNewspaper, cbaEvent, onCBA, namingOffer, onNaming, notifications, onDismissNotif }) {
+  const unresolvedEvents = events.filter(e => !e.resolved);
+  const simBlocked = simming || unresolvedEvents.length > 0 || (pressConf && pressConf.length > 0) || cbaEvent || (newspaper && !newspaperDismissed);
+  const simReady = !simBlocked && !simming;
+
+  return (
+    <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {notifications && notifications.length > 0 && (
+        <NotificationsPanel notifications={notifications} onDismiss={onDismissNotif} />
+      )}
+      {newspaper && !newspaperDismissed && (
+        <div className="card fade-in" style={{ padding: 0, border: '2px solid var(--ink)', overflow: 'hidden', background: 'linear-gradient(180deg,#f8f4eb,#f1e8d9)' }}>
+          <div style={{ background: 'var(--ink)', color: 'var(--cream)', padding: '10px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="font-display" style={{ fontSize: '0.72rem', letterSpacing: '0.2em' }}>THE DAILY BALL</div>
+            <div className="font-mono" style={{ fontSize: '0.7rem', color: '#aaa' }}>SEASON {newspaper.season} WRAP-UP</div>
+          </div>
+          <div style={{ padding: '16px 20px' }}>
+            <div className="font-display" style={{ fontSize: 'clamp(1rem,4vw,1.5rem)', fontWeight: 700, lineHeight: 1.15, marginBottom: 10, borderBottom: '2px solid var(--ink)', paddingBottom: 8 }}>
+              {newspaper.headline}
+            </div>
+            <div style={{ columns: '2 180px', gap: 20 }}>
+              {newspaper.stories.map((story, i) => (
+                <p key={i} className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', lineHeight: 1.55, marginBottom: 8, breakInside: 'avoid' }}>
+                  {story}
+                </p>
+              ))}
+            </div>
+            {newspaper.gmOfYear && (
+              <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--gold)', marginTop: 8, borderTop: '1px solid var(--cream-darker)', paddingTop: 8 }}>
+                GM of the Year: {newspaper.gmOfYear}
+              </div>
+            )}
+          </div>
+          <div style={{ padding: '12px 20px', borderTop: '1px solid var(--cream-darker)', textAlign: 'center' }}>
+            <button className="btn-gold" style={{ padding: '10px 28px' }} onClick={onDismissNewspaper}>
+              Continue to Season
+            </button>
+          </div>
+        </div>
+      )}
+      {recap && (
+        <div className="card" style={{ background: 'linear-gradient(180deg,rgba(212,168,67,0.08),rgba(255,255,255,0.4))' }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Season Recap</h3>
+          <p className="font-body" style={{ lineHeight: 1.6, color: 'var(--ink-soft)', fontSize: '0.85rem' }}>{recap}</p>
+          {grade && (
+            <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 8, background: 'rgba(255,255,255,0.65)', border: '1px solid rgba(26,18,8,0.08)' }}>
+              <span className="font-display" style={{ fontSize: '2.6rem', lineHeight: 1, fontWeight: 700, color: grade.grade.startsWith('A') ? 'var(--green)' : grade.grade.startsWith('B') ? 'var(--amber)' : 'var(--red)' }}>
+                {grade.grade}
+              </span>
+              <span className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>{grade.analysis}</span>
+            </div>
+          )}
+        </div>
+      )}
+      {pressConf && pressConf.length > 0 && (
+        <div className="card" style={{ borderLeft: '5px solid var(--ink)', background: 'linear-gradient(180deg,rgba(26,18,8,0.03),rgba(255,255,255,0.4))' }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Press Conference</h3>
+          {pressConf.map(pc => (
+            <div key={pc.id} style={{ marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--cream-darker)' }}>
+              <p className="font-body" style={{ fontSize: '0.85rem', fontStyle: 'italic', color: 'var(--ink-soft)', marginBottom: 10 }}>{pc.prompt}</p>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {pc.options.map((opt, oi) => (
+                  <button key={oi} className="btn-secondary" style={{ fontSize: '0.72rem' }} onClick={() => onPressConf(pc.id, oi)}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {cbaEvent && (
+        <div className="card" style={{ padding: 16, borderLeft: '4px solid var(--amber)' }}>
+          <h3 className="font-display" style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--amber)', marginBottom: 6 }}>{cbaEvent.title}</h3>
+          <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10, lineHeight: 1.5 }}>{cbaEvent.description}</p>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {cbaEvent.choices.map((ch, ci) => (
+              <button key={ci} className="btn-secondary" style={{ fontSize: '0.72rem', alignItems: 'flex-start', textAlign: 'left' }} onClick={() => onCBA(ci)}>
+                {ch.label}<br /><span style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>{ch.desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {namingOffer && (
+        <div className="card" style={{ padding: 16 }}>
+          <h3 className="font-display" style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: 6 }}>Naming Rights Offer</h3>
+          <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>
+            {namingOffer.company} wants to name your stadium. ${namingOffer.annualPay}M/year for {namingOffer.years} years.
+          </p>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn-primary" style={{ fontSize: '0.78rem' }} onClick={() => onNaming(true)}>Accept</button>
+            <button className="btn-secondary" style={{ fontSize: '0.78rem' }} onClick={() => onNaming(false)}>Decline</button>
+          </div>
+        </div>
+      )}
+      {unresolvedEvents.length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Offseason ({unresolvedEvents.length})</h3>
+          {unresolvedEvents.map(ev => (
+            <div key={ev.id} style={{ marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--cream-darker)' }}>
+              <h4 className="font-display" style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: 3 }}>{ev.title}</h4>
+              <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10, lineHeight: 1.5 }}>{ev.description}</p>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {ev.choices.map((ch, ci) => (
+                  <button key={ci} className="btn-secondary" style={{ fontSize: '0.72rem' }} onClick={() => onResolve(ev.id, ci)}>
+                    {ch.label}{ch.cost ? ` (-$${ch.cost}M)` : ''}{ch.revenue ? ` (+$${ch.revenue}M)` : ''}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="stat-grid">
+        {[
+          ['Fan', fr.fanRating, fr.fanRating > 65 ? 'var(--green)' : null],
+          ['Chem', fr.lockerRoomChemistry, fr.lockerRoomChemistry > 60 ? 'var(--green)' : 'var(--amber)'],
+          ['Media', fr.mediaRep],
+          ['Community', fr.communityRating],
+          ['Revenue', `$${fr.finances.revenue}M`, 'var(--green)'],
+          ['Profit', `$${fr.finances.profit}M`, fr.finances.profit > 0 ? 'var(--green)' : 'var(--red)'],
+        ].map(([label, value, color]) => (
+          <div key={label} className="card" style={{ padding: '10px 12px', textAlign: 'center' }}>
+            <div className="stat-label">{label}</div>
+            <div className="stat-value" style={{ fontSize: '1rem', color: color || 'var(--ink)' }}>{value}</div>
+          </div>
+        ))}
+      </div>
+      {/* Rival Card */}
+      {fr.rivalry?.active && fr.rivalry.teamName && (
+        <div className="card" style={{ padding: '10px 14px', borderLeft: '3px solid var(--red)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+            <div>
+              <div className="stat-label" style={{ fontSize: '0.7rem' }}>RIVAL</div>
+              <div className="font-display" style={{ fontSize: '0.9rem', fontWeight: 700 }}>{fr.rivalry.teamName}</div>
+              <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginTop: 2 }}>
+                {getRivalryTier(fr.rivalry.intensityScore)} · H2H: {fr.rivalry.h2hRecord?.wins || 0}-{fr.rivalry.h2hRecord?.losses || 0}
+              </div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div className="stat-label" style={{ fontSize: '0.7rem' }}>Intensity</div>
+              <div className="font-display" style={{ fontSize: '1.1rem', fontWeight: 700, color: fr.rivalry.intensityScore >= 76 ? 'var(--red)' : fr.rivalry.intensityScore >= 51 ? 'var(--amber)' : 'var(--ink-muted)' }}>
+                {fr.rivalry.intensityScore}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {fr.economyCycle && fr.economyCycle !== 'stable' && (
+        <div className={`card`} style={{ padding: '8px 14px', textAlign: 'center', fontSize: '0.75rem', background: fr.economyCycle === 'boom' ? 'var(--green)' : 'var(--red)', color: '#fff' }}>
+          {fr.economyCycle === 'boom' ? 'City Economy: BOOM — Revenue boosted' : 'City Economy: RECESSION — Revenue reduced'}
+        </div>
+      )}
+      <div style={{ textAlign: 'center', marginTop: 6 }}>
+        <button
+          className={`btn-gold simulate-cta ${simReady ? 'ready' : ''}`}
+          onClick={onSim}
+          disabled={simBlocked}
+        >
+          {simming ? 'Simulating...' : newspaper && !newspaperDismissed ? 'Read Newspaper First' : unresolvedEvents.length > 0 || pressConf?.length > 0 || cbaEvent ? 'Resolve All Events' : 'Simulate Season'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+// ============================================================
+// SLOTS TAB
+// ============================================================
+function SlotsTab({ fr, setFr, gmRep }) {
+  const [showFA, setShowFA] = useState(false);
+  const [faPool, setFaPool] = useState([]);
+  const [signingSlot, setSigningSlot] = useState(null);
+
+  const budget = SLOT_BUDGET[fr.league] || 80;
+  const usedBudget = ['star1', 'star2', 'corePiece'].reduce((s, k) => s + (fr[k]?.salary || 0), 0);
+  const depthQ = calcDepthQuality(fr);
+  const slotQ = calcSlotQuality(fr);
+  const isOffseason = (fr.season || 1) > 0 && fr.wins !== undefined;
+
+  function openFA() {
+    const pool = generateOffseasonFAPool(fr.league, gmRep, 10);
+    setFaPool(pool);
+    setShowFA(true);
+  }
+
+  function doRelease(slotName) {
+    setFr(prev => releaseSlot(prev, slotName));
+  }
+
+  function doSign(player, slotName) {
+    setFr(prev => signToSlot(prev, slotName, player));
+    setFaPool(prev => prev.filter(p => p.id !== player.id));
+    setSigningSlot(null);
+  }
+
+  const slotDefs = [
+    { key: 'star1', label: 'Star 1' },
+    { key: 'star2', label: 'Star 2' },
+    { key: 'corePiece', label: 'Core Piece' },
+  ];
+
+  return (
+    <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="card" style={{ padding: '10px 14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <span className="stat-label">Slot Budget</span>
+          <span className="font-mono" style={{ fontSize: '0.75rem' }}>
+            ${usedBudget}M / ${budget}M
+            <span style={{ color: usedBudget > budget ? 'var(--red)' : 'var(--green)', marginLeft: 6 }}>
+              (${budget - usedBudget}M free)
+            </span>
+          </span>
+        </div>
+        <div className="progress-bar">
+          <div className="progress-bar-fill" style={{ width: `${Math.min(100, (usedBudget / budget) * 100)}%`, background: usedBudget > budget ? 'var(--red)' : usedBudget / budget > 0.85 ? 'var(--amber)' : 'var(--green)' }} />
+        </div>
+        <div style={{ display: 'flex', gap: 16, marginTop: 8 }}>
+          <div><span className="stat-label">Star Quality</span> <span className="font-mono" style={{ fontSize: '0.75rem' }}>{slotQ}</span></div>
+          <div><span className="stat-label">Depth</span> <span className="font-mono" style={{ fontSize: '0.75rem', color: depthQ > 65 ? 'var(--green)' : depthQ > 45 ? 'var(--amber)' : 'var(--red)' }}>{depthQ}</span></div>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 10 }}>
+        {slotDefs.map(({ key, label }) => {
+          const player = fr[key];
+          return (
+            <div key={key} className="card-elevated" style={{ padding: 14 }}>
+              <div className="font-display" style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-muted)', marginBottom: 8, letterSpacing: '0.08em' }}>{label}</div>
+              {player ? (
+                <>
+                  <div className="font-display" style={{ fontSize: '1rem', fontWeight: 700 }}>{player.name}</div>
+                  <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginBottom: 4 }}>{player.position} · Age {player.age}</div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                    <div>
+                      <span className="stat-label" style={{ fontSize: '0.7rem' }}>Rating</span>
+                      <div className="font-display" style={{ fontSize: '1.2rem', fontWeight: 700, color: player.rating >= 85 ? 'var(--green)' : player.rating >= 70 ? 'var(--amber)' : 'var(--ink)' }}>{player.rating}</div>
+                    </div>
+                    <div>
+                      <span className="stat-label" style={{ fontSize: '0.7rem' }}>Salary</span>
+                      <div className="font-mono" style={{ fontSize: '0.85rem' }}>${player.salary}M</div>
+                    </div>
+                    <div>
+                      <span className="stat-label" style={{ fontSize: '0.7rem' }}>Years</span>
+                      <div className="font-mono" style={{ fontSize: '0.85rem', color: player.yearsLeft <= 1 ? 'var(--red)' : 'var(--ink)' }}>{player.yearsLeft}yr</div>
+                    </div>
+                  </div>
+                  {player.trait && (
+                    <span className={`badge ${player.trait === 'leader' ? 'badge-green' : player.trait === 'mercenary' ? 'badge-amber' : ['volatile', 'injury_prone'].includes(player.trait) ? 'badge-red' : 'badge-ink'}`} style={{ marginBottom: 8, display: 'inline-block' }}>
+                      {formatLabel(player.trait)}
+                    </span>
+                  )}
+                  <div style={{ marginTop: 6 }}>
+                    <button
+                      className="btn-secondary"
+                      style={{ fontSize: '0.7rem', padding: '4px 10px', borderColor: 'var(--red)', color: 'var(--red)' }}
+                      onClick={() => doRelease(key)}
+                    >
+                      Release
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div style={{ color: 'var(--ink-muted)', fontSize: '0.8rem', fontStyle: 'italic', padding: '8px 0' }}>
+                  Empty Slot
+                  <div style={{ marginTop: 8 }}>
+                    <button
+                      className="btn-secondary"
+                      style={{ fontSize: '0.7rem', padding: '4px 10px' }}
+                      onClick={() => { openFA(); setSigningSlot(key); }}
+                    >
+                      Sign Player
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ marginTop: 4 }}>
+        <button className="btn-primary" onClick={() => { openFA(); setSigningSlot(null); }}>
+          Offseason Signing Pool
+        </button>
+      </div>
+      {showFA && faPool.length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Free Agent Pool</h3>
+            <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '4px 10px' }} onClick={() => setShowFA(false)}>Close</button>
+          </div>
+          <div className="table-wrap">
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid var(--cream-darker)' }}>
+                  {['Name', 'Pos', 'Age', 'Rtg', '$M', 'Trait', 'Sign To'].map(h => (
+                    <th key={h} className="stat-label" style={{ padding: '6px 8px', textAlign: 'left' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[...faPool].sort((a, b) => b.rating - a.rating).map(p => {
+                  const canAffordPlayer = (fr.cash || 0) >= p.salary;
+                  const wouldOverBudget = usedBudget + p.salary > budget;
+                  return (
+                    <tr key={p.id} style={{ borderBottom: '1px solid var(--cream-dark)' }}>
+                      <td className="font-body" style={{ padding: '6px 8px', fontWeight: 500 }}>{p.name}</td>
+                      <td className="font-mono" style={{ padding: '6px 8px' }}>{p.position}</td>
+                      <td className="font-mono" style={{ padding: '6px 8px' }}>{p.age}</td>
+                      <td className="font-mono" style={{ padding: '6px 8px', fontWeight: 600, color: p.rating >= 85 ? 'var(--green)' : p.rating >= 70 ? 'var(--ink)' : 'var(--ink-muted)' }}>{p.rating}</td>
+                      <td className="font-mono" style={{ padding: '6px 8px' }}>${p.salary}M</td>
+                      <td>{p.trait && <span className="badge badge-ink">{p.trait}</span>}</td>
+                      <td style={{ padding: '6px 8px' }}>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {slotDefs.map(({ key, label }) => {
+                            const slotFull = !!fr[key];
+                            return (
+                              <button
+                                key={key}
+                                className="btn-secondary"
+                                style={{ fontSize: '0.7rem', padding: '3px 6px', opacity: (!canAffordPlayer || wouldOverBudget || slotFull) ? 0.4 : 1 }}
+                                disabled={!canAffordPlayer || wouldOverBudget || slotFull}
+                                onClick={() => doSign(p, key)}
+                                title={slotFull ? 'Slot full — release first' : !canAffordPlayer ? 'Insufficient cash' : wouldOverBudget ? 'Over budget' : `Sign to ${label}`}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Rookie Slots */}
+      {(fr.rookieSlots || []).length > 0 && (
+        <div className="card" style={{ padding: 14, marginTop: 12 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.85rem' }}>Rookie Slots ({(fr.rookieSlots || []).length}/3)</h3>
+          <p className="font-body" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginBottom: 8 }}>
+            Drafted rookies develop here before joining the main roster. Promote to an open slot or release.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
+            {(fr.rookieSlots || []).map((r, idx) => (
+              <div key={r.id || idx} className="card" style={{ padding: '10px 12px' }}>
+                <div className="font-display" style={{ fontSize: '0.85rem', fontWeight: 600 }}>{r.name}</div>
+                <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>
+                  {r.position} · Age {r.age} · {r.rating} rtg
+                </div>
+                {r.draftRound && <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>R{r.draftRound} P{r.draftPick}</div>}
+                {r.trait && <span className="badge badge-ink" style={{ fontSize: '0.7rem', marginTop: 4 }}>{r.trait}</span>}
+                <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                  {slotDefs.map(({ key, label }) => (
+                    <button
+                      key={key}
+                      className="btn-secondary"
+                      style={{ fontSize: '0.7rem', padding: '2px 6px', opacity: fr[key] ? 0.4 : 1 }}
+                      disabled={!!fr[key]}
+                      title={fr[key] ? 'Slot occupied' : `Promote to ${label}`}
+                      onClick={() => {
+                        setFr(prev => {
+                          const promoted = signToSlot(prev, key, r);
+                          return { ...promoted, rookieSlots: (promoted.rookieSlots || []).filter((_, ri) => ri !== idx) };
+                        });
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  <button
+                    className="btn-secondary"
+                    style={{ fontSize: '0.7rem', padding: '2px 6px', borderColor: 'var(--red)', color: 'var(--red)' }}
+                    onClick={() => {
+                      setFr(prev => ({ ...prev, rookieSlots: (prev.rookieSlots || []).filter((_, ri) => ri !== idx) }));
+                    }}
+                  >
+                    Cut
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ============================================================
+// COACH TAB
+// ============================================================
+// Phase 3: coach level rep requirements
+const COACH_REP_GATE = { 3: 55, 4: 75 };
+
+function CoachTab({ fr, setFr, gmRep }) {
+  const [candidates, setCandidates] = useState(null);
+  const [confirmFire, setConfirmFire] = useState(false);
+  const coach = fr.coach;
+  return (
+    <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="card-elevated" style={{ padding: 16 }}>
+        <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Head Coach</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <div className="font-display" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{coach.name}</div>
+            <div className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginTop: 3 }}>
+              {coach.personality} · Lvl {coach.level}/4 · {coach.seasonsWithTeam}yr
+            </div>
+            <div style={{ display: 'flex', gap: 3, marginTop: 6 }}>
+              {[1, 2, 3, 4].map(l => (
+                <div key={l} style={{ width: 20, height: 6, borderRadius: 2, background: coach.level >= l ? 'var(--red)' : 'var(--cream-darker)' }} />
+              ))}
+            </div>
+          </div>
+          {!confirmFire
+            ? <button className="btn-secondary" style={{ borderColor: 'var(--red)', color: 'var(--red)', fontSize: '0.7rem' }} onClick={() => setConfirmFire(true)}>Fire</button>
+            : <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn-primary" style={{ fontSize: '0.7rem', padding: '5px 10px' }} onClick={() => { setFr(() => fireCoach(fr)); setCandidates(generateCoachCandidates(3)); setConfirmFire(false); }}>
+                  Confirm (-${coach.level * 2}M)
+                </button>
+                <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '5px 10px' }} onClick={() => setConfirmFire(false)}>Cancel</button>
+              </div>
+          }
+        </div>
+      </div>
+      {candidates && (
+        <div className="card" style={{ padding: 16 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Coaching Candidates</h3>
+          {candidates.map(cd => {
+            const repRequired = COACH_REP_GATE[cd.level];
+            const repLocked = repRequired && gmRep < repRequired;
+            return (
+              <div key={cd.name} className="card" style={{ padding: '12px 14px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <div>
+                  <div className="font-display" style={{ fontSize: '0.85rem', fontWeight: 600 }}>{cd.name}</div>
+                  <div className="font-body" style={{ fontSize: '0.75rem', color: 'var(--ink-soft)' }}>{cd.personality} · Lvl {cd.level}</div>
+                  <div className="font-body" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', fontStyle: 'italic', marginTop: 3 }}>{cd.backstory}</div>
+                  {repLocked && <div style={{ fontSize: '0.7rem', color: 'var(--red)', marginTop: 2 }}>Requires {repRequired} GM Rep (you have {Math.round(gmRep)})</div>}
+                </div>
+                <button
+                  className="btn-primary"
+                  style={{ fontSize: '0.7rem', padding: '5px 12px', opacity: repLocked ? 0.4 : 1 }}
+                  disabled={repLocked}
+                  title={repLocked ? `Need ${repRequired} GM Rep` : ''}
+                  onClick={() => { setFr(() => hireCoach(fr, cd)); setCandidates(null); }}
+                >
+                  Hire
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// BUSINESS TAB
+// ============================================================
+function BizTab({ fr, setFr }) {
+  const proj = useMemo(() => projectRevenue(fr), [fr]);
+  const valuePerception = Math.round((fr.rosterQuality / 100) * 200 - fr.ticketPrice);
+  const isOverpriced = valuePerception < -40;
+  const isGoodValue = valuePerception > 60;
+  return (
+    <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="card" style={{ padding: 16 }}>
+        <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Revenue Projection</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          <div><div className="stat-label">Revenue</div><div className="stat-value" style={{ color: 'var(--green)' }}>${proj.totalRevenue}M</div></div>
+          <div><div className="stat-label">Expenses</div><div className="stat-value" style={{ color: 'var(--red)' }}>${proj.totalExpenses}M</div></div>
+          <div><div className="stat-label">Profit</div><div className="stat-value" style={{ color: proj.projectedProfit > 0 ? 'var(--green)' : 'var(--red)' }}>${proj.projectedProfit}M</div></div>
+        </div>
+      </div>
+      <div className="card" style={{ padding: 16 }}>
+        <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Ticket Pricing</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span className="stat-label">Price</span>
+          <input type="range" min="30" max="200" step="5" value={fr.ticketPrice}
+            onChange={e => setFr(p => ({ ...p, ticketPrice: Number(e.target.value) }))}
+            style={{ flex: 1, minWidth: 100 }} />
+          <span className="stat-value">${fr.ticketPrice}</span>
+          {isOverpriced && <span className="badge badge-red">OVERPRICED</span>}
+          {isGoodValue && <span className="badge badge-green">GOOD VALUE</span>}
+        </div>
+        <p className="font-body" style={{ fontSize: '0.72rem', color: 'var(--ink-muted)', marginTop: 6, fontStyle: 'italic' }}>
+          Fans compare price to team quality — overpricing hurts attendance and fan rating.
+        </p>
+        <div style={{ display: 'flex', gap: 16, marginTop: 10 }}>
+          <div><span className="stat-label">Attendance</span><div className="stat-value" style={{ color: proj.attendance > 75 ? 'var(--green)' : proj.attendance > 55 ? 'var(--amber)' : 'var(--red)' }}>{proj.attendance}%</div></div>
+          <div><span className="stat-label">Gate Rev</span><div className="stat-value">${proj.gateRevenue}M</div></div>
+        </div>
+      </div>
+      <div className="card" style={{ padding: 16 }}>
+        <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Debt and Loans</h3>
+        <div style={{ display: 'flex', gap: 16, marginBottom: 10, flexWrap: 'wrap' }}>
+          <div><span className="stat-label">Current Debt</span><div className="stat-value" style={{ color: (fr.debt || 0) > 0 ? 'var(--red)' : 'var(--ink)' }}>${fr.debt || 0}M</div></div>
+          <div><span className="stat-label">Max Loan</span><div className="stat-value">${maxLoan(fr)}M</div></div>
+          <div><span className="stat-label">Interest</span><div className="stat-value">8%/yr</div></div>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <button className="btn-secondary" style={{ fontSize: '0.7rem', opacity: (fr.debt || 0) >= maxLoan(fr) ? 0.4 : 1 }} disabled={(fr.debt || 0) >= maxLoan(fr)} onClick={() => setFr(p => takeLoan(p, 10))}>Borrow $10M</button>
+          <button className="btn-secondary" style={{ fontSize: '0.7rem', opacity: !(fr.debt > 0 && canAfford(fr.cash, 10)) ? 0.4 : 1 }} disabled={!(fr.debt > 0 && canAfford(fr.cash, 10))} onClick={() => setFr(p => repayDebt(p, 10))}>Repay $10M</button>
+        </div>
+      </div>
+      {fr.namingRightsActive && (
+        <div className="card" style={{ padding: '10px 14px' }}>
+          <span className="stat-label">Stadium: </span>
+          <span className="font-body" style={{ fontSize: '0.8rem' }}>{fr.namingRightsName} Arena — ${fr.namingRightsDeal}M/yr ({fr.namingRightsYears}yr left)</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// DASHBOARD FINANCE TAB (Phase 4)
+// ============================================================
+function DashFinanceTab({ fr }) {
+  const history = fr.history || [];
+  if (history.length === 0) {
+    return (
+      <div className="fade-in card" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-muted)' }}>
+        <div className="font-body" style={{ fontSize: '0.85rem' }}>Complete Season 1 to see finance history.</div>
+      </div>
+    );
+  }
+  return (
+    <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div className="card" style={{ padding: 14 }}>
+        <h3 className="font-display section-header" style={{ fontSize: '0.85rem', marginBottom: 6 }}>Season-by-Season Finances</h3>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem', fontFamily: 'var(--font-mono, monospace)' }}>
+            <thead>
+              <tr style={{ borderBottom: '2px solid var(--cream-darker)' }}>
+                {['S', 'W-L', 'Revenue', 'Expenses', 'Profit', 'Cash', 'Fan', 'Chem'].map(h => (
+                  <th key={h} style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 600, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[...history].reverse().map((h, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid var(--cream-darker)' }}>
+                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>{h.season}</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>{h.wins}-{h.losses}</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--green)' }}>${h.revenue}M</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--red)' }}>${h.expenses}M</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right', color: (h.profit || 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>${h.profit || 0}M</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>${h.cash || 0}M</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>{h.fanRating || '—'}</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>{h.chemistry || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {/* Sparkline summary cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
+        {[
+          { label: 'Revenue', data: history.map(h => h.revenue || 0), color: '#1A6B3A' },
+          { label: 'Profit', data: history.map(h => h.profit || 0), color: '#D4A843' },
+          { label: 'Fan Rating', data: history.map(h => h.fanRating || 0), color: '#2A5FA0' },
+          { label: 'Win%', data: history.map(h => Math.round((h.winPct || 0) * 100)), color: '#C8202A' },
+        ].map(({ label, data, color }) => (
+          <div key={label} className="card" style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div className="stat-label">{label}</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="stat-value" style={{ fontSize: '0.85rem' }}>{data[data.length - 1]}{label === 'Win%' ? '%' : label === 'Fan Rating' ? '' : 'M'}</span>
+              <Sparkline data={data} color={color} height={22} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// FACILITIES TAB
+// ============================================================
+function FacTab({ fr, setFr, onCashChange }) {
+  function upgrade(field) {
+    const current = fr[field];
+    if (current >= 3) return;
+    const cost = UPGRADE_COSTS[current] || 15;
+    if ((fr.cash || 0) < cost) return;
+    const newCash = Math.round(((fr.cash || 0) - cost) * 10) / 10;
+    setFr(prev => ({ ...prev, [field]: current + 1, cash: newCash }));
+    if (onCashChange) onCashChange(newCash);
+  }
+  const facilities = [
+    ['scoutingStaff', 'Scouting', 'Draft eval'],
+    ['developmentStaff', 'Player Dev', 'Player growth'],
+    ['medicalStaff', 'Medical', 'Injury reduction'],
+    ['marketingStaff', 'Marketing', 'Fan rating'],
+    ['trainingFacility', 'Training Facility', 'Win probability'],
+    ['weightRoom', 'Weight Room', 'Conditioning'],
+    ['filmRoom', 'Film Room', 'Tactical edge'],
+  ];
+  return (
+    <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="card" style={{ padding: 16 }}>
+        <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Stadium</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          <div><div className="stat-label">Capacity</div><div className="stat-value">{fr.stadiumCapacity.toLocaleString()}</div></div>
+          <div><div className="stat-label">Condition</div><div className="stat-value" style={{ color: fr.stadiumCondition > 70 ? 'var(--green)' : fr.stadiumCondition > 40 ? 'var(--amber)' : 'var(--red)' }}>{fr.stadiumCondition}%</div></div>
+          <div><div className="stat-label">Age</div><div className="stat-value">{fr.stadiumAge}yr</div></div>
+        </div>
+      </div>
+      <div className="card" style={{ padding: '8px 14px' }}>
+        <span className="stat-label">Liquid Capital: </span>
+        <span className="stat-value" style={{ color: (fr.cash || 0) > 5 ? 'var(--green)' : 'var(--red)' }}>${Math.round((fr.cash || 0) * 10) / 10}M</span>
+      </div>
+      {facilities.map(([key, label, desc]) => {
+        const current = fr[key];
+        const cost = UPGRADE_COSTS[current];
+        const canAffordIt = (fr.cash || 0) >= (cost || 999);
+        return (
+          <div key={key} className="card" style={{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div className="font-display" style={{ fontSize: '0.8rem', fontWeight: 600 }}>{label}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>{desc}</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', gap: 2 }}>
+                {[1, 2, 3].map(l => <div key={l} style={{ width: 18, height: 6, borderRadius: 2, background: current >= l ? 'var(--red)' : 'var(--cream-darker)' }} />)}
+              </div>
+              {current < 3 && (
+                <button
+                  className="btn-secondary"
+                  style={{ fontSize: '0.7rem', padding: '3px 8px', opacity: canAffordIt ? 1 : 0.4, minHeight: 28 }}
+                  disabled={!canAffordIt}
+                  onClick={() => upgrade(key)}
+                  title={!canAffordIt ? 'Insufficient cash' : `Upgrade for $${cost}M`}
+                >
+                  ${cost}M
+                </button>
+              )}
+              {current >= 3 && <span className="badge badge-green" style={{ fontSize: '0.7rem' }}>MAX</span>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
+// ============================================================
+// LEGACY TAB
+// ============================================================
+function LegacyTab({ fr, leagueHistory }) {
+  const trophies = Array.isArray(fr?.trophies) ? fr.trophies : [];
+  const legends = Array.isArray(fr?.localLegends) ? fr.localLegends : [];
+  const records = fr?.franchiseRecords || {};
+  const history = Array.isArray(fr?.history) ? fr.history : [];
+  const hof = (leagueHistory?.hallOfFame || []).filter(h => h.team === `${fr?.city} ${fr?.name}`);
+  const champions = Array.isArray(leagueHistory?.champions) ? leagueHistory.champions : [];
+  const notableSeasons = Array.isArray(leagueHistory?.notableSeasons) ? leagueHistory.notableSeasons : [];
+
+  return (
+    <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Championship Banners */}
+      <div className="card" style={{ padding: 16 }}>
+        <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Championship Banners</h3>
+        {trophies.length === 0
+          ? <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>No championships yet. Keep building.</p>
+          : <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {trophies.map((t, i) => (
+                <div key={i} style={{ background: 'var(--gold)', color: 'var(--ink)', padding: '10px 16px', borderRadius: 2, textAlign: 'center', minWidth: 80 }}>
+                  <div className="font-display" style={{ fontSize: '1rem', fontWeight: 700 }}>S{t.season}</div>
+                  <div className="font-mono" style={{ fontSize: '0.7rem' }}>{t.wins}-{t.losses}</div>
+                </div>
+              ))}
+            </div>
+        }
+      </div>
+
+      {/* Franchise Records */}
+      {Object.keys(records).length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Franchise Records</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+            {[
+              ['Most Wins', records.mostWinsInSeason?.value, records.mostWinsInSeason?.season],
+              ['Best Win%', records.bestWinPct?.value ? `${Math.round(records.bestWinPct.value * 100)}%` : null, records.bestWinPct?.season],
+              ['Top Revenue', records.mostRevenue?.value ? `$${records.mostRevenue.value}M` : null, records.mostRevenue?.season],
+              ['Peak Value', records.highestValuation?.value ? `$${records.highestValuation.value}M` : null, records.highestValuation?.season],
+              ['Championships', records.championships || 0, null],
+              ['Playoff Apps', records.playoffAppearances || 0, null],
+            ].map(([label, val, s]) => val != null && val !== 0 && (
+              <div key={label} style={{ textAlign: 'center', padding: '6px 4px' }}>
+                <div className="stat-label">{label}</div>
+                <div className="font-display" style={{ fontSize: '0.95rem', fontWeight: 700 }}>{val}</div>
+                {s && <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>S{s}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Hall of Fame */}
+      {hof.length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Hall of Fame</h3>
+          {hof.map((h, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--cream-darker)', flexWrap: 'wrap', gap: 4 }}>
+              <div>
+                <div className="font-display" style={{ fontSize: '0.85rem', fontWeight: 600 }}>{h.name}</div>
+                <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>
+                  {h.position} · Peak {h.peakRating} · {h.seasons}yr · Inducted S{h.inductionSeason}
+                </div>
+              </div>
+              <span className="badge badge-gold" style={{ fontSize: '0.7rem', background: 'var(--gold)', color: 'var(--ink)' }}>HOF</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Local Legends */}
+      <div className="card" style={{ padding: 16 }}>
+        <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Local Legends</h3>
+        {legends.length === 0
+          ? <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>Players with 5+ seasons and 70+ peak rating become legends.</p>
+          : legends.map((l, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--cream-dark)' }}>
+                <span className="font-body" style={{ fontSize: '0.85rem', fontWeight: 500 }}>{l.name}</span>
+                <span className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>Peak {l.rating} · {l.seasons}yr</span>
+              </div>
+            ))
+        }
+      </div>
+
+      {/* League Champions History */}
+      {champions.length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>League Champions</h3>
+          {[...champions].reverse().map((c, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--cream-darker)', flexWrap: 'wrap', gap: 4 }}>
+              <div>
+                <span className="font-mono" style={{ fontSize: '0.7rem', fontWeight: 600 }}>S{c.season}</span>
+                <span className="font-body" style={{ fontSize: '0.8rem', marginLeft: 8, fontWeight: c.isPlayerTeam ? 700 : 400, color: c.isPlayerTeam ? 'var(--red)' : 'var(--ink)' }}>
+                  {c.city} {c.teamName}
+                </span>
+              </div>
+              <span className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>{c.record}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Notable Seasons */}
+      {notableSeasons.length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Notable Moments</h3>
+          {[...notableSeasons].reverse().slice(0, 10).map((n, i) => (
+            <div key={i} style={{ padding: '6px 0', borderBottom: '1px solid var(--cream-darker)' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span className="font-mono" style={{ fontSize: '0.7rem', fontWeight: 600 }}>S{n.season}</span>
+                <span className={`badge ${n.isPlayerTeam ? 'badge-red' : 'badge-ink'}`} style={{ fontSize: '0.7rem' }}>{n.type}</span>
+              </div>
+              <div className="font-body" style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 2 }}>{n.description}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Season Timeline */}
+      {history.length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Season Timeline</h3>
+          <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 8 }}>
+            {history.map(h => {
+              const wp = h.wins / (h.wins + h.losses);
+              const isChamp = trophies.some(t => t.season === h.season);
+              return (
+                <div key={h.season} style={{ minWidth: 50, textAlign: 'center', padding: '6px 4px', borderRadius: 2, background: isChamp ? 'var(--gold)' : wp > 0.6 ? 'var(--green)' : wp < 0.35 ? 'var(--red)' : 'var(--cream-dark)', color: isChamp || wp > 0.6 || wp < 0.35 ? '#fff' : 'var(--ink)' }}>
+                  <div className="font-mono" style={{ fontSize: '0.7rem', fontWeight: 600 }}>S{h.season}</div>
+                  <div className="font-mono" style={{ fontSize: '0.7rem' }}>{h.wins}-{h.losses}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {history.length > 1 && (
+        <div className="card" style={{ padding: 16 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Cash History</h3>
+          <MiniChart data={history.map(h => h.cash || 0)} color="var(--green)" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// HISTORY TAB
+// ============================================================
+function HistTab({ fr }) {
+  return (
+    <div className="fade-in">
+      <div className="card" style={{ padding: 16 }}>
+        <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Season History</h3>
+        {fr.history.length === 0
+          ? <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>No seasons completed yet.</p>
+          : <div className="table-wrap">
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid var(--cream-darker)' }}>
+                    {['S', 'Record', 'Revenue', 'Profit', 'Cash', 'Fan', 'Econ'].map(h => (
+                      <th key={h} className="stat-label" style={{ padding: '6px 8px', textAlign: 'left' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...fr.history].reverse().map(h => (
+                    <tr key={h.season} style={{ borderBottom: '1px solid var(--cream-dark)' }}>
+                      <td className="font-mono" style={{ padding: '6px 8px', fontWeight: 600 }}>{h.season}</td>
+                      <td className="font-mono" style={{ padding: '6px 8px' }}>{h.wins}-{h.losses}</td>
+                      <td className="font-mono" style={{ padding: '6px 8px', color: 'var(--green)' }}>${h.revenue}M</td>
+                      <td className="font-mono" style={{ padding: '6px 8px', color: h.profit > 0 ? 'var(--green)' : 'var(--red)' }}>${h.profit}M</td>
+                      <td className="font-mono" style={{ padding: '6px 8px' }}>${Math.round((h.cash || 0) * 10) / 10}M</td>
+                      <td className="font-mono" style={{ padding: '6px 8px' }}>{h.fanRating}</td>
+                      <td className="font-mono" style={{ padding: '6px 8px' }}>{h.economy === 'boom' ? 'UP' : h.economy === 'recession' ? 'DOWN' : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+        }
+      </div>
+    </div>
+  );
+}
