@@ -569,13 +569,24 @@ export function releaseSlot(franchise, slotName) {
  * @param {string} lg - League identifier
  * @param {number} count - Number of prospects to generate
  * @param {number} [scoutLvl=1] - Scouting staff level (affects rating accuracy)
+ * @param {number} [round=1] - Draft round used to tier talent and upside odds
  * @returns {Object[]} Sorted array of prospect objects by projected rating
  */
-export function generateDraftProspects(lg, count, scoutLvl = 1) {
+export function generateDraftProspects(lg, count, scoutLvl = 1, round = 1) {
   const pos = lg === 'ngl' ? NGL_POSITIONS : ABL_POSITIONS;
+  const roundProfile = round === 1
+    ? { ratingMin: 68, ratingMax: 82, upsideWeights: ['high', 'high', 'mid', 'mid', 'low'] }
+    : round === 2
+      ? { ratingMin: 62, ratingMax: 72, upsideWeights: ['high', 'mid', 'mid', 'mid', 'low', 'low', 'low', 'mid', 'high', 'mid'] }
+      : round === 3
+        ? { ratingMin: 58, ratingMax: 68, upsideWeights: ['high', 'mid', 'mid', 'mid', 'low', 'low', 'low', 'mid', 'high', 'mid'] }
+        : round === 4
+          ? { ratingMin: 54, ratingMax: 65, upsideWeights: ['high', 'mid', 'mid', 'mid', 'mid', 'low', 'low', 'low', 'low', 'low', 'low', 'mid', 'low', 'low', 'low', 'low', 'low', 'low', 'mid', 'low'] }
+          : { ratingMin: 50, ratingMax: 62, upsideWeights: ['high', 'mid', 'mid', 'mid', 'mid', 'low', 'low', 'low', 'low', 'low', 'low', 'mid', 'low', 'low', 'low', 'low', 'low', 'low', 'mid', 'low'] };
+
   return Array.from({ length: count }, () => {
     const p = pick(pos);
-    const br = rand(50, 78);
+    const br = rand(roundProfile.ratingMin, roundProfile.ratingMax);
     const acc = scoutLvl * 5;
     return {
       id: generateId(),
@@ -584,7 +595,7 @@ export function generateDraftProspects(lg, count, scoutLvl = 1) {
       age: rand(21, 23),
       projectedRating: clamp(br + rand(-acc, acc), 45, 85),
       trueRating: clamp(br, 45, 85),
-      upside: pick(['low', 'mid', 'high']),
+      upside: pick(roundProfile.upsideWeights),
       trait: generateTrait(),
     };
   }).sort((a, b) => b.projectedRating - a.projectedRating);
