@@ -1,0 +1,239 @@
+'use client';
+import { useState } from 'react';
+import { SLOT_BUDGET, signToSlot, releaseSlot } from '@/lib/engine';
+
+// ============================================================
+// FREE AGENCY FLOW SCREEN
+// ============================================================
+export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSigningsLog, onDone, gmRep }) {
+  const [pool, setPool] = useState(offseasonFAPool || []);
+  const [biddingWar, setBiddingWar] = useState(null); // { player, slotName, aiSalary, aiTeamName }
+  const [showTransactions, setShowTransactions] = useState(false);
+  const budget = SLOT_BUDGET[fr.league] || 80;
+  const usedBudget = ['star1', 'star2', 'corePiece'].reduce((s, k) => s + (fr[k]?.salary || 0), 0);
+
+  const slotDefs = [
+    { key: 'star1', label: 'Star 1' },
+    { key: 'star2', label: 'Star 2' },
+    { key: 'corePiece', label: 'Core Piece' },
+  ];
+
+  const aiTeamNames = ['Dallas Lone Stars', 'Bay City Gold', 'New York Titans', 'Chicago Wolves', 'Los Angeles Crown', 'Seattle Rain', 'Miami Surge'];
+
+  function doSign(player, slotName) {
+    setFr(prev => signToSlot(prev, slotName, player));
+    setPool(prev => prev.filter(p => p.id !== player.id));
+  }
+
+  function attemptSign(player, slotName) {
+    // 25% chance another team is also interested — trigger bidding war
+    if (Math.random() < 0.25) {
+      const boostPct = 0.10 + Math.random() * 0.10;
+      const aiSalary = Math.round(player.salary * (1 + boostPct) * 10) / 10;
+      const aiTeamName = aiTeamNames[Math.floor(Math.random() * aiTeamNames.length)];
+      setBiddingWar({ player, slotName, aiSalary, aiTeamName });
+    } else {
+      doSign(player, slotName);
+    }
+  }
+
+  function acceptBid(matchBoost) {
+    if (!biddingWar) return;
+    const newSalary = Math.round(biddingWar.aiSalary * (1 + matchBoost) * 10) / 10;
+    const adjustedPlayer = { ...biddingWar.player, salary: newSalary };
+    doSign(adjustedPlayer, biddingWar.slotName);
+    setBiddingWar(null);
+  }
+
+  function walkAway() {
+    // AI gets the player — remove from pool
+    setPool(prev => prev.filter(p => p.id !== biddingWar?.player?.id));
+    setBiddingWar(null);
+  }
+
+  function doRelease(slotName) {
+    setFr(prev => releaseSlot(prev, slotName));
+  }
+
+  return (
+    <div style={{ maxWidth: 800, margin: '0 auto', padding: '20px 12px' }}>
+      <h2 className="font-display section-header" style={{ fontSize: '1.2rem', borderBottomColor: fr.primaryColor || 'var(--red)' }}>Free Agency</h2>
+      <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)', marginBottom: 16 }}>
+        <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: fr.primaryColor || 'var(--ink-muted)', marginRight: 6, verticalAlign: 'middle' }} />
+        {fr.city} {fr.name} — Sign players to your 3 franchise slots. Budget: ${budget}M/season.
+      </p>
+
+      {/* Current slots */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(200px,1fr))', gap: 10, marginBottom: 16 }}>
+        {slotDefs.map(({ key, label }) => {
+          const player = fr[key];
+          return (
+            <div key={key} className="card-elevated" style={{ padding: 14 }}>
+              <div className="font-display" style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-muted)', marginBottom: 6, letterSpacing: '0.08em' }}>{label}</div>
+              {player ? (
+                <>
+                  <div className="font-display" style={{ fontSize: '0.95rem', fontWeight: 700 }}>{player.name}</div>
+                  <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>{player.position} · {player.rating} rtg · ${player.salary}M</div>
+                  <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '3px 8px', marginTop: 6, borderColor: 'var(--red)', color: 'var(--red)' }} onClick={() => doRelease(key)}>
+                    Release
+                  </button>
+                </>
+              ) : (
+                <div style={{ color: 'var(--ink-muted)', fontSize: '0.78rem', fontStyle: 'italic' }}>Empty Slot</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Budget bar */}
+      <div className="card" style={{ padding: '10px 14px', marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+          <span className="stat-label">Slot Budget</span>
+          <span className="font-mono" style={{ fontSize: '0.75rem' }}>
+            ${usedBudget}M / ${budget}M
+            <span style={{ color: usedBudget > budget ? 'var(--red)' : 'var(--green)', marginLeft: 6 }}>
+              (${budget - usedBudget}M free)
+            </span>
+          </span>
+        </div>
+        <div className="progress-bar">
+          <div className="progress-bar-fill" style={{ width: `${Math.min(100, (usedBudget / budget) * 100)}%`, background: usedBudget > budget ? 'var(--red)' : 'var(--green)' }} />
+        </div>
+      </div>
+
+      {/* FA pool */}
+      {pool.length > 0 && (
+        <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+          <h3 className="font-display" style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: 10 }}>Available Free Agents</h3>
+          <div className="table-wrap">
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid var(--cream-darker)' }}>
+                  {['Name', 'Pos', 'Age', 'Rtg', '$M', 'Trait', 'Sign To'].map(h => (
+                    <th key={h} className="stat-label" style={{ padding: '6px 8px', textAlign: 'left' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[...pool].sort((a, b) => b.rating - a.rating).map(p => {
+                  const canAfford = (fr.cash || 0) >= p.salary;
+                  const wouldOverBudget = usedBudget + p.salary > budget;
+                  return (
+                    <tr key={p.id} style={{ borderBottom: '1px solid var(--cream-dark)' }}>
+                      <td className="font-body" style={{ padding: '6px 8px', fontWeight: 500 }}>{p.name}</td>
+                      <td className="font-mono" style={{ padding: '6px 8px' }}>{p.position}</td>
+                      <td className="font-mono" style={{ padding: '6px 8px' }}>{p.age}</td>
+                      <td className="font-mono" style={{ padding: '6px 8px', fontWeight: 600, color: p.rating >= 85 ? 'var(--green)' : p.rating >= 70 ? 'var(--ink)' : 'var(--ink-muted)' }}>{p.rating}</td>
+                      <td className="font-mono" style={{ padding: '6px 8px' }}>${p.salary}M</td>
+                      <td>{p.trait && <span className="badge badge-ink">{p.trait}</span>}</td>
+                      <td style={{ padding: '6px 8px' }}>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {slotDefs.map(({ key, label }) => {
+                            const slotFull = !!fr[key];
+                            return (
+                              <button
+                                key={key}
+                                className="btn-secondary"
+                                style={{ fontSize: '0.7rem', padding: '3px 6px', opacity: (!canAfford || wouldOverBudget || slotFull) ? 0.4 : 1 }}
+                                disabled={!canAfford || wouldOverBudget || slotFull}
+                                onClick={() => attemptSign(p, key)}
+                                title={slotFull ? 'Slot full' : !canAfford ? 'Insufficient cash' : wouldOverBudget ? 'Over budget' : `Sign to ${label}`}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {pool.length === 0 && (
+        <div className="card" style={{ padding: 14, textAlign: 'center', color: 'var(--ink-muted)', fontSize: '0.8rem' }}>
+          Free agent pool exhausted.
+        </div>
+      )}
+
+      {/* Bidding War Modal */}
+      {biddingWar && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(30,26,20,0.55)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16,
+        }}>
+          <div className="card-elevated" style={{ maxWidth: 420, width: '100%', padding: 20, border: '2px solid var(--amber)' }}>
+            <h3 className="font-display" style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--amber)', marginBottom: 6 }}>
+              Bidding War!
+            </h3>
+            <p className="font-body" style={{ fontSize: '0.82rem', color: 'var(--ink-soft)', lineHeight: 1.55, marginBottom: 12 }}>
+              <strong>{biddingWar.aiTeamName}</strong> is also pursuing <strong>{biddingWar.player.name}</strong> and has
+              offered <strong>${biddingWar.aiSalary}M/yr</strong>.
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                className="btn-primary"
+                style={{ fontSize: '0.72rem', padding: '7px 14px' }}
+                disabled={(fr.cash || 0) < biddingWar.aiSalary}
+                onClick={() => acceptBid(0)}
+              >
+                Match — ${biddingWar.aiSalary}M/yr
+              </button>
+              <button
+                className="btn-secondary"
+                style={{ fontSize: '0.72rem', padding: '7px 14px', borderColor: 'var(--green)', color: 'var(--green)' }}
+                disabled={(fr.cash || 0) < Math.round(biddingWar.aiSalary * 1.10 * 10) / 10}
+                onClick={() => acceptBid(0.10)}
+              >
+                Outbid (+10%) — ${Math.round(biddingWar.aiSalary * 1.10 * 10) / 10}M/yr
+              </button>
+              <button
+                className="btn-secondary"
+                style={{ fontSize: '0.72rem', padding: '7px 14px', borderColor: 'var(--red)', color: 'var(--red)' }}
+                onClick={walkAway}
+              >
+                Walk Away
+              </button>
+            </div>
+            <p className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginTop: 8 }}>
+              Walk away = {biddingWar.aiTeamName} signs {biddingWar.player.name}.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* League Transactions Feed */}
+      {aiSigningsLog && aiSigningsLog.length > 0 && (
+        <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <h3 className="font-display" style={{ fontSize: '0.78rem', fontWeight: 700 }}>League Transactions</h3>
+            <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '3px 8px' }} onClick={() => setShowTransactions(t => !t)}>
+              {showTransactions ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          {showTransactions && (
+            <div style={{ maxHeight: 160, overflowY: 'auto' }}>
+              {aiSigningsLog.map((s, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px solid var(--cream-dark)', fontSize: '0.7rem' }}>
+                  <span className="font-body">{s.teamName}</span>
+                  <span className="font-mono" style={{ color: 'var(--ink-muted)' }}>signed {s.player.name} · {s.player.rating} rtg · ${s.player.salary}M</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ textAlign: 'center', marginTop: 12 }}>
+        <button className="btn-gold" style={{ padding: '12px 32px', fontSize: '0.9rem' }} onClick={onDone}>
+          Done — Start Next Season
+        </button>
+      </div>
+    </div>
+  );
+}
