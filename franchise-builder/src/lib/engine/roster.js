@@ -813,6 +813,141 @@ export function generateExtensionDemands(f, gmRep) {
   return events;
 }
 
+// ============================================================
+// END-OF-SEASON UNIFIED AGING — 1.1
+// ============================================================
+
+/**
+ * Applies end-of-season aging to ALL players in a single pass, covering both
+ * slot players (star1, star2, corePiece) and any additional players in
+ * fr.players[]. Deduplicates by player id so no player is processed twice.
+ *
+ * Handles: age increment, contract year decrement, predictDev math (inlined),
+ * morale shifts, retirement flagging, local legend marking, contract expiry,
+ * age-out retirement, and slot field sync.
+ *
+ * NOTE: The development calculation here uses the same formula as predictDev()
+ * in simulation.js (PEAK_AGES, trait bonuses, ceiling penalty, random variance).
+ * It is intentionally inlined to avoid a circular import between roster.js and
+ * simulation.js (simulation.js already imports from roster.js).
+ *
+ * @param {Object} franchise - Franchise state
+ * @param {number} winPct - Season win percentage (0–1)
+ * @returns {Object} Updated franchise state
+ */
+export function endOfSeasonAging(franchise, winPct) {
+  let fr = { ...franchise };
+  const lg = fr.league;
+  const devStaff = fr.developmentStaff || 1;
+
+  // ── Step 1: Collect all unique players from slots AND fr.players[] ──────
+  const seen = new Set();
+  const allPlayers = [];
+  for (const key of ['star1', 'star2', 'corePiece']) {
+    const p = fr[key];
+    if (p && !seen.has(p.id)) { seen.add(p.id); allPlayers.push(p); }
+  }
+  for (const p of (fr.players || [])) {
+    if (p && !seen.has(p.id)) { seen.add(p.id); allPlayers.push(p); }
+  }
+
+  // ── Step 2: Age each unique player ─────────────────────────────────────
+  const [ps, pe] = PEAK_AGES[lg] || [26, 30];
+  const localLegendsToAdd = [];
+
+  const agedPlayers = allPlayers.map(p => {
+    const aged = { ...p };
+    aged.age = p.age + 1;
+    aged.yearsLeft = Math.max(0, p.yearsLeft - 1);
+    aged.seasonsPlayed = (p.seasonsPlayed || 0) + 1;
+    aged.seasonsWithTeam = (p.seasonsWithTeam || 0) + 1;
+
+    // Development rating change — same math as predictDev() in simulation.js
+    if (!p.injured || p.injurySeverity !== 'severe') {
+      const ageFactor = aged.age < ps
+        ? (ps - aged.age) * 0.6
+        : aged.age <= pe ? 0.3 : -(aged.age - pe) * 0.8;
+      let traitBonus = 0;
+      if (p.trait === 'hometown') traitBonus = 0.3;
+      else if (p.trait === 'volatile') traitBonus = randFloat(-1, 1.5);
+      else if (p.trait === 'leader') traitBonus = 0.2;
+      const ceilingPenalty = p.rating > 85 ? -(p.rating - 85) * 0.15 : 0;
+      const delta = Math.round(clamp(
+        ageFactor + devStaff * 0.5 + (p.morale - 50) * 0.015 + traitBonus + ceilingPenalty + randFloat(-1.5, 1.5),
+        -5, 8
+      ));
+      aged.rating = clamp(p.rating + delta, 40, 99);
+      aged.careerStats = {
+        ...aged.careerStats,
+        seasons: (aged.careerStats?.seasons || 0) + 1,
+        bestRating: Math.max(aged.rating, aged.careerStats?.bestRating || 0),
+      };
+    } else {
+      aged.careerStats = { ...aged.careerStats, seasons: (aged.careerStats?.seasons || 0) + 1 };
+    }
+
+    // Morale shift
+    if (winPct > 0.6) aged.morale = clamp(aged.morale + rand(2, 5), 0, 100);
+    else if (winPct < 0.35) aged.morale = clamp(aged.morale - rand(2, 6), 0, 100);
+    if (p.trait === 'volatile') aged.morale = clamp(aged.morale + rand(-10, 10), 0, 100);
+
+    // Retirement flag
+    if (aged.age >= 35 && Math.random() < 0.3) {
+      aged.retired = true;
+      if (aged.seasonsWithTeam >= 5 && aged.rating >= 70) {
+        localLegendsToAdd.push({
+          name: aged.name,
+          rating: aged.careerStats?.bestRating || aged.rating,
+          seasons: aged.seasonsWithTeam,
+        });
+      }
+    }
+
+    // Local legend
+    if (aged.seasonsWithTeam >= 5 && aged.rating >= 70) aged.isLocalLegend = true;
+
+    return aged;
+  });
+
+  // Apply local legends and fan rating bumps to franchise
+  if (localLegendsToAdd.length > 0) {
+    fr = {
+      ...fr,
+      localLegends: [...(fr.localLegends || []), ...localLegendsToAdd],
+      fanRating: clamp((fr.fanRating || 50) + localLegendsToAdd.length * 3, 0, 100),
+    };
+  }
+
+  // Build id → aged player lookup
+  const agedMap = new Map(agedPlayers.map(p => [p.id, p]));
+
+  // ── Step 3: Contract expiry & age-out for slot fields ─────────────────
+  let star1 = fr.star1 ? (agedMap.get(fr.star1.id) ?? fr.star1) : null;
+  let star2 = fr.star2 ? (agedMap.get(fr.star2.id) ?? fr.star2) : null;
+  let corePiece = fr.corePiece ? (agedMap.get(fr.corePiece.id) ?? fr.corePiece) : null;
+
+  // Retired players leave
+  if (star1?.retired) star1 = null;
+  if (star2?.retired) star2 = null;
+  if (corePiece?.retired) corePiece = null;
+
+  // Contract expiry: yearsLeft <= 0 → 65% chance leave
+  if (star1 && star1.yearsLeft <= 0 && Math.random() < 0.65) star1 = null;
+  if (star2 && star2.yearsLeft <= 0 && Math.random() < 0.65) star2 = null;
+  if (corePiece && corePiece.yearsLeft <= 0 && Math.random() < 0.65) corePiece = null;
+
+  // Age-out: star1/star2 age >= 36 → 40%; corePiece age >= 37 → 50%
+  if (star1 && star1.age >= 36 && Math.random() < 0.4) star1 = null;
+  if (star2 && star2.age >= 36 && Math.random() < 0.4) star2 = null;
+  if (corePiece && corePiece.age >= 37 && Math.random() < 0.5) corePiece = null;
+
+  // ── Step 4: Sync slot fields and rebuild players[] ────────────────────
+  fr = { ...fr, star1, star2, corePiece };
+  fr.players = [fr.star1, fr.star2, fr.corePiece].filter(Boolean);
+
+  return fr;
+}
+
 /**
  * Applies a contract extension to a franchise slot player.
  * @param {Object} f - Franchise state

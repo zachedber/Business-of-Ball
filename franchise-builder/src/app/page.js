@@ -43,6 +43,7 @@ import FranchiseSelectionScreen from '@/app/screens/FranchiseSelectionScreen';
 import Dashboard from '@/app/screens/DashboardScreen';
 import DraftFlowScreen from '@/app/screens/DraftFlowScreen';
 import FreeAgencyFlowScreen from '@/app/screens/FreeAgencyScreen';
+import SlotDecisionScreen from '@/app/screens/SlotDecisionScreen';
 import PlayoffBracketScreen from '@/app/screens/PlayoffScreen';
 import LeagueScreen from '@/app/screens/LeagueScreen';
 import MarketScreen from '@/app/screens/MarketScreen';
@@ -64,7 +65,7 @@ export default function App() {
     tradeDeadlineActive, tradeDeadlineLeague,
     playoffActive, playoffResult, aiSigningsLog,
     draftActive, draftPicks, draftProspects, draftDone,
-    freeAgencyActive, offseasonFAPool,
+    freeAgencyActive, offseasonFAPool, slotDecisionActive,
     notifications, recap, grade, events, pressConf,
     newspaper, newspaperDismissed,
     cbaEvent, namingOffer, saveStatus, helpOpen, leagueHistory,
@@ -286,10 +287,32 @@ export default function App() {
 
   function handleDraftDone() {
     const af = fr[activeIdx];
-    const fullPool = generateOffseasonFAPool(af.league, gmRep, 18);
-    const { signed: aiSigned, remaining: playerPool } = simulateAIFreeAgency(fullPool, lt || { ngl: [], abl: [] }, af.league);
-    dispatch({ type: 'DRAFT_CLOSE' });
-    dispatch({ type: 'FA_OPEN', payload: { offseasonFAPool: playerPool, aiSigningsLog: aiSigned } });
+
+    // FA pool lock (1.2): only generate once per offseason; reuse if already populated
+    let playerPool, aiSigned;
+    if (offseasonFAPool && offseasonFAPool.length > 0) {
+      playerPool = offseasonFAPool;
+      aiSigned = aiSigningsLog || [];
+    } else {
+      const fullPool = generateOffseasonFAPool(af.league, gmRep, 18);
+      const result = simulateAIFreeAgency(fullPool, lt || { ngl: [], abl: [] }, af.league);
+      playerPool = result.remaining;
+      aiSigned = result.signed;
+    }
+
+    // Slot decision (1.5): show if any slot is vacant and depth candidates exist
+    const needsSlotDecision = (!af.star1 || !af.star2 || !af.corePiece) && af.players.length > 0;
+    if (needsSlotDecision) {
+      dispatch({ type: 'SLOT_DECISION_OPEN', payload: { offseasonFAPool: playerPool, aiSigningsLog: aiSigned } });
+    } else {
+      dispatch({ type: 'DRAFT_CLOSE' });
+      dispatch({ type: 'FA_OPEN', payload: { offseasonFAPool: playerPool, aiSigningsLog: aiSigned } });
+    }
+  }
+
+  function handleSlotDecisionDone() {
+    dispatch({ type: 'SLOT_DECISION_CLOSE' });
+    dispatch({ type: 'FA_OPEN', payload: { offseasonFAPool: offseasonFAPool, aiSigningsLog: aiSigningsLog } });
   }
 
   function handleFreeAgencyDone() {
@@ -609,8 +632,17 @@ export default function App() {
           />
         )}
 
-        {/* Free agency flow — shown after draft */}
-        {freeAgencyActive && !draftActive && af && (
+        {/* Slot decision flow — shown between draft and FA when slots are vacant */}
+        {slotDecisionActive && !draftActive && !freeAgencyActive && af && (
+          <SlotDecisionScreen
+            fr={af}
+            setFr={setActiveFr}
+            onDone={handleSlotDecisionDone}
+          />
+        )}
+
+        {/* Free agency flow — shown after draft (and slot decisions if any) */}
+        {freeAgencyActive && !draftActive && !slotDecisionActive && af && (
           <FreeAgencyFlowScreen
             fr={af}
             setFr={setActiveFr}
@@ -643,7 +675,7 @@ export default function App() {
           />
         )}
 
-        {screen === 'dashboard' && af && !tradeDeadlineActive && !draftActive && !freeAgencyActive && !playoffActive && (
+        {screen === 'dashboard' && af && !tradeDeadlineActive && !draftActive && !slotDecisionActive && !freeAgencyActive && !playoffActive && (
           <Dashboard
             fr={af}
             setFr={setActiveFr}
