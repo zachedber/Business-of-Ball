@@ -89,14 +89,14 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
         padding: '20px 24px',
         textAlign: 'center',
         marginBottom: 16,
-        borderBottom: '4px solid var(--red)',
+        borderBottom: `4px solid ${fr.primaryColor || 'var(--red)'}`,
       }}>
         <div className="font-display" style={{
           fontSize: 'clamp(1.6rem, 6vw, 2.4rem)',
           fontWeight: 700,
           letterSpacing: '0.12em',
           textTransform: 'uppercase',
-          color: 'var(--red)',
+          color: fr.primaryColor || 'var(--red)',
         }}>
           ⏸ TRADE DEADLINE
         </div>

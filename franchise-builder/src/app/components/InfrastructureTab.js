@@ -65,13 +65,13 @@ function StadiumSection({ fr, setFr, season }) {
 
   function handleBuyBoxes() {
     if (!canAfford(fr.cash, 2)) return;
-    const result = purchasePremiumSeating(fr, 'luxury', 1);
+    const result = purchasePremiumSeating(fr, 'luxury_box', 1);
     if (result) setFr(() => result);
   }
 
   function handleBuyClubSeats() {
     if (!canAfford(fr.cash, 0.5)) return;
-    const result = purchasePremiumSeating(fr, 'club', 1);
+    const result = purchasePremiumSeating(fr, 'club_section', 1);
     if (result) setFr(() => result);
   }
 
