@@ -27,7 +27,7 @@ import {
   initFranchiseRecords, updateFranchiseRecords, evaluateHallOfFame,
   initHeadToHead, updateHeadToHead, initRivalry, updateRivalry, getRivalryTier, getRivalryPlayoffNarrative,
   initDraftPickInventory,
-  formatMoney, generateTVDealEvent, calculateAdjustedCap,
+  formatMoney, generateTVDealEvent, calculateAdjustedCap, formatLabel,
 } from '@/lib/engine';
 import {
   NGL_TEAMS, ABL_TEAMS, MARKET_TIERS, getMarketTier, getMarketTierInfo,
@@ -207,8 +207,9 @@ function FranchiseSelectionScreen({ onCreate }) {
                 cursor: isABL ? 'not-allowed' : 'pointer',
                 textAlign: 'left',
                 border: isSelected ? '2px solid var(--red)' : '1px solid var(--cream-darker)',
+                borderLeft: `3px solid ${team.primaryColor || 'var(--cream-darker)'}`,
                 background: isSelected ? '#fef5f5' : isABL ? '#f5f5f0' : 'var(--cream)',
-                transition: 'border-color 0.15s',
+                transition: 'border-color 0.2s, box-shadow 0.2s',
                 position: 'relative',
                 opacity: isABL ? 0.7 : 1,
               }}
@@ -217,7 +218,7 @@ function FranchiseSelectionScreen({ onCreate }) {
                 <div className="font-display" style={{ fontSize: '0.9rem', fontWeight: 700, lineHeight: 1.2 }}>
                   {team.city}<br />{team.name}
                 </div>
-                <span className="badge badge-ink" style={{ fontSize: '0.55rem', background: team.league === 'ngl' ? '#1a3a5c' : '#2d5a3d', color: '#fff', marginLeft: 6, flexShrink: 0 }}>
+                <span className="badge badge-ink" style={{ fontSize: '0.55rem', background: team.primaryColor || (team.league === 'ngl' ? '#1a3a5c' : '#2d5a3d'), color: '#fff', marginLeft: 6, flexShrink: 0 }}>
                   {team.league === 'ngl' ? 'NGL' : 'ABL'}
                 </span>
               </div>
@@ -343,7 +344,7 @@ function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve,
           </h2>
           <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>
             {fr.league === 'ngl' ? 'NGL' : 'ABL'} · S{fr.season || 1} · {fr.coach.name}
-            {fr.economyCycle === 'boom' ? ' UP' : fr.economyCycle === 'recession' ? ' DOWN' : ''}
+            {fr.economyCycle !== 'stable' ? ` · ${formatLabel(fr.economyCycle)}` : ''}
             {' · '}<span style={{ color: 'var(--ink-muted)' }}>{gmTier.badge} {gmTier.label}</span>
           </div>
         </div>
@@ -632,7 +633,7 @@ function SlotsTab({ fr, setFr, gmRep }) {
                   </div>
                   {player.trait && (
                     <span className={`badge ${player.trait === 'leader' ? 'badge-green' : player.trait === 'mercenary' ? 'badge-amber' : ['volatile', 'injury_prone'].includes(player.trait) ? 'badge-red' : 'badge-ink'}`} style={{ marginBottom: 8, display: 'inline-block' }}>
-                      {player.trait}
+                      {formatLabel(player.trait)}
                     </span>
                   )}
                   <div style={{ marginTop: 6 }}>
