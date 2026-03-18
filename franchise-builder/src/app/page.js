@@ -22,7 +22,7 @@ import {
   applyStadiumUpgrade, startStadiumProject, calculatePublicFundingApproval,
   purchasePremiumSeating, generateNewStadiumNamingRightsOffer,
   generateStaffCandidates, fireCoordinator, hireCoordinator,
-  calculateSchemeFit,
+  calculateSchemeFit, canAfford,
 } from '@/lib/engine';
 import {
   NGL_TEAMS, ABL_TEAMS, MARKET_TIERS, getMarketTier, getMarketTierInfo,
@@ -36,8 +36,9 @@ import {
 import TradeDeadlineScreen from '@/app/components/TradeDeadlineScreen';
 import NotificationsPanel, { NotificationBadge } from '@/app/components/NotificationsPanel';
 import AnalyticsScreen, { Sparkline } from '@/app/components/AnalyticsScreen';
-import StadiumTab from '@/app/components/StadiumTab';
+import InfrastructureTab from '@/app/components/InfrastructureTab';
 import StaffTab from '@/app/components/StaffTab';
+import HelpPanel from '@/app/components/HelpPanel';
 
 // ============================================================
 // TICKER
@@ -356,17 +357,15 @@ function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve,
         </div>
       </div>
       <div className="tab-nav" style={{ marginBottom: 12 }}>
-        {['home', 'slots', 'coach', 'staff', 'biz', 'stadium', 'facilities', 'finance', 'legacy', 'history'].map(t => (
-          <button key={t} className={`tab-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>{t}</button>
+        {['home', 'slots', 'staff', 'biz', 'infra', 'finance', 'legacy', 'history'].map(t => (
+          <button key={t} className={`tab-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>{t === 'infra' ? 'infrastructure' : t}</button>
         ))}
       </div>
       {tab === 'home' && <HomeTab fr={fr} onSim={onSim} simming={simming} recap={recap} grade={grade} events={events} onResolve={onResolve} pressConf={pressConf} onPressConf={onPressConf} newspaper={newspaper} newspaperDismissed={newspaperDismissed} onDismissNewspaper={onDismissNewspaper} cbaEvent={cbaEvent} onCBA={onCBA} namingOffer={namingOffer} onNaming={onNaming} notifications={notifications} onDismissNotif={onDismissNotif} />}
       {tab === 'slots' && <SlotsTab fr={fr} setFr={setFr} gmRep={gmRep} />}
-      {tab === 'coach' && <CoachTab fr={fr} setFr={setFr} gmRep={gmRep} />}
       {tab === 'staff' && <StaffTab fr={fr} setFr={setFr} gmRep={gmRep} />}
       {tab === 'biz' && <BizTab fr={fr} setFr={setFr} />}
-      {tab === 'stadium' && <StadiumTab fr={fr} setFr={setFr} season={fr.season || 1} />}
-      {tab === 'facilities' && <FacTab fr={fr} setFr={setFr} onCashChange={onCashChange} />}
+      {tab === 'infra' && <InfrastructureTab fr={fr} setFr={setFr} season={fr.season || 1} onCashChange={onCashChange} />}
       {tab === 'finance' && <DashFinanceTab fr={fr} />}
       {tab === 'legacy' && <LegacyTab fr={fr} />}
       {tab === 'history' && <HistTab fr={fr} />}
@@ -817,8 +816,8 @@ function BizTab({ fr, setFr }) {
           <div><span className="stat-label">Interest</span><div className="stat-value">8%/yr</div></div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <button className="btn-secondary" style={{ fontSize: '0.7rem' }} disabled={(fr.debt || 0) >= maxLoan(fr)} onClick={() => setFr(p => takeLoan(p, 10))}>Borrow $10M</button>
-          <button className="btn-secondary" style={{ fontSize: '0.7rem' }} disabled={!(fr.debt > 0 && fr.cash >= 10)} onClick={() => setFr(p => repayDebt(p, 10))}>Repay $10M</button>
+          <button className="btn-secondary" style={{ fontSize: '0.7rem', opacity: (fr.debt || 0) >= maxLoan(fr) ? 0.4 : 1 }} disabled={(fr.debt || 0) >= maxLoan(fr)} onClick={() => setFr(p => takeLoan(p, 10))}>Borrow $10M</button>
+          <button className="btn-secondary" style={{ fontSize: '0.7rem', opacity: !(fr.debt > 0 && canAfford(fr.cash, 10)) ? 0.4 : 1 }} disabled={!(fr.debt > 0 && canAfford(fr.cash, 10))} onClick={() => setFr(p => repayDebt(p, 10))}>Repay $10M</button>
         </div>
       </div>
       {fr.namingRightsActive && (
@@ -2249,6 +2248,7 @@ export default function App() {
   const [cbaEvent, setCbaEvent] = useState(null);
   const [namingOffer, setNamingOffer] = useState(null);
   const [saveStatus, setSaveStatus] = useState('saved');
+  const [helpOpen, setHelpOpen] = useState(false);
 
   // Keep global cash in sync with active franchise cash
   useEffect(() => {
@@ -2809,6 +2809,26 @@ export default function App() {
           <AnalyticsScreen fr={af} lt={lt} stakes={stakes} season={season} />
         )}
       </main>
+
+      {/* Help Panel */}
+      <HelpPanel open={helpOpen} onClose={() => setHelpOpen(false)} />
+
+      {/* Floating help button */}
+      {fr.length > 0 && !helpOpen && (
+        <button
+          onClick={() => setHelpOpen(true)}
+          style={{
+            position: 'fixed', bottom: 48, right: 12, width: 36, height: 36,
+            borderRadius: '50%', background: 'var(--ink)', color: 'var(--cream)',
+            border: 'none', fontSize: '1rem', fontWeight: 700, cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.2)', zIndex: 50,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+          title="Help & Reference"
+        >
+          ?
+        </button>
+      )}
 
       {/* Save indicator */}
       <div style={{ position: 'fixed', bottom: 8, right: 8, padding: '3px 8px', borderRadius: 2, background: saveStatus === 'saving' ? 'var(--amber)' : 'var(--green)', color: '#fff', fontSize: '0.6rem', fontFamily: 'var(--font-mono)', opacity: 0.7 }}>
