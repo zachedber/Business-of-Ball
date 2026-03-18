@@ -326,7 +326,7 @@ function MiniChart({ data, width = 280, height = 80, color = 'var(--red)' }) {
 // ============================================================
 // DASHBOARD
 // ============================================================
-function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve, pressConf, onPressConf, newspaper, newspaperDismissed, onDismissNewspaper, cbaEvent, onCBA, namingOffer, onNaming, gmRep, notifications, onDismissNotif, onCashChange }) {
+function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve, pressConf, onPressConf, newspaper, newspaperDismissed, onDismissNewspaper, cbaEvent, onCBA, namingOffer, onNaming, gmRep, notifications, onDismissNotif, onCashChange, leagueHistory }) {
   const [tab, setTab] = useState('home');
   const cap = useMemo(() => calculateCapSpace(fr), [fr]);
   const val = useMemo(() => calculateValuation(fr), [fr]);
@@ -2979,6 +2979,7 @@ export default function App() {
               setCash(newCash);
               setFr(prev => prev.map((f, i) => i === activeIdx ? { ...f, cash: newCash } : f));
             }}
+            leagueHistory={leagueHistory}
           />
         )}
 
