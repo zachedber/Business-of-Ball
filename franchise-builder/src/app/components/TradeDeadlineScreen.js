@@ -80,7 +80,7 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
   );
 
   return (
-    <div className="fade-in" style={{ maxWidth: 800, margin: '0 auto', padding: '16px 12px' }}>
+    <div className="fade-in" style={{ maxWidth: 860, margin: '0 auto', padding: '16px 12px' }}>
 
       {/* ── HEADER BANNER ── */}
       <div style={{
@@ -100,20 +100,20 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
         }}>
           ⏸ TRADE DEADLINE
         </div>
-        <div className="font-mono" style={{ fontSize: '0.75rem', marginTop: 4, color: '#ccc' }}>
+        <div className="font-mono" style={{ fontSize: '0.8rem', marginTop: 6, color: '#ccc' }}>
           The season pauses. Make your moves before the second half begins.
         </div>
       </div>
 
       {/* ── HALF-SEASON RECORD ── */}
-      <div className="card-elevated" style={{ padding: '14px 20px', marginBottom: 12 }}>
+      <div className="card-elevated" style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <div>
             <div className="stat-label">First Half Record</div>
             <div className="font-display" style={{ fontSize: '2rem', fontWeight: 700 }}>
               {halfWins}–{halfLosses}
             </div>
-            <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>
+            <div className="font-mono" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
               {totalHalfGames > 0
                 ? `${((halfWins / totalHalfGames) * 100).toFixed(0)}% win rate`
                 : 'Season paused'}
@@ -153,7 +153,7 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
           border: '1px solid var(--red)',
           color: 'var(--red)',
           padding: '8px 14px',
-          borderRadius: 2,
+          borderRadius: 6,
           fontSize: '0.8rem',
           marginBottom: 10,
           fontFamily: 'var(--font-body)',
@@ -168,8 +168,8 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
           background: '#fff3e0',
           border: '1px solid var(--amber)',
           padding: '8px 14px',
-          borderRadius: 2,
-          fontSize: '0.75rem',
+          borderRadius: 6,
+          fontSize: '0.8rem',
           color: 'var(--ink-soft)',
           marginBottom: 10,
           fontFamily: 'var(--font-mono)',
@@ -179,14 +179,14 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
       )}
 
       {/* ── CURRENT ROSTER ── */}
-      <div className="card" style={{ padding: 16, marginBottom: 12 }}>
+      <div className="card" style={{ marginBottom: 12 }}>
         <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Current Roster</h3>
         <div className="table-wrap">
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid var(--cream-darker)' }}>
                 {['Player', 'Pos', 'Age', 'Rtg', '$M/yr', 'Yrs', 'Trait', ''].map(h => (
-                  <th key={h} className="stat-label" style={{ padding: '6px 8px', textAlign: 'left' }}>{h}</th>
+                  <th key={h} className="stat-label" style={{ padding: '10px 12px', textAlign: 'left' }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -194,40 +194,40 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
               {sortedRoster.map(player => (
                 <tr key={player.id} style={{
                   borderBottom: '1px solid var(--cream-dark)',
-                  background: player.injured ? '#fef5f5' : 'transparent',
+                  background: player.injured ? 'rgba(200,32,42,0.06)' : 'transparent',
                 }}>
-                  <td className="font-body" style={{ padding: '6px 8px', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                  <td className="font-body" style={{ padding: '10px 12px', fontWeight: 500, whiteSpace: 'nowrap' }}>
                     {player.name}
                     {player.isLocalLegend && <span style={{ color: 'var(--gold)', marginLeft: 3 }}>★</span>}
-                    {player.injured && <span style={{ color: 'var(--red)', marginLeft: 3, fontSize: '0.6rem' }}>INJ</span>}
+                    {player.injured && <span style={{ color: 'var(--red)', marginLeft: 4, fontSize: '0.7rem' }}>INJ</span>}
                   </td>
-                  <td className="font-mono" style={{ padding: '6px 8px' }}>{player.position}</td>
-                  <td className="font-mono" style={{ padding: '6px 8px' }}>{player.age}</td>
+                  <td className="font-mono" style={{ padding: '10px 12px' }}>{player.position}</td>
+                  <td className="font-mono" style={{ padding: '10px 12px' }}>{player.age}</td>
                   <td className="font-mono" style={{
-                    padding: '6px 8px',
+                    padding: '10px 12px',
                     fontWeight: 600,
                     color: player.rating >= 85 ? 'var(--green)' : player.rating >= 70 ? 'var(--ink)' : 'var(--ink-muted)',
                   }}>
                     {player.rating}
                   </td>
-                  <td className="font-mono" style={{ padding: '6px 8px' }}>{player.salary}</td>
+                  <td className="font-mono" style={{ padding: '10px 12px' }}>{player.salary}</td>
                   <td className="font-mono" style={{
-                    padding: '6px 8px',
+                    padding: '10px 12px',
                     color: player.yearsLeft <= 1 ? 'var(--red)' : 'var(--ink)',
                   }}>
                     {player.yearsLeft}
                   </td>
-                  <td style={{ padding: '6px 8px' }}>
+                  <td style={{ padding: '10px 12px' }}>
                     {player.trait && (
                       <span className={`badge ${player.trait === 'leader' ? 'badge-green' : player.trait === 'mercenary' ? 'badge-amber' : ['volatile', 'injury_prone'].includes(player.trait) ? 'badge-red' : 'badge-ink'}`}>
                         {player.trait}
                       </span>
                     )}
                   </td>
-                  <td style={{ padding: '6px 4px' }}>
+                  <td style={{ padding: '10px 8px' }}>
                     <button
                       className="btn-secondary"
-                      style={{ fontSize: '0.6rem', padding: '3px 8px', borderColor: 'var(--red)', color: 'var(--red)' }}
+                      style={{ fontSize: '0.72rem', borderColor: 'var(--red)', color: 'var(--red)' }}
                       onClick={() => releasePlayer(player.id)}
                     >
                       Release
@@ -241,10 +241,10 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
       </div>
 
       {/* ── FREE AGENT POOL ── */}
-      <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+      <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
           <h3 className="font-display section-header" style={{ fontSize: '0.9rem', marginBottom: 0 }}>Deadline Free Agents</h3>
-          <div className="font-body" style={{ fontSize: '0.72rem', color: 'var(--ink-muted)', fontStyle: 'italic' }}>
+          <div className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)', fontStyle: 'italic' }}>
             Mid-season pool — lower quality than offseason
           </div>
         </div>
@@ -261,15 +261,15 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
                 gap: 8,
               }}>
                 <div>
-                  <div className="font-body" style={{ fontWeight: 500, fontSize: '0.85rem' }}>{fa.name}</div>
-                  <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)', marginTop: 2 }}>
+                  <div className="font-body" style={{ fontWeight: 500, fontSize: '0.9rem' }}>{fa.name}</div>
+                  <div className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', marginTop: 4 }}>
                     {fa.position} · Age {fa.age} · Rtg {fa.rating} · ${fa.salary}M/yr · {fa.yearsLeft}yr
                     {fa.trait && ` · ${fa.trait}`}
                   </div>
                 </div>
                 <button
                   className={canSign ? 'btn-primary' : 'btn-secondary'}
-                  style={{ fontSize: '0.65rem', padding: '6px 14px', opacity: canSign ? 1 : 0.5, minHeight: 36 }}
+                  style={{ fontSize: '0.78rem', opacity: canSign ? 1 : 0.5, minHeight: 36 }}
                   disabled={!canSign}
                   onClick={() => signPlayer(fa)}
                   title={!canSign ? `Need $${fa.salary}M cap space, have $${cap.space}M` : ''}
