@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useReducer, useEffect, useCallback, useRef } from 'react';
 import {
   initializeLeague, createPlayerFranchise,
   simulateFullSeasonFirstHalf, simulateFullSeasonSecondHalf,
@@ -33,6 +33,7 @@ import {
   generateSeasonRecap, generateGMGrade, generateDynastyNarrative,
   generateOffseasonEvents, setNarrativeApiKey, hasNarrativeApi,
 } from '@/lib/narrative';
+import { gameReducer, initialState } from '@/lib/gameReducer';
 import TradeDeadlineScreen from '@/app/components/TradeDeadlineScreen';
 import AnalyticsScreen from '@/app/components/AnalyticsScreen';
 import HelpPanel from '@/app/components/HelpPanel';
@@ -53,59 +54,21 @@ import Settings from '@/app/screens/SettingsScreen';
 // MAIN APP — state management and routing
 // ============================================================
 export default function App() {
-  const [screen, setScreen] = useState('intro');
-  const [loading, setLoading] = useState(true);
+  const [state, dispatch] = useReducer(gameReducer, initialState);
 
-  // Financial & identity state
-  const [cash, setCash] = useState(0);
-  const [gmRep, setGmRep] = useState(50);
-  const [dynasty, setDynasty] = useState([]);
-
-  // Core game state
-  const [lt, setLt] = useState(null);
-  const [fr, setFr] = useState([]);
-  const [stakes, setStakes] = useState([]);
-  const [season, setSeason] = useState(1);
-  const [freeAg, setFreeAg] = useState({ ngl: [], abl: [] });
-  const [activeIdx] = useState(0);
-
-  // Simulation state
-  const [simming, setSimming] = useState(false);
-  const [tradeDeadlineActive, setTradeDeadlineActive] = useState(false);
-  const [tradeDeadlineLeague, setTradeDeadlineLeague] = useState(null);
-
-  // Playoff state
-  const [playoffActive, setPlayoffActive] = useState(false);
-  const [playoffResult, setPlayoffResult] = useState(null);
-  const [aiSigningsLog, setAiSigningsLog] = useState([]);
-
-  // Draft & free agency flow state
-  const [draftActive, setDraftActive] = useState(false);
-  const [draftPicks, setDraftPicks] = useState([]);
-  const [draftProspects, setDraftProspects] = useState([]);
-  const [draftDone, setDraftDone] = useState(false);
-  const [freeAgencyActive, setFreeAgencyActive] = useState(false);
-  const [offseasonFAPool, setOffseasonFAPool] = useState([]);
-
-  // UI / event state
-  const [notifications, setNotifications] = useState([]);
-  const [recap, setRecap] = useState(null);
-  const [grade, setGrade] = useState(null);
-  const [events, setEvents] = useState([]);
-  const [pressConf, setPressConf] = useState(null);
-  const [newspaper, setNewspaper] = useState(null);
-  const [newspaperDismissed, setNewspaperDismissed] = useState(true);
-  const [cbaEvent, setCbaEvent] = useState(null);
-  const [namingOffer, setNamingOffer] = useState(null);
-  const [saveStatus, setSaveStatus] = useState('saved');
-  const [helpOpen, setHelpOpen] = useState(false);
-  const [leagueHistory, setLeagueHistory] = useState(() => initLeagueHistory());
-
-  // Keep global cash in sync with active franchise cash
-  useEffect(() => {
-    const activeFr = fr[activeIdx];
-    if (activeFr?.cash !== undefined) setCash(activeFr.cash);
-  }, [fr, activeIdx]);
+  const {
+    screen, loading,
+    cash, gmRep, dynasty,
+    lt, fr, stakes, season, freeAg, activeIdx,
+    simming,
+    tradeDeadlineActive, tradeDeadlineLeague,
+    playoffActive, playoffResult, aiSigningsLog,
+    draftActive, draftPicks, draftProspects, draftDone,
+    freeAgencyActive, offseasonFAPool,
+    notifications, recap, grade, events, pressConf,
+    newspaper, newspaperDismissed,
+    cbaEvent, namingOffer, saveStatus, helpOpen, leagueHistory,
+  } = state;
 
   // Load API key from localStorage
   useEffect(() => {
@@ -122,27 +85,19 @@ export default function App() {
     (async () => {
       const saved = await loadGame();
       if (saved) {
-        setCash(saved.cash ?? 0);
-        setGmRep(saved.gmReputation || 50);
-        setDynasty(saved.dynastyHistory || []);
-        setLt(saved.leagueTeams);
-        setFr(saved.franchises || []);
-        setStakes(saved.stakes || []);
-        setSeason(saved.season || 1);
-        setFreeAg(saved.freeAgents || { ngl: [], abl: [] });
-        setNotifications(saved.notifications || []);
-        if (saved.leagueHistory) setLeagueHistory(saved.leagueHistory);
+        dispatch({ type: 'LOAD_SAVE', payload: saved });
+      } else {
+        dispatch({ type: 'FINISH_LOADING' });
       }
-      setLoading(false);
     })();
   }, []);
 
   // Auto-save
   const doSave = useCallback(async () => {
     if (!lt || fr.length === 0) return;
-    setSaveStatus('saving');
+    dispatch({ type: 'SET_SAVE_STATUS', payload: 'saving' });
     await saveGame({ cash, gmReputation: gmRep, dynastyHistory: dynasty, leagueTeams: lt, franchises: fr, stakes, season, freeAgents: freeAg, notifications, leagueHistory });
-    setSaveStatus('saved');
+    dispatch({ type: 'SET_SAVE_STATUS', payload: 'saved' });
   }, [cash, gmRep, dynasty, lt, fr, stakes, season, freeAg, notifications, leagueHistory]);
 
   const saveTimer = useRef(null);
@@ -155,47 +110,53 @@ export default function App() {
 
   // ── Helpers ──────────────────────────────────────────────────
   const setActiveFr = (updater) =>
-    setFr(prev => prev.map((f, i) => i === activeIdx ? (typeof updater === 'function' ? updater(f) : updater) : f));
+    dispatch({
+      type: 'SET_FRANCHISE',
+      payload: prev => prev.map((f, i) => i === activeIdx ? (typeof updater === 'function' ? updater(f) : updater) : f),
+    });
 
   // ── Game setup handlers ───────────────────────────────────────
   function handleNew() {
     const league = initializeLeague();
-    setLt(league);
-    setCash(0); setGmRep(50); setDynasty([]); setFr([]); setStakes([]); setLeagueHistory(initLeagueHistory());
-    setSeason(1);
-    setFreeAg({ ngl: generateFreeAgents('ngl'), abl: generateFreeAgents('abl') });
-    setRecap(null); setGrade(null); setEvents([]); setPressConf(null);
-    setNewspaper(null); setNewspaperDismissed(true);
-    setCbaEvent(null); setNamingOffer(null);
-    setNotifications([]); setTradeDeadlineActive(false);
-    setDraftActive(false); setDraftDone(false); setFreeAgencyActive(false);
-    setPlayoffActive(false); setPlayoffResult(null); setAiSigningsLog([]);
-    setScreen('setup');
+    dispatch({ type: 'RESET' });
+    dispatch({ type: 'SET_LEAGUE_TEAMS', payload: league });
+    dispatch({
+      type: 'SET_FREE_AG',
+      payload: { ngl: generateFreeAgents('ngl'), abl: generateFreeAgents('abl') },
+    });
+    dispatch({ type: 'SET_SCREEN', payload: 'setup' });
   }
 
   function handleLoad() {
-    if (fr.length > 0 && lt) setScreen('dashboard');
+    if (fr.length > 0 && lt) dispatch({ type: 'SET_SCREEN', payload: 'dashboard' });
   }
 
   function handleCreate(template, league) {
     const newFr = createPlayerFranchise(template, league);
-    setCash(newFr.cash || 0);
-    setLt(prev => ({ ...prev, [league]: prev[league].map(t => t.id === template.id ? { ...t, isPlayerOwned: true } : t) }));
-    setFr(prev => [...prev, newFr]);
-    generateOffseasonEvents(newFr).then(evts => setEvents(evts.map(e => ({ ...e, resolved: false }))));
-    setScreen('dashboard');
+    const newFrArray = [...fr, newFr];
+    const newLt = { ...lt, [league]: lt[league].map(t => t.id === template.id ? { ...t, isPlayerOwned: true } : t) };
+    dispatch({ type: 'SET_FRANCHISE', payload: newFrArray });
+    dispatch({ type: 'SET_LEAGUE_TEAMS', payload: newLt });
+    generateOffseasonEvents(newFr).then(evts =>
+      dispatch({ type: 'SET_EVENTS', payload: evts.map(e => ({ ...e, resolved: false })) })
+    );
+    dispatch({ type: 'SET_SCREEN', payload: 'dashboard' });
   }
 
   // ── Event handlers ───────────────────────────────────────────
   function handleResolve(eventId, choiceIdx) {
-    setEvents(prev => prev.map(event => {
-      if (event.id !== eventId) return event;
-      const choice = event.choices[choiceIdx];
+    const event = events.find(e => e.id === eventId);
+    if (!event) return;
+    const choice = event.choices[choiceIdx];
 
-      // Extension demand events
-      if (event.type === 'extension_demand') {
-        setFr(prevFr => prevFr.map((f, i) => {
-          if (i !== activeIdx) return f;
+    // Compute franchise update
+    dispatch({
+      type: 'SET_FRANCHISE',
+      payload: prev => prev.map((f, i) => {
+        if (i !== activeIdx) return f;
+
+        // Extension demand events
+        if (event.type === 'extension_demand') {
           if (choice.action === 'sign') {
             return applyExtension(f, event.slotKey, event.extSalary, event.extYears);
           } else if (choice.action === 'release') {
@@ -206,21 +167,15 @@ export default function App() {
           }
           // play_out: no change
           return f;
-        }));
-        return { ...event, resolved: true };
-      }
+        }
 
-      // Pressure events
-      if (event.type === 'pressure') {
-        if (event.gmRepDelta) setGmRep(r => clamp(r + event.gmRepDelta, 0, 100));
-        setFr(prevFr => prevFr.map((f, i) => {
-          if (i !== activeIdx) return f;
+        // Pressure events
+        if (event.type === 'pressure') {
           let updated = { ...f };
           if (event.fanRatingDelta) updated.fanRating = clamp(updated.fanRating + event.fanRatingDelta, 0, 100);
           if (event.sponsorPenalty) updated.sponsorLevel = Math.max(0, (updated.sponsorLevel || 1) * event.sponsorPenalty);
           if (choice.action === 'fine') updated.cash = Math.round(((updated.cash || 0) - (choice.cost || 10)) * 10) / 10;
           if (choice.action === 'audit') {
-            // Release lowest-morale non-star (core piece or depth)
             const slots = ['corePiece'];
             for (const slot of slots) {
               if (updated[slot]) { updated = { ...updated, [slot]: null }; break; }
@@ -229,13 +184,9 @@ export default function App() {
             updated.totalSalary = Math.round(updated.players.reduce((s, p) => s + p.salary, 0) * 10) / 10;
           }
           return updated;
-        }));
-        return { ...event, resolved: true };
-      }
+        }
 
-      // Default: standard event handling
-      setFr(prevFr => prevFr.map((f, i) => {
-        if (i !== activeIdx) return f;
+        // Default: standard event handling
         const updated = { ...f };
         if (choice.cost) updated.cash = Math.round(((updated.cash || 0) - choice.cost) * 10) / 10;
         if (choice.revenue) updated.cash = Math.round(((updated.cash || 0) + choice.revenue) * 10) / 10;
@@ -244,150 +195,164 @@ export default function App() {
         if (choice.stadiumBonus) updated.stadiumCondition = clamp(updated.stadiumCondition + choice.stadiumBonus, 0, 100);
         if (choice.coachBonus && updated.coach.level < 4) updated.coach = { ...updated.coach, level: updated.coach.level + 1 };
         return updated;
-      }));
-      return { ...event, resolved: true };
-    }));
+      }),
+    });
+
+    // GM rep side-effect for pressure events
+    if (event.type === 'pressure' && event.gmRepDelta) {
+      dispatch({ type: 'SET_GM_REP', payload: clamp(gmRep + event.gmRepDelta, 0, 100) });
+    }
+
+    // Mark event resolved
+    dispatch({
+      type: 'SET_EVENTS',
+      payload: events.map(e => e.id === eventId ? { ...e, resolved: true } : e),
+    });
   }
 
   function handlePressConf(pcId, optionIdx) {
-    setPressConf(prev => {
-      const pc = prev.find(x => x.id === pcId);
-      if (!pc) return prev.filter(x => x.id !== pcId);
+    const pc = (pressConf || []).find(x => x.id === pcId);
+    if (pc) {
       const option = pc.options[optionIdx];
-      setFr(prevFr => prevFr.map((f, i) => {
-        if (i !== activeIdx) return f;
-        const updated = { ...f };
-        if (option.fanBonus) updated.fanRating = clamp(updated.fanRating + option.fanBonus, 0, 100);
-        if (option.mediaBonus) updated.mediaRep = clamp((updated.mediaRep || 50) + option.mediaBonus, 0, 100);
-        if (option.communityBonus) updated.communityRating = clamp((updated.communityRating || 50) + option.communityBonus, 0, 100);
-        if (option.moraleBonus) updated.players = (updated.players || []).map(p => ({ ...p, morale: clamp(p.morale + option.moraleBonus, 0, 100) }));
-        return updated;
-      }));
-      return prev.filter(x => x.id !== pcId);
-    });
+      dispatch({
+        type: 'SET_FRANCHISE',
+        payload: prev => prev.map((f, i) => {
+          if (i !== activeIdx) return f;
+          const updated = { ...f };
+          if (option.fanBonus) updated.fanRating = clamp(updated.fanRating + option.fanBonus, 0, 100);
+          if (option.mediaBonus) updated.mediaRep = clamp((updated.mediaRep || 50) + option.mediaBonus, 0, 100);
+          if (option.communityBonus) updated.communityRating = clamp((updated.communityRating || 50) + option.communityBonus, 0, 100);
+          if (option.moraleBonus) updated.players = (updated.players || []).map(p => ({ ...p, morale: clamp(p.morale + option.moraleBonus, 0, 100) }));
+          return updated;
+        }),
+      });
+    }
+    dispatch({ type: 'SET_PRESS_CONF', payload: (pressConf || []).filter(x => x.id !== pcId) });
   }
 
   function handleCBA(choiceIdx) {
     const choice = cbaEvent.choices[choiceIdx];
     if (choice.strikeRisk && Math.random() < choice.strikeRisk) {
-      setRecap(prev => (prev || '') + ' A labour strike shortened the season, devastating gate revenue.');
+      dispatch({ type: 'SET_RECAP', payload: { recap: (recap || '') + ' A labour strike shortened the season, devastating gate revenue.', grade } });
     }
-    setFr(prevFr => prevFr.map((f, i) => {
-      if (i !== activeIdx) return f;
-      const updated = { ...f };
-      if (choice.moraleBonus) updated.players = (updated.players || []).map(p => ({ ...p, morale: clamp(p.morale + choice.moraleBonus, 0, 100) }));
-      if (choice.revenuePenalty) updated.cash = Math.round((updated.cash + (choice.revenuePenalty || 0)) * 10) / 10;
-      return updated;
-    }));
-    setCbaEvent(null);
+    dispatch({
+      type: 'SET_FRANCHISE',
+      payload: prev => prev.map((f, i) => {
+        if (i !== activeIdx) return f;
+        const updated = { ...f };
+        if (choice.moraleBonus) updated.players = (updated.players || []).map(p => ({ ...p, morale: clamp(p.morale + choice.moraleBonus, 0, 100) }));
+        if (choice.revenuePenalty) updated.cash = Math.round((updated.cash + (choice.revenuePenalty || 0)) * 10) / 10;
+        return updated;
+      }),
+    });
+    dispatch({ type: 'SET_CBA', payload: null });
   }
 
   function handleNaming(accept) {
-    if (accept && namingOffer) setFr(prev => prev.map((f, i) => i === activeIdx ? acceptNamingRights(f, namingOffer) : f));
-    setNamingOffer(null);
+    if (accept && namingOffer) {
+      dispatch({
+        type: 'SET_FRANCHISE',
+        payload: prev => prev.map((f, i) => i === activeIdx ? acceptNamingRights(f, namingOffer) : f),
+      });
+    }
+    dispatch({ type: 'SET_NAMING', payload: null });
   }
 
   async function handleDelete() {
     await deleteSave();
-    setLt(null); setFr([]); setCash(0); setGmRep(50); setSeason(1);
-    setRecap(null); setGrade(null); setEvents([]); setPressConf(null);
-    setNewspaper(null); setCbaEvent(null); setNotifications([]);
-    setTradeDeadlineActive(false);
-    setDraftActive(false); setDraftDone(false); setFreeAgencyActive(false);
-    setPlayoffActive(false); setPlayoffResult(null); setAiSigningsLog([]);
+    dispatch({ type: 'RESET' });
   }
 
   // ── Draft handlers ───────────────────────────────────────────
   function handleDraftPickMade(player, usedPick) {
     if (player) {
-      // B4: Place drafted player into rookie slots (up to 3)
-      setFr(prev => prev.map((f, i) => {
-        if (i !== activeIdx) return f;
-        const rookies = [...(f.rookieSlots || [])];
-        if (rookies.length < 3) {
-          rookies.push({ ...player, isRookie: true, draftRound: usedPick?.round, draftPick: usedPick?.pick });
-          return { ...f, rookieSlots: rookies };
-        }
-        // If rookie slots full, try main slots
-        if (!f.star1) return signToSlot(f, 'star1', player);
-        if (!f.star2) return signToSlot(f, 'star2', player);
-        if (!f.corePiece) return signToSlot(f, 'corePiece', player);
-        return f;
-      }));
+      dispatch({
+        type: 'SET_FRANCHISE',
+        payload: prev => prev.map((f, i) => {
+          if (i !== activeIdx) return f;
+          const rookies = [...(f.rookieSlots || [])];
+          if (rookies.length < 3) {
+            rookies.push({ ...player, isRookie: true, draftRound: usedPick?.round, draftPick: usedPick?.pick });
+            return { ...f, rookieSlots: rookies };
+          }
+          if (!f.star1) return signToSlot(f, 'star1', player);
+          if (!f.star2) return signToSlot(f, 'star2', player);
+          if (!f.corePiece) return signToSlot(f, 'corePiece', player);
+          return f;
+        }),
+      });
     }
   }
 
   function handleDraftDone() {
-    setDraftActive(false);
-    setDraftDone(true);
     const af = fr[activeIdx];
-    // Generate larger pool, run AI signings first, then give player the remainder
     const fullPool = generateOffseasonFAPool(af.league, gmRep, 18);
     const { signed: aiSigned, remaining: playerPool } = simulateAIFreeAgency(fullPool, lt || { ngl: [], abl: [] }, af.league);
-    setAiSigningsLog(aiSigned);
-    setOffseasonFAPool(playerPool);
-    setFreeAgencyActive(true);
+    dispatch({ type: 'DRAFT_CLOSE' });
+    dispatch({ type: 'FA_OPEN', payload: { offseasonFAPool: playerPool, aiSigningsLog: aiSigned } });
   }
 
   function handleFreeAgencyDone() {
-    setFreeAgencyActive(false);
-    setDraftDone(false);
-    setScreen('dashboard');
+    dispatch({ type: 'FA_CLOSE' });
+    dispatch({ type: 'SET_SCREEN', payload: 'dashboard' });
   }
 
   // ── Simulation handlers ───────────────────────────────────────
   async function handleSim() {
     if (simming) return;
-    setSimming(true);
-    setRecap(null); setGrade(null); setNewspaper(null); setNewspaperDismissed(true);
+    dispatch({ type: 'BEGIN_SIM' });
+    dispatch({ type: 'SET_RECAP', payload: { recap: null, grade: null } });
+    dispatch({ type: 'SET_NEWSPAPER', payload: { newspaper: null, newspaperDismissed: true } });
     await new Promise(r => setTimeout(r, 400));
     const result = simulateFullSeasonFirstHalf(lt, fr, season);
-    setTradeDeadlineLeague(result.leagueTeams);
-    setFr(result.franchises);
-    setTradeDeadlineActive(true);
-    setSimming(false);
+    dispatch({ type: 'SET_FRANCHISE', payload: result.franchises });
+    dispatch({ type: 'TRADE_DEADLINE_OPEN', payload: result.leagueTeams });
   }
 
   async function handleContinueSeason() {
-    setSimming(true);
-    setTradeDeadlineActive(false);
+    dispatch({ type: 'BEGIN_SIM' });
+    dispatch({ type: 'TRADE_DEADLINE_CLOSE' });
     const prevFranchise = fr[activeIdx];
     await new Promise(r => setTimeout(r, 300));
 
     const result = simulateFullSeasonSecondHalf(tradeDeadlineLeague, fr, season);
-    setLt(result.leagueTeams);
-    setFr(result.franchises);
-
     const af = result.franchises[activeIdx];
+
+    // Dispatch simulation results so state reflects simulated season
+    dispatch({ type: 'SET_LEAGUE_TEAMS', payload: result.leagueTeams });
+    dispatch({ type: 'SET_FRANCHISE', payload: result.franchises });
 
     // NGL Playoffs — run bracket, show bracket UI before offseason
     if (af && af.league === 'ngl') {
       const pResult = simulatePlayoffs(result.leagueTeams.ngl, af);
       if (pResult.playerWonChampionship) {
-        setFr(prev => prev.map((f, i) => i === activeIdx ? {
-          ...f,
-          championships: (f.championships || 0) + 1,
-          trophies: [...(f.trophies || []), { season, wins: af.wins, losses: af.losses }],
-          leagueRank: 1,
-        } : f));
+        dispatch({
+          type: 'SET_FRANCHISE',
+          payload: prev => prev.map((f, i) => i === activeIdx ? {
+            ...f,
+            championships: (f.championships || 0) + 1,
+            trophies: [...(f.trophies || []), { season, wins: af.wins, losses: af.losses }],
+            leagueRank: 1,
+          } : f),
+        });
       }
-      setPlayoffResult(pResult);
-      // Store result snapshot so playoff-finished handler can use it
-      setTradeDeadlineLeague(result.leagueTeams); // reuse this slot to carry lt forward
-      setPlayoffActive(true);
-      setSimming(false);
-      return;
+      dispatch({
+        type: 'PLAYOFF_OPEN',
+        payload: { playoffResult: pResult, tradeDeadlineLeague: result.leagueTeams },
+      });
+      return; // PLAYOFF_OPEN clears simming; runEndOfSeasonFlow called from handlePlayoffFinished
     }
 
     // ABL / fallback path
     await runEndOfSeasonFlow(result, af, prevFranchise);
-    setSimming(false);
+    dispatch({ type: 'END_SIM' });
     await doSave();
   }
 
   // Called by PlayoffBracketScreen when all rounds are viewed
   async function handlePlayoffFinished() {
-    setPlayoffActive(false);
+    dispatch({ type: 'PLAYOFF_CLOSE' });
+    // fr[activeIdx] already has championship update (dispatched in handleContinueSeason)
     const afNow = fr[activeIdx];
     const result = {
       leagueTeams: lt,
@@ -402,57 +367,61 @@ export default function App() {
   }
 
   async function runEndOfSeasonFlow(result, af, prevFranchise) {
-    setSeason(s => s + 1);
+    const newSeason = season + 1;
+    dispatch({ type: 'SET_SEASON', payload: newSeason });
 
-    // Stake income
+    // ── Accumulate all franchise changes locally ───────────────
+    // Start from the result franchises (or current fr if called from handlePlayoffFinished)
+    let newFr = result.franchises;
+
+    // Stake income — add to active franchise cash
     const stakeIncome = calcStakeIncome(stakes, result.leagueTeams);
+    let newCash = af ? Math.round(((af.cash || 0) + stakeIncome) * 10) / 10 : cash;
     if (af && stakeIncome !== 0) {
-      const newCash = Math.round(((af.cash || 0) + stakeIncome) * 10) / 10;
-      setFr(prev => prev.map((f, i) => i === activeIdx ? { ...f, cash: newCash } : f));
+      newFr = newFr.map((f, i) => i === activeIdx ? { ...f, cash: newCash } : f);
     }
 
     // GM Reputation
-    if (af) {
-      const newRep = updateGMReputation(gmRep, af, prevFranchise);
-      setGmRep(newRep);
-    }
+    const newRep = af ? updateGMReputation(gmRep, af, prevFranchise) : gmRep;
 
-    // B2: League history — champion + notable seasons + franchise records
+    // ── League history (synchronous accumulation) ──────────────
+    let newLeagueHistory = leagueHistory;
     if (af && result.leagueTeams) {
-      // Determine NGL champion from playoff result or standings
       const nglStandings = [...(result.leagueTeams.ngl || [])].sort((a, b) => b.wins - a.wins);
       const champion = nglStandings[0];
       if (champion) {
-        const isPlayer = fr.some(pf => pf.id === champion.id);
-        setLeagueHistory(prev => {
-          let h = addChampion(prev, {
-            season, teamName: champion.name, city: champion.city,
-            isPlayerTeam: isPlayer, record: `${champion.wins}-${champion.losses}`,
-            coachName: isPlayer ? af.coach?.name : null,
-            starPlayer: isPlayer ? (af.star1?.name || null) : null,
-          });
-          h = checkNotableSeasons(h, [...(result.leagueTeams.ngl || []), ...(result.leagueTeams.abl || [])], fr, season);
-          return h;
+        const isPlayer = result.franchises.some(pf => pf.id === champion.id);
+        newLeagueHistory = addChampion(newLeagueHistory, {
+          season, teamName: champion.name, city: champion.city,
+          isPlayerTeam: isPlayer, record: `${champion.wins}-${champion.losses}`,
+          coachName: isPlayer ? af.coach?.name : null,
+          starPlayer: isPlayer ? (af.star1?.name || null) : null,
         });
+        newLeagueHistory = checkNotableSeasons(
+          newLeagueHistory,
+          [...(result.leagueTeams.ngl || []), ...(result.leagueTeams.abl || [])],
+          result.franchises, season
+        );
       }
 
       // Franchise records
       const curRecords = af.franchiseRecords || initFranchiseRecords();
-      const { records: newRecords, newRecords: brokenList } = updateFranchiseRecords(curRecords, af, season);
-      setFr(prev => prev.map((x, i) => i === activeIdx ? { ...x, franchiseRecords: newRecords } : x));
+      const { records: newRecords } = updateFranchiseRecords(curRecords, af, season);
+      newFr = newFr.map((x, i) => i === activeIdx ? { ...x, franchiseRecords: newRecords } : x);
 
-      // Hall of Fame eval for retiring players (age 34+ or low rating)
-      const retirees = (af.localLegends || []);
-      // We check current slot players approaching retirement
+      // Hall of Fame eval for retiring players
       for (const slotKey of ['star1', 'star2', 'corePiece']) {
         const p = af[slotKey];
         if (p && p.age >= 34 && p.rating < 70) {
           const hofCandidate = evaluateHallOfFame(p, af);
           if (hofCandidate) {
-            setLeagueHistory(prev => ({
-              ...prev,
-              hallOfFame: [...(prev.hallOfFame || []), { ...hofCandidate, inductionSeason: season, team: `${af.city} ${af.name}` }],
-            }));
+            newLeagueHistory = {
+              ...newLeagueHistory,
+              hallOfFame: [
+                ...(newLeagueHistory.hallOfFame || []),
+                { ...hofCandidate, inductionSeason: season, team: `${af.city} ${af.name}` },
+              ],
+            };
           }
         }
       }
@@ -463,107 +432,92 @@ export default function App() {
       const leagueTeams = result.leagueTeams[af.league] || [];
       const h2h = af.headToHead || initHeadToHead();
       const curRivalry = af.rivalry || initRivalry();
-      const metInPlayoffs = false; // Will be set correctly by playoff handler
-      const newRivalry = updateRivalry(curRivalry, af, leagueTeams, season, h2h, metInPlayoffs);
-      setFr(prev => prev.map((x, i) => i === activeIdx ? { ...x, rivalry: newRivalry } : x));
+      const newRivalry = updateRivalry(curRivalry, af, leagueTeams, season, h2h, false);
+      newFr = newFr.map((x, i) => i === activeIdx ? { ...x, rivalry: newRivalry } : x);
     }
 
-    // Notifications
+    // ── Notifications (accumulate all at once) ────────────────
+    let allNotifications = [...notifications.filter(n => !['contract', 'cap', 'stadium', 'fans', 'player'].includes(n.type))];
+    let newNamingOffer = namingOffer;
+
     if (af) {
       const newNotifs = generateNotifications(af, prevFranchise);
-      const stakeIncome = calcStakeIncome(stakes, result.leagueTeams);
       if (stakeIncome > 0.1) {
         newNotifs.push({ id: 'stake_' + Date.now(), severity: 'info', message: `Stake income: +$${Math.round(stakeIncome * 10) / 10}M added to liquid capital.`, type: 'stakes' });
       }
       if (af.finances.profit > 0) {
-        newNotifs.push({ id: 'profit_' + Date.now(), severity: 'info', message: `Your franchise turned $${af.finances.profit}M profit, increasing your liquid capital to $${Math.round((af.cash || 0) * 10) / 10}M.`, type: 'finance' });
+        newNotifs.push({ id: 'profit_' + Date.now(), severity: 'info', message: `Your franchise turned $${af.finances.profit}M profit, increasing your liquid capital to $${Math.round(newCash * 10) / 10}M.`, type: 'finance' });
       } else if (af.finances.profit < 0) {
-        newNotifs.push({ id: 'loss_' + Date.now(), severity: 'warning', message: `Season loss of $${Math.abs(af.finances.profit)}M drained liquid capital to $${Math.round((af.cash || 0) * 10) / 10}M.`, type: 'finance' });
+        newNotifs.push({ id: 'loss_' + Date.now(), severity: 'warning', message: `Season loss of $${Math.abs(af.finances.profit)}M drained liquid capital to $${Math.round(newCash * 10) / 10}M.`, type: 'finance' });
       }
       // A1: Stadium project events
       if (af.pendingStadiumEvent) {
         const sevt = af.pendingStadiumEvent;
         newNotifs.push({ id: 'stad_' + Date.now(), severity: sevt.type === 'stadium_complete' ? 'success' : 'info', message: `${sevt.headline}: ${sevt.desc}`, type: 'stadium' });
         if (sevt.newNamingOffer) {
-          setNamingOffer(generateNewStadiumNamingRightsOffer(af));
+          newNamingOffer = generateNewStadiumNamingRightsOffer(af);
         }
-        // Clear the pending event from franchise state
-        setFr(prev => prev.map((x, i) => i === activeIdx ? { ...x, pendingStadiumEvent: null } : x));
+        newFr = newFr.map((x, i) => i === activeIdx ? { ...x, pendingStadiumEvent: null } : x);
       }
-      setNotifications(prev => [
-        ...prev.filter(n => !['contract', 'cap', 'stadium', 'fans', 'player'].includes(n.type)),
-        ...newNotifs,
-      ]);
+      allNotifications = [...allNotifications, ...newNotifs];
     }
 
-    // Narratives
+    // ── Async: narratives ─────────────────────────────────────
+    let rc = null, gr = null, dynastyEra = null;
     if (result.franchises.length > 0) {
       const f = af || result.franchises[activeIdx];
-      const [rc, gr] = await Promise.all([generateSeasonRecap(f), generateGMGrade(f)]);
-      setRecap(rc);
-      setGrade(gr);
+      [rc, gr] = await Promise.all([generateSeasonRecap(f), generateGMGrade(f)]);
 
       if (season % 3 === 0) {
-        const dynastyEra = await generateDynastyNarrative(f);
-        setDynasty(prev => [...prev, { ...dynastyEra, season }]);
-        setFr(prev => prev.map((x, i) => i === activeIdx ? { ...x, dynastyEra: dynastyEra.era } : x));
+        dynastyEra = await generateDynastyNarrative(f);
+        newFr = newFr.map((x, i) => i === activeIdx ? { ...x, dynastyEra: dynastyEra.era } : x);
       }
 
-      // Newspaper
-      const leagueStandings = f.league === 'ngl' ? result.standings.ngl : result.standings.abl;
-      setNewspaper(generateNewspaper(leagueStandings, result.franchises, season, result.leagueTeams));
-      setNewspaperDismissed(false);
-
-      // Press conference + CBA + naming rights
-      setPressConf(genPressConference(f));
-      setCbaEvent(generateCBAEvent(season));
-      // Phase 3: naming rights offer requires fan rating >= 55
+      const leagueStandings = f.league === 'ngl' ? result.standings?.ngl : result.standings?.abl;
+      const generatedNewspaper = generateNewspaper(leagueStandings, result.franchises, season, result.leagueTeams);
+      const newPressConf = genPressConference(f);
+      const newCbaEvent = generateCBAEvent(season);
       if (!f.namingRightsActive && f.fanRating >= 55 && Math.random() < 0.3) {
-        setNamingOffer(generateNamingRightsOffer(f));
-      } else {
-        setNamingOffer(null);
+        newNamingOffer = generateNamingRightsOffer(f);
+      } else if (!af?.pendingStadiumEvent?.newNamingOffer) {
+        newNamingOffer = null;
       }
 
       // B5: TV deal event (every 8 seasons)
       const tvDeal = generateTVDealEvent(season);
       if (tvDeal) {
-        setFr(prev => prev.map((x, i) => i === activeIdx ? {
-          ...x,
-          capModifier: (x.capModifier || 0) + tvDeal.capModifier,
-        } : x));
-        setNotifications(prev => [...prev, {
+        newFr = newFr.map((x, i) => i === activeIdx ? {
+          ...x, capModifier: (x.capModifier || 0) + tvDeal.capModifier,
+        } : x);
+        allNotifications = [...allNotifications, {
           id: 'tv_deal_' + season,
           severity: 'info',
           message: `${tvDeal.title}: ${tvDeal.description}`,
           type: 'league',
-        }]);
+        }];
       }
 
-      // Phase 3: rival stake fan penalty (-2 fan per rival stake held)
+      // Phase 3: rival stake fan penalty
       if (stakes.length > 0 && f.rivalIds?.length > 0) {
         const rivalStakeCount = stakes.filter(s => f.rivalIds.includes(s.teamId)).length;
         if (rivalStakeCount > 0) {
-          setFr(prev => prev.map((x, i) => i === activeIdx
+          newFr = newFr.map((x, i) => i === activeIdx
             ? { ...x, fanRating: clamp(x.fanRating - rivalStakeCount * 2, 0, 100) }
             : x
-          ));
+          );
         }
       }
 
-      // Offseason events
+      // Offseason events + extension demands + pressure
       const offseasonEvents = await generateOffseasonEvents(f);
-
-      // Phase 2: extension demands (for slot players in final year)
       const extDemands = generateExtensionDemands(f, gmRep);
 
-      // Phase 2: consecutive losing season tracking + pressure event
       const games = f.league === 'ngl' ? 17 : 82;
       const winPct = f.wins / Math.max(1, games);
       const isLosing = winPct < 0.400;
       const prevConsecutive = f.consecutiveLosingSeason || 0;
       const newConsecutive = isLosing ? prevConsecutive + 1 : 0;
-      // Update franchise consecutive field
-      setFr(prev => prev.map((x, i) => i === activeIdx ? { ...x, consecutiveLosingSeason: newConsecutive } : x));
+      newFr = newFr.map((x, i) => i === activeIdx ? { ...x, consecutiveLosingSeason: newConsecutive } : x);
       const pressureEvt = checkPressureEvent({ ...f, consecutiveLosingSeason: prevConsecutive }, season);
 
       const allEvents = [
@@ -571,23 +525,42 @@ export default function App() {
         ...extDemands,
         ...(pressureEvt ? [{ ...pressureEvt, resolved: false }] : []),
       ];
-      setEvents(allEvents);
 
       // B4: Refresh draft pick inventory for next season
-      setFr(prev => prev.map((x, i) => i === activeIdx ? {
-        ...x,
-        draftPickInventory: initDraftPickInventory(season + 1, x.id),
-      } : x));
+      newFr = newFr.map((x, i) => i === activeIdx ? {
+        ...x, draftPickInventory: initDraftPickInventory(newSeason, x.id),
+      } : x);
 
-      // Draft flow
+      // Draft flow setup
       const picks = generateDraftPickPositions(f, result.leagueTeams);
       const prospects = generateDraftProspects(f.league, 20, f.scoutingStaff);
-      setDraftPicks(picks);
-      setDraftProspects(prospects);
-      setDraftActive(true);
-    }
 
-    setFreeAg({ ngl: generateFreeAgents('ngl'), abl: generateFreeAgents('abl') });
+      // ── Dispatch all accumulated changes ─────────────────────
+      dispatch({ type: 'SET_GM_REP', payload: newRep });
+      dispatch({ type: 'SET_LEAGUE_HISTORY', payload: newLeagueHistory });
+      dispatch({ type: 'SET_FRANCHISE', payload: newFr }); // also auto-syncs cash
+      dispatch({ type: 'SET_CASH', payload: newCash });     // ensure cash is correct
+      dispatch({ type: 'SET_NOTIFICATIONS', payload: allNotifications });
+      dispatch({ type: 'SET_RECAP', payload: { recap: rc, grade: gr } });
+      dispatch({ type: 'SET_NEWSPAPER', payload: { newspaper: generatedNewspaper, newspaperDismissed: false } });
+      dispatch({ type: 'SET_PRESS_CONF', payload: newPressConf });
+      dispatch({ type: 'SET_CBA', payload: newCbaEvent });
+      dispatch({ type: 'SET_NAMING', payload: newNamingOffer });
+      if (dynastyEra) {
+        dispatch({ type: 'SET_DYNASTY', payload: [...dynasty, { ...dynastyEra, season }] });
+      }
+      dispatch({ type: 'SET_EVENTS', payload: allEvents });
+      dispatch({ type: 'SET_FREE_AG', payload: { ngl: generateFreeAgents('ngl'), abl: generateFreeAgents('abl') } });
+      dispatch({ type: 'DRAFT_OPEN', payload: { draftPicks: picks, draftProspects: prospects } });
+    } else {
+      // No franchises — still dispatch the basic updates
+      dispatch({ type: 'SET_GM_REP', payload: newRep });
+      dispatch({ type: 'SET_LEAGUE_HISTORY', payload: newLeagueHistory });
+      dispatch({ type: 'SET_FRANCHISE', payload: newFr });
+      dispatch({ type: 'SET_CASH', payload: newCash });
+      dispatch({ type: 'SET_NOTIFICATIONS', payload: allNotifications });
+      dispatch({ type: 'SET_FREE_AG', payload: { ngl: generateFreeAgents('ngl'), abl: generateFreeAgents('abl') } });
+    }
   }
 
   // ── Render ───────────────────────────────────────────────────
@@ -597,7 +570,7 @@ export default function App() {
         <div className="loading-panel">
           <div className="spinner" style={{ width: 36, height: 36 }} />
           <span className="font-display" style={{ color: 'var(--ink)', letterSpacing: '0.12em', textTransform: 'uppercase', fontSize: '0.95rem' }}>Preparing the Front Office</span>
-          <span className="font-mono" style={{ color: 'var(--ink-muted)', fontSize: '0.72rem' }}>Loading schedules, finances, and franchise history...</span>
+          <span className="font-mono" style={{ color: 'var(--ink-muted)', fontSize: '0.72rem' }}>Loading schedules, finances, and historical records...</span>
         </div>
       </div>
     );
@@ -609,7 +582,14 @@ export default function App() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Ticker lt={lt} fr={fr} season={season} />
-      <Nav screen={screen} setScreen={setScreen} fr={fr} gmRep={gmRep} cash={af?.cash ?? cash} notifCount={notifCount} />
+      <Nav
+        screen={screen}
+        setScreen={s => dispatch({ type: 'SET_SCREEN', payload: s })}
+        fr={fr}
+        gmRep={gmRep}
+        cash={af?.cash ?? cash}
+        notifCount={notifCount}
+      />
 
       <main style={{ flex: 1, paddingBottom: 30 }}>
         {screen === 'intro' && <Intro onNew={handleNew} onLoad={handleLoad} hasSv={fr.length > 0} />}
@@ -659,10 +639,7 @@ export default function App() {
             setFr={setActiveFr}
             onContinue={handleContinueSeason}
             cash={af.cash ?? cash}
-            setCash={newCash => {
-              setCash(newCash);
-              setFr(prev => prev.map((f, i) => i === activeIdx ? { ...f, cash: newCash } : f));
-            }}
+            setCash={newCash => dispatch({ type: 'SET_CASH', payload: newCash })}
           />
         )}
 
@@ -680,18 +657,15 @@ export default function App() {
             onPressConf={handlePressConf}
             newspaper={newspaper}
             newspaperDismissed={newspaperDismissed}
-            onDismissNewspaper={() => setNewspaperDismissed(true)}
+            onDismissNewspaper={() => dispatch({ type: 'SET_NEWSPAPER', payload: { newspaper, newspaperDismissed: true } })}
             cbaEvent={cbaEvent}
             onCBA={handleCBA}
             namingOffer={namingOffer}
             onNaming={handleNaming}
             gmRep={gmRep}
             notifications={notifications}
-            onDismissNotif={id => setNotifications(prev => prev.filter(n => n.id !== id))}
-            onCashChange={newCash => {
-              setCash(newCash);
-              setFr(prev => prev.map((f, i) => i === activeIdx ? { ...f, cash: newCash } : f));
-            }}
+            onDismissNotif={id => dispatch({ type: 'DISMISS_NOTIF', payload: id })}
+            onCashChange={newCash => dispatch({ type: 'SET_CASH', payload: newCash })}
             leagueHistory={leagueHistory}
           />
         )}
@@ -704,11 +678,10 @@ export default function App() {
             cash={af?.cash ?? cash}
             stakes={stakes}
             season={season}
-            setStakes={setStakes}
+            setStakes={newStakes => dispatch({ type: 'SET_STAKES', payload: newStakes })}
             setCash={newCash => {
               const val = typeof newCash === 'function' ? newCash(cash) : newCash;
-              setCash(val);
-              setFr(prev => prev.map((f, i) => i === activeIdx ? { ...f, cash: val } : f));
+              dispatch({ type: 'SET_CASH', payload: val });
             }}
           />
         )}
@@ -722,7 +695,7 @@ export default function App() {
             gmRep={gmRep}
             dynasty={dynasty}
             season={season}
-            setScreen={setScreen}
+            setScreen={s => dispatch({ type: 'SET_SCREEN', payload: s })}
           />
         )}
 
@@ -736,7 +709,12 @@ export default function App() {
           />
         )}
 
-        {screen === 'settings' && <Settings onDelete={handleDelete} setScreen={setScreen} />}
+        {screen === 'settings' && (
+          <Settings
+            onDelete={handleDelete}
+            setScreen={s => dispatch({ type: 'SET_SCREEN', payload: s })}
+          />
+        )}
 
         {screen === 'analytics' && af && (
           <AnalyticsScreen fr={af} lt={lt} stakes={stakes} season={season} />
@@ -744,12 +722,12 @@ export default function App() {
       </main>
 
       {/* Help Panel */}
-      <HelpPanel open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <HelpPanel open={helpOpen} onClose={() => dispatch({ type: 'SET_HELP', payload: false })} />
 
       {/* Floating help button */}
       {fr.length > 0 && !helpOpen && (
         <button
-          onClick={() => setHelpOpen(true)}
+          onClick={() => dispatch({ type: 'SET_HELP', payload: true })}
           style={{
             position: 'fixed', bottom: 48, right: 12, width: 36, height: 36,
             borderRadius: '50%', background: 'var(--ink)', color: 'var(--cream)',
