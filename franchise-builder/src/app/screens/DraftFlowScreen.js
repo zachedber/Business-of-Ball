@@ -1,6 +1,6 @@
 'use client';
 import { useState, useMemo } from 'react';
-import { draftPlayer } from '@/lib/engine';
+import { draftPlayer, generateDraftProspects } from '@/lib/engine';
 
 // ============================================================
 // DRAFT FLOW SCREEN
@@ -8,9 +8,11 @@ import { draftPlayer } from '@/lib/engine';
 export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, onPickMade, onAutoPick, onDone, gmRep }) {
   const [pickedPlayers, setPickedPlayers] = useState([]);
   const [remainingPicks, setRemainingPicks] = useState(draftPicks || []);
+  const currentRound = remainingPicks[0]?.round || draftPicks?.[draftPicks.length - 1]?.round || 1;
   const prospects = useMemo(() => {
-    return [...(draftProspects || [])].sort((a, b) => b.projectedRating - a.projectedRating).slice(0, 15);
-  }, [draftProspects]);
+    const roundProspects = generateDraftProspects(fr.league, Math.max((draftProspects || []).length, 20), fr.scoutingStaff, currentRound);
+    return roundProspects.sort((a, b) => b.projectedRating - a.projectedRating).slice(0, 15);
+  }, [currentRound, draftProspects, fr.league, fr.scoutingStaff]);
 
   const allPicksDone = remainingPicks.length === 0;
 
@@ -32,10 +34,10 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: '20px 12px' }}>
-      <h2 className="font-display section-header" style={{ fontSize: '1.2rem', borderBottomColor: fr.primaryColor || 'var(--red)' }}>Draft Day</h2>
+      <h2 className="font-display section-header" style={{ fontSize: '1.2rem', borderBottomColor: fr.primaryColor || 'var(--red)' }}>Round {currentRound} Draft</h2>
       <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)', marginBottom: 16 }}>
         <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: fr.primaryColor || 'var(--ink-muted)', marginRight: 6, verticalAlign: 'middle' }} />
-        {fr.city} {fr.name} — {remainingPicks.length} pick{remainingPicks.length !== 1 ? 's' : ''} remaining
+        {fr.city} {fr.name} — Round {currentRound} · {remainingPicks.length} pick{remainingPicks.length !== 1 ? 's' : ''} remaining
       </p>
 
       {/* Pick positions */}
@@ -62,7 +64,7 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
       {!allPicksDone && (
         <div className="card" style={{ padding: 16, marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <h3 className="font-display" style={{ fontSize: '0.85rem', fontWeight: 700 }}>Top Prospects</h3>
+            <h3 className="font-display" style={{ fontSize: '0.85rem', fontWeight: 700 }}>Top Prospects · Round {currentRound}</h3>
             <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '5px 12px' }} onClick={handleAutoPickAction}>Auto-Pick</button>
           </div>
           <div className="table-wrap">

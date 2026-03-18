@@ -556,7 +556,7 @@ export default function App() {
 
       // Draft flow setup
       const picks = generateDraftPickPositions(f, result.leagueTeams);
-      const prospects = generateDraftProspects(f.league, 20, f.scoutingStaff);
+      const prospects = generateDraftProspects(f.league, 20, f.scoutingStaff, picks[0]?.round || 1);
 
       // ── Dispatch all accumulated changes ─────────────────────
       dispatch({ type: 'SET_GM_REP', payload: newRep });
