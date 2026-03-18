@@ -513,6 +513,10 @@ export function createPlayerFranchise(tmpl, lg) {
     // Phase B3: rivalry
     headToHead: initHeadToHead(),
     rivalry: initRivalry(),
+
+    // Phase B4: draft pick inventory + rookie slots
+    draftPickInventory: initDraftPickInventory(1, tmpl.id),
+    rookieSlots: [],  // up to 3 rookies separate from main roster
   };
 }
 

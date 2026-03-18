@@ -26,6 +26,7 @@ import {
   initLeagueHistory, addChampion, checkNotableSeasons,
   initFranchiseRecords, updateFranchiseRecords, evaluateHallOfFame,
   initHeadToHead, updateHeadToHead, initRivalry, updateRivalry, getRivalryTier, getRivalryPlayoffNarrative,
+  initDraftPickInventory,
 } from '@/lib/engine';
 import {
   NGL_TEAMS, ABL_TEAMS, MARKET_TIERS, getMarketTier, getMarketTierInfo,
@@ -717,6 +718,56 @@ function SlotsTab({ fr, setFr, gmRep }) {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Rookie Slots */}
+      {(fr.rookieSlots || []).length > 0 && (
+        <div className="card" style={{ padding: 14, marginTop: 12 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.85rem' }}>Rookie Slots ({(fr.rookieSlots || []).length}/3)</h3>
+          <p className="font-body" style={{ fontSize: '0.68rem', color: 'var(--ink-muted)', marginBottom: 8 }}>
+            Drafted rookies develop here before joining the main roster. Promote to an open slot or release.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
+            {(fr.rookieSlots || []).map((r, idx) => (
+              <div key={r.id || idx} className="card" style={{ padding: '10px 12px' }}>
+                <div className="font-display" style={{ fontSize: '0.85rem', fontWeight: 600 }}>{r.name}</div>
+                <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>
+                  {r.position} · Age {r.age} · {r.rating} rtg
+                </div>
+                {r.draftRound && <div className="font-mono" style={{ fontSize: '0.6rem', color: 'var(--ink-muted)' }}>R{r.draftRound} P{r.draftPick}</div>}
+                {r.trait && <span className="badge badge-ink" style={{ fontSize: '0.5rem', marginTop: 4 }}>{r.trait}</span>}
+                <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                  {slotDefs.map(({ key, label }) => (
+                    <button
+                      key={key}
+                      className="btn-secondary"
+                      style={{ fontSize: '0.55rem', padding: '2px 6px', opacity: fr[key] ? 0.4 : 1 }}
+                      disabled={!!fr[key]}
+                      title={fr[key] ? 'Slot occupied' : `Promote to ${label}`}
+                      onClick={() => {
+                        setFr(prev => {
+                          const promoted = signToSlot(prev, key, r);
+                          return { ...promoted, rookieSlots: (promoted.rookieSlots || []).filter((_, ri) => ri !== idx) };
+                        });
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  <button
+                    className="btn-secondary"
+                    style={{ fontSize: '0.55rem', padding: '2px 6px', borderColor: 'var(--red)', color: 'var(--red)' }}
+                    onClick={() => {
+                      setFr(prev => ({ ...prev, rookieSlots: (prev.rookieSlots || []).filter((_, ri) => ri !== idx) }));
+                    }}
+                  >
+                    Cut
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -2558,15 +2609,19 @@ export default function App() {
   // ── Draft handlers ───────────────────────────────────────────
   function handleDraftPickMade(player, usedPick, tradeOffer) {
     if (player) {
-      // Add player to slot if empty
+      // B4: Place drafted player into rookie slots (up to 3)
       setFr(prev => prev.map((f, i) => {
         if (i !== activeIdx) return f;
-        const updated = { ...f };
-        // Find empty slot and fill
-        if (!updated.star1) return signToSlot(updated, 'star1', player);
-        if (!updated.star2) return signToSlot(updated, 'star2', player);
-        if (!updated.corePiece) return signToSlot(updated, 'corePiece', player);
-        return updated;
+        const rookies = [...(f.rookieSlots || [])];
+        if (rookies.length < 3) {
+          rookies.push({ ...player, isRookie: true, draftRound: usedPick?.round, draftPick: usedPick?.pick });
+          return { ...f, rookieSlots: rookies };
+        }
+        // If rookie slots full, try main slots
+        if (!f.star1) return signToSlot(f, 'star1', player);
+        if (!f.star2) return signToSlot(f, 'star2', player);
+        if (!f.corePiece) return signToSlot(f, 'corePiece', player);
+        return f;
       }));
     }
   }
@@ -2810,6 +2865,12 @@ export default function App() {
         ...(pressureEvt ? [{ ...pressureEvt, resolved: false }] : []),
       ];
       setEvents(allEvents);
+
+      // B4: Refresh draft pick inventory for next season
+      setFr(prev => prev.map((x, i) => i === activeIdx ? {
+        ...x,
+        draftPickInventory: initDraftPickInventory(season + 1, x.id),
+      } : x));
 
       // Draft flow
       const picks = generateDraftPickPositions(f, result.leagueTeams);
