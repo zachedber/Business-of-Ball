@@ -15,7 +15,7 @@ import {
   generateNotifications, updateGMReputation,
   SLOT_BUDGET, calcSlotQuality, calcDepthQuality, generateSlotPlayer,
   getFranchiseAskingPrice, getFranchiseFlavor, generateInitialSlots,
-  generateDraftPickPositions, generatePickTradeOffer,
+  generateDraftPickPositions,
   generateOffseasonFAPool, signToSlot, releaseSlot, repCostMultiplier,
   simulatePlayoffs, simulateAIFreeAgency,
   generateExtensionDemands, applyExtension, checkPressureEvent,
@@ -337,9 +337,9 @@ function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve,
   const gmTier = getGMTier(gmRep);
   return (
     <div style={{ maxWidth: 960, margin: '0 auto', padding: '12px 12px' }}>
-      <div className="card-elevated scoreboard" style={{ marginBottom: 12 }}>
+      <div className="card-elevated scoreboard" style={{ marginBottom: 12, borderTop: `3px solid ${fr.primaryColor || 'var(--red)'}` }}>
         <div>
-          <h2 className="font-display" style={{ fontSize: 'clamp(1.1rem,4vw,1.5rem)', fontWeight: 700, textTransform: 'uppercase' }}>
+          <h2 className="font-display" style={{ fontSize: 'clamp(1.1rem,4vw,1.5rem)', fontWeight: 700, textTransform: 'uppercase', color: fr.primaryColor || 'var(--ink)' }}>
             {fr.city} {fr.name}
           </h2>
           <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>
@@ -362,9 +362,9 @@ function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve,
           ))}
         </div>
       </div>
-      <div className="tab-nav" style={{ marginBottom: 12 }}>
+      <div className="tab-nav" style={{ marginBottom: 12, '--team-color': fr.primaryColor || 'var(--red)' }}>
         {['home', 'slots', 'staff', 'biz', 'infra', 'finance', 'legacy', 'history'].map(t => (
-          <button key={t} className={`tab-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>{t === 'infra' ? 'infrastructure' : t}</button>
+          <button key={t} className={`tab-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)} style={tab === t ? { color: fr.primaryColor || 'var(--ink)' } : undefined}>{t === 'infra' ? 'infrastructure' : t}</button>
         ))}
       </div>
       {tab === 'home' && <HomeTab fr={fr} onSim={onSim} simming={simming} recap={recap} grade={grade} events={events} onResolve={onResolve} pressConf={pressConf} onPressConf={onPressConf} newspaper={newspaper} newspaperDismissed={newspaperDismissed} onDismissNewspaper={onDismissNewspaper} cbaEvent={cbaEvent} onCBA={onCBA} namingOffer={namingOffer} onNaming={onNaming} notifications={notifications} onDismissNotif={onDismissNotif} />}
@@ -1256,6 +1256,7 @@ function LeagueScreen({ lt, fr }) {
                 <tr key={t.id} style={{ borderBottom: '1px solid var(--cream-dark)', background: isPlayer ? '#fef5f5' : 'transparent', fontWeight: isPlayer ? 600 : 400 }}>
                   <td className="font-mono" style={{ padding: '6px 8px' }}>{i + 1}</td>
                   <td className="font-body" style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
+                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: t.primaryColor || 'var(--ink-muted)', marginRight: 6, verticalAlign: 'middle' }} />
                     {t.city} {t.name}
                     {isPlayer && <span style={{ color: 'var(--red)', marginLeft: 4, fontSize: '0.6rem' }}>YOU</span>}
                   </td>
@@ -1416,7 +1417,7 @@ function PortfolioScreen({ af, fr, stakes, lt, gmRep, dynasty, season, setScreen
       {/* Phase 4: Sparklines on franchise card */}
       {af.history && af.history.length >= 2 && (
         <div className="card" style={{ padding: 14, marginBottom: 12 }}>
-          <h3 className="font-display" style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 8, color: 'var(--ink-soft)' }}>
+          <h3 className="font-display" style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 8, color: af.primaryColor || 'var(--ink-soft)' }}>
             {af.city} {af.name} — {af.history.length}yr trend
           </h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
@@ -1506,7 +1507,7 @@ function EmpireFinanceScreen({ af, fr, stakes, lt, season }) {
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: '16px 12px', fontFamily: 'var(--font-mono)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 className="font-display section-header" style={{ fontSize: '1.2rem' }}>Empire Finances</h2>
+        <h2 className="font-display section-header" style={{ fontSize: '1.2rem', borderBottomColor: af.primaryColor || 'var(--red)' }}>Empire Finances</h2>
         <span className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>Season {season}</span>
       </div>
 
@@ -1686,17 +1687,11 @@ function EmpireFinanceScreen({ af, fr, stakes, lt, season }) {
 function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, onPickMade, onAutoPick, onDone, gmRep }) {
   const [pickedPlayers, setPickedPlayers] = useState([]);
   const [remainingPicks, setRemainingPicks] = useState(draftPicks || []);
-  const [tradeOfferAccepted, setTradeOfferAccepted] = useState(false);
-  const [tradeOfferId, setTradeOfferId] = useState(null);
-
   const prospects = useMemo(() => {
     return [...(draftProspects || [])].sort((a, b) => b.projectedRating - a.projectedRating).slice(0, 15);
   }, [draftProspects]);
 
   const allPicksDone = remainingPicks.length === 0;
-
-  const pick1 = draftPicks?.[0];
-  const tradeOffer = pick1 && !tradeOfferAccepted ? generatePickTradeOffer(pick1) : null;
 
   function handlePick(prospect) {
     if (remainingPicks.length === 0) return;
@@ -1716,8 +1711,9 @@ function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, onPickMade, onAut
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: '20px 12px' }}>
-      <h2 className="font-display section-header" style={{ fontSize: '1.2rem' }}>Draft Day</h2>
+      <h2 className="font-display section-header" style={{ fontSize: '1.2rem', borderBottomColor: fr.primaryColor || 'var(--red)' }}>Draft Day</h2>
       <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)', marginBottom: 16 }}>
+        <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: fr.primaryColor || 'var(--ink-muted)', marginRight: 6, verticalAlign: 'middle' }} />
         {fr.city} {fr.name} — {remainingPicks.length} pick{remainingPicks.length !== 1 ? 's' : ''} remaining
       </p>
 
@@ -1737,24 +1733,6 @@ function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, onPickMade, onAut
                 </div>
               );
             })}
-          </div>
-        </div>
-      )}
-
-      {/* Trade offer for pick 1 */}
-      {tradeOffer && remainingPicks.length > 0 && !tradeOfferAccepted && (
-        <div className="card" style={{ padding: 14, marginBottom: 12, borderLeft: '4px solid var(--amber)' }}>
-          <h3 className="font-display" style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--amber)', marginBottom: 6 }}>Trade Offer</h3>
-          <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10 }}>
-            {tradeOffer.offeringTeam} offers {tradeOffer.description} for your Round {pick1.round} pick.
-          </p>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '5px 12px', borderColor: 'var(--green)', color: 'var(--green)' }} onClick={() => { setTradeOfferAccepted(true); setTradeOfferId(tradeOffer.id); onPickMade(null, pick1, tradeOffer); setRemainingPicks(prev => prev.slice(1)); }}>
-              Accept Trade
-            </button>
-            <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '5px 12px' }} onClick={() => setTradeOfferAccepted(true)}>
-              Decline
-            </button>
           </div>
         </div>
       )}
@@ -1889,9 +1867,10 @@ function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSigningsLog, onDon
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: '20px 12px' }}>
-      <h2 className="font-display section-header" style={{ fontSize: '1.2rem' }}>Free Agency</h2>
+      <h2 className="font-display section-header" style={{ fontSize: '1.2rem', borderBottomColor: fr.primaryColor || 'var(--red)' }}>Free Agency</h2>
       <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)', marginBottom: 16 }}>
-        Sign players to your 3 franchise slots. Budget: ${budget}M/season.
+        <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: fr.primaryColor || 'var(--ink-muted)', marginRight: 6, verticalAlign: 'middle' }} />
+        {fr.city} {fr.name} — Sign players to your 3 franchise slots. Budget: ${budget}M/season.
       </p>
 
       {/* Current slots */}
@@ -2132,7 +2111,8 @@ function PlayoffBracketScreen({ playoffResult, playerFranchise, season, onContin
             borderLeft: t.id === pId ? '3px solid var(--red)' : '3px solid transparent',
           }}>
             <span className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)', minWidth: 14 }}>#{t.seed}</span>
-            <span className="font-body" style={{ fontSize: '0.68rem', flex: 1, marginLeft: 6 }}>{t.city} {t.name}</span>
+            <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: t.primaryColor || 'var(--ink-muted)', marginLeft: 6, marginRight: 4, flexShrink: 0 }} />
+            <span className="font-body" style={{ fontSize: '0.68rem', flex: 1 }}>{t.city} {t.name}</span>
             <span className="font-mono" style={{ fontSize: '0.62rem', color: 'var(--ink-muted)' }}>{t.wins}-{t.losses}</span>
           </div>
         ))}
@@ -2609,7 +2589,7 @@ export default function App() {
   }
 
   // ── Draft handlers ───────────────────────────────────────────
-  function handleDraftPickMade(player, usedPick, tradeOffer) {
+  function handleDraftPickMade(player, usedPick) {
     if (player) {
       // B4: Place drafted player into rookie slots (up to 3)
       setFr(prev => prev.map((f, i) => {
