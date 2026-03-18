@@ -27,6 +27,7 @@ import {
   initFranchiseRecords, updateFranchiseRecords, evaluateHallOfFame,
   initHeadToHead, updateHeadToHead, initRivalry, updateRivalry, getRivalryTier, getRivalryPlayoffNarrative,
   initDraftPickInventory,
+  formatMoney, generateTVDealEvent, calculateAdjustedCap,
 } from '@/lib/engine';
 import {
   NGL_TEAMS, ABL_TEAMS, MARKET_TIERS, getMarketTier, getMarketTierInfo,
@@ -86,7 +87,7 @@ function Nav({ screen, setScreen, fr, gmRep, cash, notifCount }) {
             <div style={{ textAlign: 'right' }}>
               <span className="stat-label">Cash</span>
               <div className="stat-value" style={{ fontSize: '0.8rem', color: cash > 5 ? 'var(--green)' : cash > 0 ? 'var(--amber)' : 'var(--red)' }}>
-                ${Math.round(cash * 10) / 10}M
+                {formatMoney(cash)}
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
@@ -351,7 +352,7 @@ function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve,
             ['Record', `${fr.wins}-${fr.losses}`],
             ['Rank', `#${fr.leagueRank || '—'}`, 'var(--red)'],
             ['Value', `$${val}M`],
-            ['Cash', `$${Math.round((fr.cash || 0) * 10) / 10}M`, (fr.cash || 0) > 5 ? 'var(--green)' : 'var(--red)'],
+            ['Cash', formatMoney(fr.cash || 0), (fr.cash || 0) > 5 ? 'var(--green)' : 'var(--red)'],
           ].map(([label, value, color]) => (
             <div key={label} style={{ textAlign: 'center', padding: '4px 0' }}>
               <div className="stat-label">{label}</div>
@@ -2830,6 +2831,21 @@ export default function App() {
         setNamingOffer(generateNamingRightsOffer(f));
       } else {
         setNamingOffer(null);
+      }
+
+      // B5: TV deal event (every 8 seasons)
+      const tvDeal = generateTVDealEvent(season);
+      if (tvDeal) {
+        setFr(prev => prev.map((x, i) => i === activeIdx ? {
+          ...x,
+          capModifier: (x.capModifier || 0) + tvDeal.capModifier,
+        } : x));
+        setNotifications(prev => [...prev, {
+          id: 'tv_deal_' + season,
+          severity: 'info',
+          message: `${tvDeal.title}: ${tvDeal.description}`,
+          type: 'league',
+        }]);
       }
 
       // Phase 3: rival stake fan penalty (-2 fan per rival stake held)

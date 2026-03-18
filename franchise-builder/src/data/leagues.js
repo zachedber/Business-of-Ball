@@ -20,7 +20,7 @@ export function getMarketTierInfo(m) { return MARKET_TIERS[getMarketTier(m)]; }
 // --- ECONOMICS ---
 export const NGL_SALARY_CAP = 285;
 export const ABL_SALARY_CAP = 140;
-export const CAP_INFLATION_RATE = 0.03;
+export const CAP_INFLATION_RATE = 0.025;
 export const NGL_ROSTER_SIZE = 22;
 export const ABL_ROSTER_SIZE = 15;
 export const NGL_DRAFT_ROUNDS = 7;
