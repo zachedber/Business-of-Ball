@@ -39,6 +39,7 @@ export const initialState = {
   draftDone: false,
   freeAgencyActive: false,
   offseasonFAPool: [],
+  slotDecisionActive: false,
 
   // UI / events
   notifications: [],
@@ -365,12 +366,30 @@ export function gameReducer(state, action) {
         offseasonFAPool: action.payload.offseasonFAPool,
         aiSigningsLog: action.payload.aiSigningsLog,
         freeAgencyActive: true,
+        slotDecisionActive: false,
       };
     }
 
-    /** Closes free agency UI and resets draftDone. */
+    /** Closes free agency UI, resets draftDone, and clears FA pool for next season. */
     case 'FA_CLOSE': {
-      return { ...state, freeAgencyActive: false, draftDone: false };
+      return { ...state, freeAgencyActive: false, draftDone: false, offseasonFAPool: [] };
+    }
+
+    /** Opens slot decision screen, stores FA pool for use after decisions. */
+    case 'SLOT_DECISION_OPEN': {
+      return {
+        ...state,
+        slotDecisionActive: true,
+        draftActive: false,
+        draftDone: true,
+        offseasonFAPool: action.payload.offseasonFAPool,
+        aiSigningsLog: action.payload.aiSigningsLog,
+      };
+    }
+
+    /** Closes slot decision screen (FA_OPEN follows immediately). */
+    case 'SLOT_DECISION_CLOSE': {
+      return { ...state, slotDecisionActive: false };
     }
 
     /** Replaces the events array. */

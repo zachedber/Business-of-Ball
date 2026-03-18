@@ -15,6 +15,7 @@ import {
   generateInitialSlots, generateDraftPickPositions,
   initDraftPickInventory,
   updateStaffChemistry, calculateSchemeFit,
+  endOfSeasonAging,
 } from './roster';
 import { calcAttendance, calculateValuation, getFranchiseAskingPrice } from './finance';
 import {
@@ -284,48 +285,8 @@ export function simPlayerSeason(f, season) {
   });
   f.lockerRoomChemistry = clamp(Math.round(f.lockerRoomChemistry + cd / f.players.length * 3), 0, 100);
 
-  // Player dev
-  f.players.forEach(p => {
-    p.age++;
-    p.seasonsPlayed++;
-    p.seasonsWithTeam++;
-    if (!p.injured || p.injurySeverity !== 'severe') {
-      const d = predictDev(p.age, p.rating, p.morale, f.developmentStaff, p.trait, lg);
-      p.rating = clamp(p.rating + d, 40, 99);
-      if (p.rating > p.careerStats.bestRating) p.careerStats.bestRating = p.rating;
-    }
-    p.careerStats.seasons++;
-    p.yearsLeft--;
-    if (winPct > 0.6) p.morale = clamp(p.morale + rand(2, 5), 0, 100);
-    else if (winPct < 0.35) p.morale = clamp(p.morale - rand(2, 6), 0, 100);
-    if (p.trait === 'volatile') p.morale = clamp(p.morale + rand(-10, 10), 0, 100);
-  });
-
-  // Check for local legends & retirements
-  const retiring = f.players.filter(p => p.age >= 35 && Math.random() < 0.3);
-  retiring.forEach(p => {
-    if (p.seasonsWithTeam >= 5 && p.rating >= 70) {
-      f.localLegends = [...(f.localLegends || []), { name: p.name, rating: p.careerStats.bestRating, seasons: p.seasonsWithTeam }];
-      f.fanRating = clamp(f.fanRating + 3, 0, 100);
-    }
-  });
-
-  // 3-slot model: handle contract expiry and sync slot references
-  if (f.star1 !== undefined) {
-    // Contract expiry — expired players leave (60–70% chance)
-    if (f.star1 && f.star1.yearsLeft <= 0) { if (Math.random() < 0.6) f.star1 = null; }
-    if (f.star2 && f.star2.yearsLeft <= 0) { if (Math.random() < 0.6) f.star2 = null; }
-    if (f.corePiece && f.corePiece.yearsLeft <= 0) { if (Math.random() < 0.7) f.corePiece = null; }
-    // Age-out retirement (35+ slot players)
-    if (f.star1 && f.star1.age >= 36 && Math.random() < 0.4) f.star1 = null;
-    if (f.star2 && f.star2.age >= 36 && Math.random() < 0.4) f.star2 = null;
-    if (f.corePiece && f.corePiece.age >= 37 && Math.random() < 0.5) f.corePiece = null;
-    f.players = [f.star1, f.star2, f.corePiece].filter(Boolean);
-    f.players.forEach(p => { if (p.seasonsWithTeam >= 5 && p.rating >= 75) p.isLocalLegend = true; });
-  } else {
-    f.players = f.players.filter(p => !(p.age >= 35 && Math.random() < 0.5) && p.age < 39);
-    f.players.forEach(p => { if (p.seasonsWithTeam >= 5 && p.rating >= 75) p.isLocalLegend = true; });
-  }
+  // Unified end-of-season aging — 1.1
+  f = endOfSeasonAging(f, winPct);
 
   // Stadium & coach
   f.stadiumAge++;
@@ -561,46 +522,8 @@ export function simPlayerSeasonSecondHalf(f, season) {
   });
   f.lockerRoomChemistry = clamp(Math.round(f.lockerRoomChemistry + cd / f.players.length * 3), 0, 100);
 
-  // Player dev
-  f.players.forEach(p => {
-    p.age++;
-    p.seasonsPlayed++;
-    p.seasonsWithTeam++;
-    if (!p.injured || p.injurySeverity !== 'severe') {
-      const d = predictDev(p.age, p.rating, p.morale, f.developmentStaff, p.trait, lg);
-      p.rating = clamp(p.rating + d, 40, 99);
-      if (p.rating > p.careerStats.bestRating) p.careerStats.bestRating = p.rating;
-    }
-    p.careerStats.seasons++;
-    p.yearsLeft--;
-    if (winPct > 0.6) p.morale = clamp(p.morale + rand(2, 5), 0, 100);
-    else if (winPct < 0.35) p.morale = clamp(p.morale - rand(2, 6), 0, 100);
-    if (p.trait === 'volatile') p.morale = clamp(p.morale + rand(-10, 10), 0, 100);
-  });
-
-  // Check for local legends & retirements
-  const retiring = f.players.filter(p => p.age >= 35 && Math.random() < 0.3);
-  retiring.forEach(p => {
-    if (p.seasonsWithTeam >= 5 && p.rating >= 70) {
-      f.localLegends = [...(f.localLegends || []), { name: p.name, rating: p.careerStats.bestRating, seasons: p.seasonsWithTeam }];
-      f.fanRating = clamp(f.fanRating + 3, 0, 100);
-    }
-  });
-
-  // 3-slot model: contract expiry and slot sync
-  if (f.star1 !== undefined) {
-    if (f.star1 && f.star1.yearsLeft <= 0) { if (Math.random() < 0.6) f.star1 = null; }
-    if (f.star2 && f.star2.yearsLeft <= 0) { if (Math.random() < 0.6) f.star2 = null; }
-    if (f.corePiece && f.corePiece.yearsLeft <= 0) { if (Math.random() < 0.7) f.corePiece = null; }
-    if (f.star1 && f.star1.age >= 36 && Math.random() < 0.4) f.star1 = null;
-    if (f.star2 && f.star2.age >= 36 && Math.random() < 0.4) f.star2 = null;
-    if (f.corePiece && f.corePiece.age >= 37 && Math.random() < 0.5) f.corePiece = null;
-    f.players = [f.star1, f.star2, f.corePiece].filter(Boolean);
-    f.players.forEach(p => { if (p.seasonsWithTeam >= 5 && p.rating >= 75) p.isLocalLegend = true; });
-  } else {
-    f.players = f.players.filter(p => !(p.age >= 35 && Math.random() < 0.5) && p.age < 39);
-    f.players.forEach(p => { if (p.seasonsWithTeam >= 5 && p.rating >= 75) p.isLocalLegend = true; });
-  }
+  // Unified end-of-season aging — 1.1
+  f = endOfSeasonAging(f, winPct);
 
   // Stadium & coach
   f.stadiumAge++;
