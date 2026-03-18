@@ -506,6 +506,13 @@ export function createPlayerFranchise(tmpl, lg) {
     staffChemistry: 65,
     staffChemistryStreakYears: 0,
     dynastyCohesionBonus: false,
+
+    // Phase B2: franchise records
+    franchiseRecords: initFranchiseRecords(),
+
+    // Phase B3: rivalry
+    headToHead: initHeadToHead(),
+    rivalry: initRivalry(),
   };
 }
 

@@ -508,6 +508,26 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
           </div>
         ))}
       </div>
+      {/* Rival Card */}
+      {fr.rivalry?.active && fr.rivalry.teamName && (
+        <div className="card" style={{ padding: '10px 14px', borderLeft: '3px solid var(--red)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+            <div>
+              <div className="stat-label" style={{ fontSize: '0.6rem' }}>RIVAL</div>
+              <div className="font-display" style={{ fontSize: '0.9rem', fontWeight: 700 }}>{fr.rivalry.teamName}</div>
+              <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)', marginTop: 2 }}>
+                {getRivalryTier(fr.rivalry.intensityScore)} · H2H: {fr.rivalry.h2hRecord?.wins || 0}-{fr.rivalry.h2hRecord?.losses || 0}
+              </div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div className="stat-label" style={{ fontSize: '0.55rem' }}>Intensity</div>
+              <div className="font-display" style={{ fontSize: '1.1rem', fontWeight: 700, color: fr.rivalry.intensityScore >= 76 ? 'var(--red)' : fr.rivalry.intensityScore >= 51 ? 'var(--amber)' : 'var(--ink-muted)' }}>
+                {fr.rivalry.intensityScore}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {fr.economyCycle && fr.economyCycle !== 'stable' && (
         <div className={`card`} style={{ padding: '8px 14px', textAlign: 'center', fontSize: '0.75rem', background: fr.economyCycle === 'boom' ? 'var(--green)' : 'var(--red)', color: '#fff' }}>
           {fr.economyCycle === 'boom' ? 'City Economy: BOOM — Revenue boosted' : 'City Economy: RECESSION — Revenue reduced'}
@@ -2690,6 +2710,16 @@ export default function App() {
           }
         }
       }
+    }
+
+    // B3: Rivalry update
+    if (af && result.leagueTeams) {
+      const leagueTeams = result.leagueTeams[af.league] || [];
+      const h2h = af.headToHead || initHeadToHead();
+      const curRivalry = af.rivalry || initRivalry();
+      const metInPlayoffs = false; // Will be set correctly by playoff handler
+      const newRivalry = updateRivalry(curRivalry, af, leagueTeams, season, h2h, metInPlayoffs);
+      setFr(prev => prev.map((x, i) => i === activeIdx ? { ...x, rivalry: newRivalry } : x));
     }
 
     // Notifications
