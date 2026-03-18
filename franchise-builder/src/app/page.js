@@ -23,6 +23,9 @@ import {
   purchasePremiumSeating, generateNewStadiumNamingRightsOffer,
   generateStaffCandidates, fireCoordinator, hireCoordinator,
   calculateSchemeFit, canAfford,
+  initLeagueHistory, addChampion, checkNotableSeasons,
+  initFranchiseRecords, updateFranchiseRecords, evaluateHallOfFame,
+  initHeadToHead, updateHeadToHead, initRivalry, updateRivalry, getRivalryTier, getRivalryPlayoffNarrative,
 } from '@/lib/engine';
 import {
   NGL_TEAMS, ABL_TEAMS, MARKET_TIERS, getMarketTier, getMarketTierInfo,
@@ -367,7 +370,7 @@ function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve,
       {tab === 'biz' && <BizTab fr={fr} setFr={setFr} />}
       {tab === 'infra' && <InfrastructureTab fr={fr} setFr={setFr} season={fr.season || 1} onCashChange={onCashChange} />}
       {tab === 'finance' && <DashFinanceTab fr={fr} />}
-      {tab === 'legacy' && <LegacyTab fr={fr} />}
+      {tab === 'legacy' && <LegacyTab fr={fr} leagueHistory={leagueHistory} />}
       {tab === 'history' && <HistTab fr={fr} />}
     </div>
   );
@@ -967,11 +970,17 @@ function FacTab({ fr, setFr, onCashChange }) {
 // ============================================================
 // LEGACY TAB
 // ============================================================
-function LegacyTab({ fr }) {
+function LegacyTab({ fr, leagueHistory }) {
   const trophies = fr.trophies || [];
   const legends = fr.localLegends || [];
+  const records = fr.franchiseRecords || {};
+  const hof = (leagueHistory?.hallOfFame || []).filter(h => h.team === `${fr.city} ${fr.name}`);
+  const champions = leagueHistory?.champions || [];
+  const notableSeasons = leagueHistory?.notableSeasons || [];
+
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Championship Banners */}
       <div className="card" style={{ padding: 16 }}>
         <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Championship Banners</h3>
         {trophies.length === 0
@@ -986,6 +995,49 @@ function LegacyTab({ fr }) {
             </div>
         }
       </div>
+
+      {/* Franchise Records */}
+      {Object.keys(records).length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Franchise Records</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+            {[
+              ['Most Wins', records.mostWinsInSeason?.value, records.mostWinsInSeason?.season],
+              ['Best Win%', records.bestWinPct?.value ? `${Math.round(records.bestWinPct.value * 100)}%` : null, records.bestWinPct?.season],
+              ['Top Revenue', records.mostRevenue?.value ? `$${records.mostRevenue.value}M` : null, records.mostRevenue?.season],
+              ['Peak Value', records.highestValuation?.value ? `$${records.highestValuation.value}M` : null, records.highestValuation?.season],
+              ['Championships', records.championships || 0, null],
+              ['Playoff Apps', records.playoffAppearances || 0, null],
+            ].map(([label, val, s]) => val != null && val !== 0 && (
+              <div key={label} style={{ textAlign: 'center', padding: '6px 4px' }}>
+                <div className="stat-label">{label}</div>
+                <div className="font-display" style={{ fontSize: '0.95rem', fontWeight: 700 }}>{val}</div>
+                {s && <div className="font-mono" style={{ fontSize: '0.6rem', color: 'var(--ink-muted)' }}>S{s}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Hall of Fame */}
+      {hof.length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Hall of Fame</h3>
+          {hof.map((h, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--cream-darker)', flexWrap: 'wrap', gap: 4 }}>
+              <div>
+                <div className="font-display" style={{ fontSize: '0.85rem', fontWeight: 600 }}>{h.name}</div>
+                <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>
+                  {h.position} · Peak {h.peakRating} · {h.seasons}yr · Inducted S{h.inductionSeason}
+                </div>
+              </div>
+              <span className="badge badge-gold" style={{ fontSize: '0.55rem', background: 'var(--gold)', color: 'var(--ink)' }}>HOF</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Local Legends */}
       <div className="card" style={{ padding: 16 }}>
         <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Local Legends</h3>
         {legends.length === 0
@@ -998,6 +1050,42 @@ function LegacyTab({ fr }) {
             ))
         }
       </div>
+
+      {/* League Champions History */}
+      {champions.length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>League Champions</h3>
+          {[...champions].reverse().map((c, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--cream-darker)', flexWrap: 'wrap', gap: 4 }}>
+              <div>
+                <span className="font-mono" style={{ fontSize: '0.7rem', fontWeight: 600 }}>S{c.season}</span>
+                <span className="font-body" style={{ fontSize: '0.8rem', marginLeft: 8, fontWeight: c.isPlayerTeam ? 700 : 400, color: c.isPlayerTeam ? 'var(--red)' : 'var(--ink)' }}>
+                  {c.city} {c.teamName}
+                </span>
+              </div>
+              <span className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>{c.record}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Notable Seasons */}
+      {notableSeasons.length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Notable Moments</h3>
+          {[...notableSeasons].reverse().slice(0, 10).map((n, i) => (
+            <div key={i} style={{ padding: '6px 0', borderBottom: '1px solid var(--cream-darker)' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span className="font-mono" style={{ fontSize: '0.65rem', fontWeight: 600 }}>S{n.season}</span>
+                <span className={`badge ${n.isPlayerTeam ? 'badge-red' : 'badge-ink'}`} style={{ fontSize: '0.5rem' }}>{n.type}</span>
+              </div>
+              <div className="font-body" style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 2 }}>{n.description}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Season Timeline */}
       {fr.history.length > 0 && (
         <div className="card" style={{ padding: 16 }}>
           <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Season Timeline</h3>
@@ -2249,6 +2337,7 @@ export default function App() {
   const [namingOffer, setNamingOffer] = useState(null);
   const [saveStatus, setSaveStatus] = useState('saved');
   const [helpOpen, setHelpOpen] = useState(false);
+  const [leagueHistory, setLeagueHistory] = useState(() => initLeagueHistory());
 
   // Keep global cash in sync with active franchise cash
   useEffect(() => {
@@ -2280,6 +2369,7 @@ export default function App() {
         setSeason(saved.season || 1);
         setFreeAg(saved.freeAgents || { ngl: [], abl: [] });
         setNotifications(saved.notifications || []);
+        if (saved.leagueHistory) setLeagueHistory(saved.leagueHistory);
       }
       setLoading(false);
     })();
@@ -2289,9 +2379,9 @@ export default function App() {
   const doSave = useCallback(async () => {
     if (!lt || fr.length === 0) return;
     setSaveStatus('saving');
-    await saveGame({ cash, gmReputation: gmRep, dynastyHistory: dynasty, leagueTeams: lt, franchises: fr, stakes, season, freeAgents: freeAg, notifications });
+    await saveGame({ cash, gmReputation: gmRep, dynastyHistory: dynasty, leagueTeams: lt, franchises: fr, stakes, season, freeAgents: freeAg, notifications, leagueHistory });
     setSaveStatus('saved');
-  }, [cash, gmRep, dynasty, lt, fr, stakes, season, freeAg, notifications]);
+  }, [cash, gmRep, dynasty, lt, fr, stakes, season, freeAg, notifications, leagueHistory]);
 
   const saveTimer = useRef(null);
   useEffect(() => {
@@ -2309,7 +2399,7 @@ export default function App() {
   function handleNew() {
     const league = initializeLeague();
     setLt(league);
-    setCash(0); setGmRep(50); setDynasty([]); setFr([]); setStakes([]);
+    setCash(0); setGmRep(50); setDynasty([]); setFr([]); setStakes([]); setLeagueHistory(initLeagueHistory());
     setSeason(1);
     setFreeAg({ ngl: generateFreeAgents('ngl'), abl: generateFreeAgents('abl') });
     setRecap(null); setGrade(null); setEvents([]); setPressConf(null);
@@ -2559,6 +2649,47 @@ export default function App() {
     if (af) {
       const newRep = updateGMReputation(gmRep, af, prevFranchise);
       setGmRep(newRep);
+    }
+
+    // B2: League history — champion + notable seasons + franchise records
+    if (af && result.leagueTeams) {
+      // Determine NGL champion from playoff result or standings
+      const nglStandings = [...(result.leagueTeams.ngl || [])].sort((a, b) => b.wins - a.wins);
+      const champion = nglStandings[0];
+      if (champion) {
+        const isPlayer = fr.some(pf => pf.id === champion.id);
+        setLeagueHistory(prev => {
+          let h = addChampion(prev, {
+            season, teamName: champion.name, city: champion.city,
+            isPlayerTeam: isPlayer, record: `${champion.wins}-${champion.losses}`,
+            coachName: isPlayer ? af.coach?.name : null,
+            starPlayer: isPlayer ? (af.star1?.name || null) : null,
+          });
+          h = checkNotableSeasons(h, [...(result.leagueTeams.ngl || []), ...(result.leagueTeams.abl || [])], fr, season);
+          return h;
+        });
+      }
+
+      // Franchise records
+      const curRecords = af.franchiseRecords || initFranchiseRecords();
+      const { records: newRecords, newRecords: brokenList } = updateFranchiseRecords(curRecords, af, season);
+      setFr(prev => prev.map((x, i) => i === activeIdx ? { ...x, franchiseRecords: newRecords } : x));
+
+      // Hall of Fame eval for retiring players (age 34+ or low rating)
+      const retirees = (af.localLegends || []);
+      // We check current slot players approaching retirement
+      for (const slotKey of ['star1', 'star2', 'corePiece']) {
+        const p = af[slotKey];
+        if (p && p.age >= 34 && p.rating < 70) {
+          const hofCandidate = evaluateHallOfFame(p, af);
+          if (hofCandidate) {
+            setLeagueHistory(prev => ({
+              ...prev,
+              hallOfFame: [...(prev.hallOfFame || []), { ...hofCandidate, inductionSeason: season, team: `${af.city} ${af.name}` }],
+            }));
+          }
+        }
+      }
     }
 
     // Notifications
