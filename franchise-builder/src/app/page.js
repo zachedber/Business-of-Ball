@@ -326,7 +326,7 @@ function MiniChart({ data, width = 280, height = 80, color = 'var(--red)' }) {
 // ============================================================
 // DASHBOARD
 // ============================================================
-function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve, pressConf, onPressConf, newspaper, newspaperDismissed, onDismissNewspaper, cbaEvent, onCBA, namingOffer, onNaming, gmRep, notifications, onDismissNotif, onCashChange }) {
+function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve, pressConf, onPressConf, newspaper, newspaperDismissed, onDismissNewspaper, cbaEvent, onCBA, namingOffer, onNaming, gmRep, notifications, onDismissNotif, onCashChange, leagueHistory }) {
   const [tab, setTab] = useState('home');
   const cap = useMemo(() => calculateCapSpace(fr), [fr]);
   const val = useMemo(() => calculateValuation(fr), [fr]);
@@ -1040,12 +1040,13 @@ function FacTab({ fr, setFr, onCashChange }) {
 // LEGACY TAB
 // ============================================================
 function LegacyTab({ fr, leagueHistory }) {
-  const trophies = fr.trophies || [];
-  const legends = fr.localLegends || [];
-  const records = fr.franchiseRecords || {};
-  const hof = (leagueHistory?.hallOfFame || []).filter(h => h.team === `${fr.city} ${fr.name}`);
-  const champions = leagueHistory?.champions || [];
-  const notableSeasons = leagueHistory?.notableSeasons || [];
+  const trophies = Array.isArray(fr?.trophies) ? fr.trophies : [];
+  const legends = Array.isArray(fr?.localLegends) ? fr.localLegends : [];
+  const records = fr?.franchiseRecords || {};
+  const history = Array.isArray(fr?.history) ? fr.history : [];
+  const hof = (leagueHistory?.hallOfFame || []).filter(h => h.team === `${fr?.city} ${fr?.name}`);
+  const champions = Array.isArray(leagueHistory?.champions) ? leagueHistory.champions : [];
+  const notableSeasons = Array.isArray(leagueHistory?.notableSeasons) ? leagueHistory.notableSeasons : [];
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1155,11 +1156,11 @@ function LegacyTab({ fr, leagueHistory }) {
       )}
 
       {/* Season Timeline */}
-      {fr.history.length > 0 && (
+      {history.length > 0 && (
         <div className="card" style={{ padding: 16 }}>
           <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Season Timeline</h3>
           <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 8 }}>
-            {fr.history.map(h => {
+            {history.map(h => {
               const wp = h.wins / (h.wins + h.losses);
               const isChamp = trophies.some(t => t.season === h.season);
               return (
@@ -1172,10 +1173,10 @@ function LegacyTab({ fr, leagueHistory }) {
           </div>
         </div>
       )}
-      {fr.history.length > 1 && (
+      {history.length > 1 && (
         <div className="card" style={{ padding: 16 }}>
           <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Cash History</h3>
-          <MiniChart data={fr.history.map(h => h.cash || 0)} color="var(--green)" />
+          <MiniChart data={history.map(h => h.cash || 0)} color="var(--green)" />
         </div>
       )}
     </div>
@@ -2978,6 +2979,7 @@ export default function App() {
               setCash(newCash);
               setFr(prev => prev.map((f, i) => i === activeIdx ? { ...f, cash: newCash } : f));
             }}
+            leagueHistory={leagueHistory}
           />
         )}
 
