@@ -86,26 +86,25 @@ function Nav({ screen, setScreen, fr, gmRep, cash, notifCount }) {
           {fr.length > 0 && <>
             <div style={{ textAlign: 'right' }}>
               <span className="stat-label">Cash</span>
-              <div className="stat-value" style={{ fontSize: '0.8rem', color: cash > 5 ? 'var(--green)' : cash > 0 ? 'var(--amber)' : 'var(--red)' }}>
+              <div className="stat-value" style={{ fontSize: '0.95rem', color: cash > 5 ? 'var(--green)' : cash > 0 ? 'var(--amber)' : 'var(--red)' }}>
                 {formatMoney(cash)}
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
               <span className="stat-label">{tier.badge}</span>
-              <div className="stat-value" style={{ fontSize: '0.7rem' }}>{gmRep}</div>
+              <div className="stat-value" style={{ fontSize: '0.8rem' }}>{gmRep}</div>
             </div>
           </>}
-          <button className="tab-btn" onClick={() => setScreen('settings')} style={{ fontSize: '0.6rem' }}>⚙</button>
+          <button className={`tab-btn ${screen === 'settings' ? 'active' : ''}`} onClick={() => setScreen('settings')} style={{ minWidth: 44, paddingInline: 12, fontSize: '0.9rem' }} aria-label="Settings">⚙</button>
         </div>
       </div>
       {fr.length > 0 && (
         <div className="nav-links">
-          {[['portfolio', 'Empire'], ['dashboard', 'Team'], ['league', 'League'], ['market', 'Market'], ['finances', 'Finances'], ['analytics', 'Analytics']].map(([s, label]) => (
+          {[['portfolio', '🏟 Empire'], ['dashboard', '📋 Team'], ['league', '🏆 League'], ['market', '📈 Market'], ['finances', '💰 Finances'], ['analytics', '📊 Analytics']].map(([s, label]) => (
             <button
               key={s}
-              className="tab-btn"
+              className={`tab-btn ${screen === s ? 'active' : ''}`}
               onClick={() => setScreen(s)}
-              style={screen === s ? { color: 'var(--red)', fontWeight: 700 } : {}}
             >
               {label}
               {s === 'dashboard' && notifCount > 0 && <NotificationBadge count={notifCount} />}
@@ -122,17 +121,17 @@ function Nav({ screen, setScreen, fr, gmRep, cash, notifCount }) {
 // ============================================================
 function Intro({ onNew, onLoad, hasSv }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '75vh', padding: '30px 16px', textAlign: 'center' }}>
+    <div className="intro-shell">
       <h1 className="font-display" style={{ fontSize: 'clamp(2rem,8vw,3.5rem)', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
         Business of Ball
       </h1>
-      <div style={{ width: 60, height: 3, background: 'var(--red)', margin: '8px auto 12px' }} />
-      <p className="font-body" style={{ fontSize: 'clamp(0.85rem,3vw,1.05rem)', color: 'var(--ink-soft)', maxWidth: 460, lineHeight: 1.6, marginBottom: 28 }}>
+      <div style={{ width: 84, height: 4, background: 'var(--red)', margin: '12px auto 16px', boxShadow: '0 8px 18px rgba(200,32,42,0.18)' }} />
+      <p className="font-body" style={{ fontSize: 'clamp(1rem,3vw,1.12rem)', color: 'var(--ink-soft)', maxWidth: 520, lineHeight: 1.7, marginBottom: 28, letterSpacing: '0.02em' }}>
         Build a sports empire. Manage franchises across a football league and a basketball league. Draft, negotiate, compete.
       </p>
-      <p className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-faint)', marginBottom: 20 }}>More features coming soon</p>
+      <p className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-faint)', marginBottom: 24, letterSpacing: '0.08em', textTransform: 'uppercase' }}>More features coming soon</p>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
-        <button className="btn-gold" onClick={onNew}>New Empire</button>
+        <button className="btn-gold" onClick={onNew} style={{ minWidth: 220, minHeight: 52, fontSize: '1rem', paddingInline: 28 }}>New Empire</button>
         {hasSv && <button className="btn-secondary" onClick={onLoad}>Continue</button>}
       </div>
     </div>
@@ -171,7 +170,7 @@ function FranchiseSelectionScreen({ onCreate }) {
   const hasDebt = sel && sel.askingPrice > STARTING;
 
   return (
-    <div style={{ maxWidth: 960, margin: '0 auto', padding: '20px 12px' }}>
+    <div style={{ maxWidth: 1080, margin: '0 auto', padding: '20px 12px' }}>
       <h2 className="font-display section-header" style={{ fontSize: '1.3rem' }}>Choose Your Franchise</h2>
       <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)', marginBottom: 16 }}>
         You start with <strong>$30M</strong> liquid capital. If the asking price exceeds $30M you will carry acquisition debt.
@@ -182,16 +181,16 @@ function FranchiseSelectionScreen({ onCreate }) {
           <button
             key={val}
             className={leagueFilter === val ? 'btn-primary' : 'btn-secondary'}
-            style={{ fontSize: '0.7rem', padding: '5px 12px', opacity: comingSoon ? 0.55 : 1, position: 'relative' }}
+            style={{ fontSize: '0.78rem', opacity: comingSoon ? 0.55 : 1, position: 'relative' }}
             onClick={() => !comingSoon && setLeagueFilter(val)}
             disabled={comingSoon}
             title={comingSoon ? 'ABL — Coming Soon' : undefined}
           >
-            {label}{comingSoon && <span className="badge badge-amber" style={{ fontSize: '0.5rem', marginLeft: 5, verticalAlign: 'middle' }}>SOON</span>}
+            {label}{comingSoon && <span className="badge badge-amber" style={{ marginLeft: 6, verticalAlign: 'middle' }}>Soon</span>}
           </button>
         ))}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 10, marginBottom: 24 }}>
+      <div className="franchise-grid">
         {filtered.map(team => {
           const extras = getTeamExtras(team);
           const tierInfo = getMarketTierInfo(team.market);
@@ -200,64 +199,61 @@ function FranchiseSelectionScreen({ onCreate }) {
           return (
             <div
               key={`${team.league}-${team.id}`}
-              className="card"
+              className={`card franchise-card ${isSelected ? 'selected' : ''}`}
               onClick={() => !isABL && setSelected(isSelected ? null : team)}
               style={{
-                padding: '12px 14px',
                 cursor: isABL ? 'not-allowed' : 'pointer',
                 textAlign: 'left',
-                border: isSelected ? '2px solid var(--red)' : '1px solid var(--cream-darker)',
-                borderLeft: `3px solid ${team.primaryColor || 'var(--cream-darker)'}`,
-                background: isSelected ? '#fef5f5' : isABL ? '#f5f5f0' : 'var(--cream)',
+                borderLeft: `5px solid ${team.primaryColor || 'var(--cream-darker)'}`,
+                background: isABL ? '#f5f5f0' : undefined,
                 transition: 'border-color 0.2s, box-shadow 0.2s',
-                position: 'relative',
                 opacity: isABL ? 0.7 : 1,
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                <div className="font-display" style={{ fontSize: '0.9rem', fontWeight: 700, lineHeight: 1.2 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                <div className="font-display" style={{ fontSize: '1.1rem', fontWeight: 700, lineHeight: 1.08 }}>
                   {team.city}<br />{team.name}
                 </div>
-                <span className="badge badge-ink" style={{ fontSize: '0.55rem', background: team.primaryColor || (team.league === 'ngl' ? '#1a3a5c' : '#2d5a3d'), color: '#fff', marginLeft: 6, flexShrink: 0 }}>
+                <span className="badge badge-ink" style={{ background: team.primaryColor || (team.league === 'ngl' ? '#1a3a5c' : '#2d5a3d'), color: '#fff', marginLeft: 6, flexShrink: 0 }}>
                   {team.league === 'ngl' ? 'NGL' : 'ABL'}
                 </span>
               </div>
-              <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
-                <span className="font-mono" style={{ fontSize: '0.6rem', color: tierInfo?.color || 'var(--ink-muted)' }}>T{getMarketTier(team.market)} {tierInfo?.label}</span>
-                <span className="font-mono" style={{ fontSize: '0.6rem', color: 'var(--ink-muted)' }}>{team.division || ''}</span>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                <span className="font-mono" style={{ fontSize: '0.72rem', color: tierInfo?.color || 'var(--ink-muted)' }}>Tier {getMarketTier(team.market)} · {tierInfo?.label}</span>
+                <span className="font-mono" style={{ fontSize: '0.72rem', color: 'var(--ink-muted)' }}>{team.division || ''}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 10, marginBottom: 10 }}>
                 <div>
-                  <div className="stat-label" style={{ fontSize: '0.55rem' }}>Ask Price</div>
-                  <div className="font-mono" style={{ fontSize: '0.75rem', color: extras.askingPrice > STARTING ? 'var(--red)' : 'var(--green)', fontWeight: 700 }}>
+                  <div className="stat-label">Ask Price</div>
+                  <div className="font-mono" style={{ fontSize: '0.88rem', color: extras.askingPrice > STARTING ? 'var(--red)' : 'var(--green)', fontWeight: 700 }}>
                     ${extras.askingPrice}M
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <div className="stat-label" style={{ fontSize: '0.55rem' }}>Fans</div>
-                  <div className="font-mono" style={{ fontSize: '0.75rem' }}>{extras.fanRating}</div>
+                  <div className="stat-label">Fans</div>
+                  <div className="font-mono" style={{ fontSize: '0.88rem' }}>{extras.fanRating}</div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <div className="stat-label" style={{ fontSize: '0.55rem' }}>Stadium</div>
-                  <div className="font-mono" style={{ fontSize: '0.75rem', color: extras.stadiumCondition > 75 ? 'var(--green)' : extras.stadiumCondition > 60 ? 'var(--amber)' : 'var(--red)' }}>
+                  <div className="stat-label">Stadium</div>
+                  <div className="font-mono" style={{ fontSize: '0.88rem', color: extras.stadiumCondition > 75 ? 'var(--green)' : extras.stadiumCondition > 60 ? 'var(--amber)' : 'var(--red)' }}>
                     {extras.stadiumCondition}%
                   </div>
                 </div>
               </div>
-              <p className="font-body" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)', lineHeight: 1.4, marginTop: 4, fontStyle: 'italic' }}>
+              <p className="font-body" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', lineHeight: 1.55, marginTop: 4, fontStyle: 'italic' }}>
                 {extras.flavor}
               </p>
               {extras.askingPrice > STARTING && !isABL && (
-                <div className="badge badge-red" style={{ fontSize: '0.55rem', marginTop: 6 }}>
+                <div className="badge badge-red" style={{ marginTop: 10 }}>
                   DEBT: ${extras.askingPrice - STARTING}M
                 </div>
               )}
               {isABL && (
                 <div style={{
                   position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
-                  justifyContent: 'center', background: 'rgba(245,245,240,0.82)', borderRadius: 2,
+                  justifyContent: 'center', background: 'rgba(245,245,240,0.82)', borderRadius: 6,
                 }}>
-                  <span className="font-display" style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--ink-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  <span className="font-display" style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--ink-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                     Coming Soon
                   </span>
                 </div>
@@ -267,20 +263,20 @@ function FranchiseSelectionScreen({ onCreate }) {
         })}
       </div>
       {selected && sel && (
-        <div className="card-elevated" style={{ padding: 16, position: 'sticky', bottom: 16, background: 'var(--cream)', borderTop: '2px solid var(--ink)' }}>
+        <div className="card-elevated confirm-sheet" style={{ background: 'rgba(245,240,232,0.98)', borderTop: '3px solid var(--ink)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
             <div>
-              <div className="font-display" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{selected.city} {selected.name}</div>
-              <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>
+              <div className="font-display" style={{ fontSize: '1.25rem', fontWeight: 700 }}>{selected.city} {selected.name}</div>
+              <div className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
                 {selected.league === 'ngl' ? 'NGL Football' : 'ABL Basketball'} · Asking ${sel.askingPrice}M · Starting Cash $30M
               </div>
               {hasDebt && (
-                <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--red)', marginTop: 4 }}>
+                <div className="font-mono" style={{ fontSize: '0.8rem', color: 'var(--red)', marginTop: 6 }}>
                   You will carry ${sel.askingPrice - STARTING}M acquisition debt at 8% interest.
                 </div>
               )}
             </div>
-            <button className="btn-gold" style={{ padding: '12px 28px' }} onClick={() => onCreate(selected, selected.league)}>
+            <button className="btn-gold" style={{ minHeight: 46, padding: '12px 28px' }} onClick={() => onCreate(selected, selected.league)}>
               {hasDebt ? `Buy Franchise (${sel.askingPrice - STARTING}M Debt)` : 'Launch Franchise'}
             </button>
           </div>
@@ -295,7 +291,7 @@ function FranchiseSelectionScreen({ onCreate }) {
 // MINI SPARKLINE
 // ============================================================
 function MiniSparkline({ data, width = 120, height = 32, color = 'var(--green)' }) {
-  if (!data || data.length < 2) return <span className="font-mono" style={{ fontSize: '0.6rem', color: 'var(--ink-muted)' }}>—</span>;
+  if (!data || data.length < 2) return <span className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>—</span>;
   const max = Math.max(...data);
   const min = Math.min(...data);
   const range = max - min || 1;
@@ -336,13 +332,13 @@ function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve,
   const val = useMemo(() => calculateValuation(fr), [fr]);
   const gmTier = getGMTier(gmRep);
   return (
-    <div style={{ maxWidth: 960, margin: '0 auto', padding: '12px 12px' }}>
-      <div className="card-elevated scoreboard" style={{ marginBottom: 12, borderTop: `3px solid ${fr.primaryColor || 'var(--red)'}` }}>
+    <div style={{ maxWidth: 980, margin: '0 auto', padding: '12px 12px' }}>
+      <div className="card-elevated scoreboard scoreboard-hero" style={{ marginBottom: 14, '--team-color': fr.league === 'abl' ? 'var(--blue)' : 'var(--red)' }}>
         <div>
-          <h2 className="font-display" style={{ fontSize: 'clamp(1.1rem,4vw,1.5rem)', fontWeight: 700, textTransform: 'uppercase', color: fr.primaryColor || 'var(--ink)' }}>
+          <h2 className="font-display" style={{ fontSize: 'clamp(1.4rem, 5vw, 2rem)', fontWeight: 700, textTransform: 'uppercase', color: fr.primaryColor || 'var(--ink)', position: 'relative' }}>
             {fr.city} {fr.name}
           </h2>
-          <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>
+          <div className="font-mono" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', position: 'relative' }}>
             {fr.league === 'ngl' ? 'NGL' : 'ABL'} · S{fr.season || 1} · {fr.coach.name}
             {fr.economyCycle !== 'stable' ? ` · ${formatLabel(fr.economyCycle)}` : ''}
             {' · '}<span style={{ color: 'var(--ink-muted)' }}>{gmTier.badge} {gmTier.label}</span>
@@ -355,16 +351,16 @@ function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve,
             ['Value', `$${val}M`],
             ['Cash', formatMoney(fr.cash || 0), (fr.cash || 0) > 5 ? 'var(--green)' : 'var(--red)'],
           ].map(([label, value, color]) => (
-            <div key={label} style={{ textAlign: 'center', padding: '4px 0' }}>
+            <div key={label} style={{ textAlign: 'center', padding: '6px 0', position: 'relative' }}>
               <div className="stat-label">{label}</div>
-              <div className="font-display" style={{ fontSize: '1.1rem', fontWeight: 700, color: color || 'var(--ink)' }}>{value}</div>
+              <div className="font-display" style={{ fontSize: label === 'Record' ? 'clamp(1.1rem, 4vw, 1.6rem)' : '1.2rem', fontWeight: 700, color: color || 'var(--ink)' }}>{value}</div>
             </div>
           ))}
         </div>
       </div>
       <div className="tab-nav" style={{ marginBottom: 12, '--team-color': fr.primaryColor || 'var(--red)' }}>
-        {['home', 'slots', 'staff', 'biz', 'infra', 'finance', 'legacy', 'history'].map(t => (
-          <button key={t} className={`tab-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)} style={tab === t ? { color: fr.primaryColor || 'var(--ink)' } : undefined}>{t === 'infra' ? 'infrastructure' : t}</button>
+        {[['home', '🏠 Home'], ['slots', '🧩 Slots'], ['staff', '🧠 Coach'], ['biz', '💼 Biz'], ['infra', '🏗 Facilities'], ['finance', '💳 Finance'], ['legacy', '🏆 Legacy'], ['history', '📚 History']].map(([key, label]) => (
+          <button key={key} className={`tab-btn ${tab === key ? 'active' : ''}`} onClick={() => setTab(key)}>{label}</button>
         ))}
       </div>
       {tab === 'home' && <HomeTab fr={fr} onSim={onSim} simming={simming} recap={recap} grade={grade} events={events} onResolve={onResolve} pressConf={pressConf} onPressConf={onPressConf} newspaper={newspaper} newspaperDismissed={newspaperDismissed} onDismissNewspaper={onDismissNewspaper} cbaEvent={cbaEvent} onCBA={onCBA} namingOffer={namingOffer} onNaming={onNaming} notifications={notifications} onDismissNotif={onDismissNotif} />}
@@ -386,6 +382,7 @@ function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve,
 function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressConf, onPressConf, newspaper, newspaperDismissed, onDismissNewspaper, cbaEvent, onCBA, namingOffer, onNaming, notifications, onDismissNotif }) {
   const unresolvedEvents = events.filter(e => !e.resolved);
   const simBlocked = simming || unresolvedEvents.length > 0 || (pressConf && pressConf.length > 0) || cbaEvent || (newspaper && !newspaperDismissed);
+  const simReady = !simBlocked && !simming;
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -393,10 +390,10 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
         <NotificationsPanel notifications={notifications} onDismiss={onDismissNotif} />
       )}
       {newspaper && !newspaperDismissed && (
-        <div className="card fade-in" style={{ padding: 0, border: '2px solid var(--ink)', overflow: 'hidden' }}>
-          <div style={{ background: 'var(--ink)', color: 'var(--cream)', padding: '6px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div className="font-display" style={{ fontSize: '0.6rem', letterSpacing: '0.2em' }}>THE DAILY BALL</div>
-            <div className="font-mono" style={{ fontSize: '0.55rem', color: '#aaa' }}>SEASON {newspaper.season} WRAP-UP</div>
+        <div className="card fade-in" style={{ padding: 0, border: '2px solid var(--ink)', overflow: 'hidden', background: 'linear-gradient(180deg,#f8f4eb,#f1e8d9)' }}>
+          <div style={{ background: 'var(--ink)', color: 'var(--cream)', padding: '10px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="font-display" style={{ fontSize: '0.72rem', letterSpacing: '0.2em' }}>THE DAILY BALL</div>
+            <div className="font-mono" style={{ fontSize: '0.7rem', color: '#aaa' }}>SEASON {newspaper.season} WRAP-UP</div>
           </div>
           <div style={{ padding: '16px 20px' }}>
             <div className="font-display" style={{ fontSize: 'clamp(1rem,4vw,1.5rem)', fontWeight: 700, lineHeight: 1.15, marginBottom: 10, borderBottom: '2px solid var(--ink)', paddingBottom: 8 }}>
@@ -423,12 +420,12 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
         </div>
       )}
       {recap && (
-        <div className="card" style={{ padding: 16 }}>
+        <div className="card" style={{ background: 'linear-gradient(180deg,rgba(212,168,67,0.08),rgba(255,255,255,0.4))' }}>
           <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Season Recap</h3>
           <p className="font-body" style={{ lineHeight: 1.6, color: 'var(--ink-soft)', fontSize: '0.85rem' }}>{recap}</p>
           {grade && (
-            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span className="font-display" style={{ fontSize: '1.8rem', fontWeight: 700, color: grade.grade.startsWith('A') ? 'var(--green)' : grade.grade.startsWith('B') ? 'var(--amber)' : 'var(--red)' }}>
+            <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 8, background: 'rgba(255,255,255,0.65)', border: '1px solid rgba(26,18,8,0.08)' }}>
+              <span className="font-display" style={{ fontSize: '2.6rem', lineHeight: 1, fontWeight: 700, color: grade.grade.startsWith('A') ? 'var(--green)' : grade.grade.startsWith('B') ? 'var(--amber)' : 'var(--red)' }}>
                 {grade.grade}
               </span>
               <span className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>{grade.analysis}</span>
@@ -437,14 +434,14 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
         </div>
       )}
       {pressConf && pressConf.length > 0 && (
-        <div className="card" style={{ padding: 16 }}>
+        <div className="card" style={{ borderLeft: '5px solid var(--ink)', background: 'linear-gradient(180deg,rgba(26,18,8,0.03),rgba(255,255,255,0.4))' }}>
           <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Press Conference</h3>
           {pressConf.map(pc => (
             <div key={pc.id} style={{ marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--cream-darker)' }}>
               <p className="font-body" style={{ fontSize: '0.85rem', fontStyle: 'italic', color: 'var(--ink-soft)', marginBottom: 10 }}>{pc.prompt}</p>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {pc.options.map((opt, oi) => (
-                  <button key={oi} className="btn-secondary" style={{ fontSize: '0.68rem', padding: '5px 12px' }} onClick={() => onPressConf(pc.id, oi)}>
+                  <button key={oi} className="btn-secondary" style={{ fontSize: '0.72rem' }} onClick={() => onPressConf(pc.id, oi)}>
                     {opt.label}
                   </button>
                 ))}
@@ -459,8 +456,8 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
           <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10, lineHeight: 1.5 }}>{cbaEvent.description}</p>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {cbaEvent.choices.map((ch, ci) => (
-              <button key={ci} className="btn-secondary" style={{ fontSize: '0.68rem', padding: '5px 12px' }} onClick={() => onCBA(ci)}>
-                {ch.label}<br /><span style={{ fontSize: '0.6rem', color: 'var(--ink-muted)' }}>{ch.desc}</span>
+              <button key={ci} className="btn-secondary" style={{ fontSize: '0.72rem', alignItems: 'flex-start', textAlign: 'left' }} onClick={() => onCBA(ci)}>
+                {ch.label}<br /><span style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>{ch.desc}</span>
               </button>
             ))}
           </div>
@@ -473,8 +470,8 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
             {namingOffer.company} wants to name your stadium. ${namingOffer.annualPay}M/year for {namingOffer.years} years.
           </p>
           <div style={{ display: 'flex', gap: 6 }}>
-            <button className="btn-primary" style={{ fontSize: '0.7rem', padding: '5px 12px' }} onClick={() => onNaming(true)}>Accept</button>
-            <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '5px 12px' }} onClick={() => onNaming(false)}>Decline</button>
+            <button className="btn-primary" style={{ fontSize: '0.78rem' }} onClick={() => onNaming(true)}>Accept</button>
+            <button className="btn-secondary" style={{ fontSize: '0.78rem' }} onClick={() => onNaming(false)}>Decline</button>
           </div>
         </div>
       )}
@@ -487,7 +484,7 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
               <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginBottom: 10, lineHeight: 1.5 }}>{ev.description}</p>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {ev.choices.map((ch, ci) => (
-                  <button key={ci} className="btn-secondary" style={{ fontSize: '0.68rem', padding: '5px 12px' }} onClick={() => onResolve(ev.id, ci)}>
+                  <button key={ci} className="btn-secondary" style={{ fontSize: '0.72rem' }} onClick={() => onResolve(ev.id, ci)}>
                     {ch.label}{ch.cost ? ` (-$${ch.cost}M)` : ''}{ch.revenue ? ` (+$${ch.revenue}M)` : ''}
                   </button>
                 ))}
@@ -516,14 +513,14 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
         <div className="card" style={{ padding: '10px 14px', borderLeft: '3px solid var(--red)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
             <div>
-              <div className="stat-label" style={{ fontSize: '0.6rem' }}>RIVAL</div>
+              <div className="stat-label" style={{ fontSize: '0.7rem' }}>RIVAL</div>
               <div className="font-display" style={{ fontSize: '0.9rem', fontWeight: 700 }}>{fr.rivalry.teamName}</div>
-              <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)', marginTop: 2 }}>
+              <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginTop: 2 }}>
                 {getRivalryTier(fr.rivalry.intensityScore)} · H2H: {fr.rivalry.h2hRecord?.wins || 0}-{fr.rivalry.h2hRecord?.losses || 0}
               </div>
             </div>
             <div style={{ textAlign: 'center' }}>
-              <div className="stat-label" style={{ fontSize: '0.55rem' }}>Intensity</div>
+              <div className="stat-label" style={{ fontSize: '0.7rem' }}>Intensity</div>
               <div className="font-display" style={{ fontSize: '1.1rem', fontWeight: 700, color: fr.rivalry.intensityScore >= 76 ? 'var(--red)' : fr.rivalry.intensityScore >= 51 ? 'var(--amber)' : 'var(--ink-muted)' }}>
                 {fr.rivalry.intensityScore}
               </div>
@@ -538,10 +535,9 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
       )}
       <div style={{ textAlign: 'center', marginTop: 6 }}>
         <button
-          className="btn-gold"
+          className={`btn-gold simulate-cta ${simReady ? 'ready' : ''}`}
           onClick={onSim}
           disabled={simBlocked}
-          style={{ padding: '12px 36px', fontSize: '0.95rem' }}
         >
           {simming ? 'Simulating...' : newspaper && !newspaperDismissed ? 'Read Newspaper First' : unresolvedEvents.length > 0 || pressConf?.length > 0 || cbaEvent ? 'Resolve All Events' : 'Simulate Season'}
         </button>
@@ -616,18 +612,18 @@ function SlotsTab({ fr, setFr, gmRep }) {
               {player ? (
                 <>
                   <div className="font-display" style={{ fontSize: '1rem', fontWeight: 700 }}>{player.name}</div>
-                  <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)', marginBottom: 4 }}>{player.position} · Age {player.age}</div>
+                  <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginBottom: 4 }}>{player.position} · Age {player.age}</div>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
                     <div>
-                      <span className="stat-label" style={{ fontSize: '0.55rem' }}>Rating</span>
+                      <span className="stat-label" style={{ fontSize: '0.7rem' }}>Rating</span>
                       <div className="font-display" style={{ fontSize: '1.2rem', fontWeight: 700, color: player.rating >= 85 ? 'var(--green)' : player.rating >= 70 ? 'var(--amber)' : 'var(--ink)' }}>{player.rating}</div>
                     </div>
                     <div>
-                      <span className="stat-label" style={{ fontSize: '0.55rem' }}>Salary</span>
+                      <span className="stat-label" style={{ fontSize: '0.7rem' }}>Salary</span>
                       <div className="font-mono" style={{ fontSize: '0.85rem' }}>${player.salary}M</div>
                     </div>
                     <div>
-                      <span className="stat-label" style={{ fontSize: '0.55rem' }}>Years</span>
+                      <span className="stat-label" style={{ fontSize: '0.7rem' }}>Years</span>
                       <div className="font-mono" style={{ fontSize: '0.85rem', color: player.yearsLeft <= 1 ? 'var(--red)' : 'var(--ink)' }}>{player.yearsLeft}yr</div>
                     </div>
                   </div>
@@ -639,7 +635,7 @@ function SlotsTab({ fr, setFr, gmRep }) {
                   <div style={{ marginTop: 6 }}>
                     <button
                       className="btn-secondary"
-                      style={{ fontSize: '0.62rem', padding: '4px 10px', borderColor: 'var(--red)', color: 'var(--red)' }}
+                      style={{ fontSize: '0.7rem', padding: '4px 10px', borderColor: 'var(--red)', color: 'var(--red)' }}
                       onClick={() => doRelease(key)}
                     >
                       Release
@@ -652,7 +648,7 @@ function SlotsTab({ fr, setFr, gmRep }) {
                   <div style={{ marginTop: 8 }}>
                     <button
                       className="btn-secondary"
-                      style={{ fontSize: '0.62rem', padding: '4px 10px' }}
+                      style={{ fontSize: '0.7rem', padding: '4px 10px' }}
                       onClick={() => { openFA(); setSigningSlot(key); }}
                     >
                       Sign Player
@@ -673,7 +669,7 @@ function SlotsTab({ fr, setFr, gmRep }) {
         <div className="card" style={{ padding: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Free Agent Pool</h3>
-            <button className="btn-secondary" style={{ fontSize: '0.62rem', padding: '4px 10px' }} onClick={() => setShowFA(false)}>Close</button>
+            <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '4px 10px' }} onClick={() => setShowFA(false)}>Close</button>
           </div>
           <div className="table-wrap">
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
@@ -704,7 +700,7 @@ function SlotsTab({ fr, setFr, gmRep }) {
                               <button
                                 key={key}
                                 className="btn-secondary"
-                                style={{ fontSize: '0.58rem', padding: '3px 6px', opacity: (!canAfford || wouldOverBudget || slotFull) ? 0.4 : 1 }}
+                                style={{ fontSize: '0.7rem', padding: '3px 6px', opacity: (!canAfford || wouldOverBudget || slotFull) ? 0.4 : 1 }}
                                 disabled={!canAfford || wouldOverBudget || slotFull}
                                 onClick={() => doSign(p, key)}
                                 title={slotFull ? 'Slot full — release first' : !canAfford ? 'Insufficient cash' : wouldOverBudget ? 'Over budget' : `Sign to ${label}`}
@@ -728,24 +724,24 @@ function SlotsTab({ fr, setFr, gmRep }) {
       {(fr.rookieSlots || []).length > 0 && (
         <div className="card" style={{ padding: 14, marginTop: 12 }}>
           <h3 className="font-display section-header" style={{ fontSize: '0.85rem' }}>Rookie Slots ({(fr.rookieSlots || []).length}/3)</h3>
-          <p className="font-body" style={{ fontSize: '0.68rem', color: 'var(--ink-muted)', marginBottom: 8 }}>
+          <p className="font-body" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginBottom: 8 }}>
             Drafted rookies develop here before joining the main roster. Promote to an open slot or release.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
             {(fr.rookieSlots || []).map((r, idx) => (
               <div key={r.id || idx} className="card" style={{ padding: '10px 12px' }}>
                 <div className="font-display" style={{ fontSize: '0.85rem', fontWeight: 600 }}>{r.name}</div>
-                <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>
+                <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>
                   {r.position} · Age {r.age} · {r.rating} rtg
                 </div>
-                {r.draftRound && <div className="font-mono" style={{ fontSize: '0.6rem', color: 'var(--ink-muted)' }}>R{r.draftRound} P{r.draftPick}</div>}
-                {r.trait && <span className="badge badge-ink" style={{ fontSize: '0.5rem', marginTop: 4 }}>{r.trait}</span>}
+                {r.draftRound && <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>R{r.draftRound} P{r.draftPick}</div>}
+                {r.trait && <span className="badge badge-ink" style={{ fontSize: '0.7rem', marginTop: 4 }}>{r.trait}</span>}
                 <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                   {slotDefs.map(({ key, label }) => (
                     <button
                       key={key}
                       className="btn-secondary"
-                      style={{ fontSize: '0.55rem', padding: '2px 6px', opacity: fr[key] ? 0.4 : 1 }}
+                      style={{ fontSize: '0.7rem', padding: '2px 6px', opacity: fr[key] ? 0.4 : 1 }}
                       disabled={!!fr[key]}
                       title={fr[key] ? 'Slot occupied' : `Promote to ${label}`}
                       onClick={() => {
@@ -760,7 +756,7 @@ function SlotsTab({ fr, setFr, gmRep }) {
                   ))}
                   <button
                     className="btn-secondary"
-                    style={{ fontSize: '0.55rem', padding: '2px 6px', borderColor: 'var(--red)', color: 'var(--red)' }}
+                    style={{ fontSize: '0.7rem', padding: '2px 6px', borderColor: 'var(--red)', color: 'var(--red)' }}
                     onClick={() => {
                       setFr(prev => ({ ...prev, rookieSlots: (prev.rookieSlots || []).filter((_, ri) => ri !== idx) }));
                     }}
@@ -827,11 +823,11 @@ function CoachTab({ fr, setFr, gmRep }) {
                   <div className="font-display" style={{ fontSize: '0.85rem', fontWeight: 600 }}>{cd.name}</div>
                   <div className="font-body" style={{ fontSize: '0.75rem', color: 'var(--ink-soft)' }}>{cd.personality} · Lvl {cd.level}</div>
                   <div className="font-body" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', fontStyle: 'italic', marginTop: 3 }}>{cd.backstory}</div>
-                  {repLocked && <div style={{ fontSize: '0.62rem', color: 'var(--red)', marginTop: 2 }}>Requires {repRequired} GM Rep (you have {Math.round(gmRep)})</div>}
+                  {repLocked && <div style={{ fontSize: '0.7rem', color: 'var(--red)', marginTop: 2 }}>Requires {repRequired} GM Rep (you have {Math.round(gmRep)})</div>}
                 </div>
                 <button
                   className="btn-primary"
-                  style={{ fontSize: '0.65rem', padding: '5px 12px', opacity: repLocked ? 0.4 : 1 }}
+                  style={{ fontSize: '0.7rem', padding: '5px 12px', opacity: repLocked ? 0.4 : 1 }}
                   disabled={repLocked}
                   title={repLocked ? `Need ${repRequired} GM Rep` : ''}
                   onClick={() => { setFr(() => hireCoach(fr, cd)); setCandidates(null); }}
@@ -1013,7 +1009,7 @@ function FacTab({ fr, setFr, onCashChange }) {
           <div key={key} className="card" style={{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div className="font-display" style={{ fontSize: '0.8rem', fontWeight: 600 }}>{label}</div>
-              <div style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>{desc}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>{desc}</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ display: 'flex', gap: 2 }}>
@@ -1022,7 +1018,7 @@ function FacTab({ fr, setFr, onCashChange }) {
               {current < 3 && (
                 <button
                   className="btn-secondary"
-                  style={{ fontSize: '0.6rem', padding: '3px 8px', opacity: canAfford ? 1 : 0.4, minHeight: 28 }}
+                  style={{ fontSize: '0.7rem', padding: '3px 8px', opacity: canAfford ? 1 : 0.4, minHeight: 28 }}
                   disabled={!canAfford}
                   onClick={() => upgrade(key)}
                   title={!canAfford ? 'Insufficient cash' : `Upgrade for $${cost}M`}
@@ -1030,7 +1026,7 @@ function FacTab({ fr, setFr, onCashChange }) {
                   ${cost}M
                 </button>
               )}
-              {current >= 3 && <span className="badge badge-green" style={{ fontSize: '0.55rem' }}>MAX</span>}
+              {current >= 3 && <span className="badge badge-green" style={{ fontSize: '0.7rem' }}>MAX</span>}
             </div>
           </div>
         );
@@ -1062,7 +1058,7 @@ function LegacyTab({ fr, leagueHistory }) {
               {trophies.map((t, i) => (
                 <div key={i} style={{ background: 'var(--gold)', color: 'var(--ink)', padding: '10px 16px', borderRadius: 2, textAlign: 'center', minWidth: 80 }}>
                   <div className="font-display" style={{ fontSize: '1rem', fontWeight: 700 }}>S{t.season}</div>
-                  <div className="font-mono" style={{ fontSize: '0.65rem' }}>{t.wins}-{t.losses}</div>
+                  <div className="font-mono" style={{ fontSize: '0.7rem' }}>{t.wins}-{t.losses}</div>
                 </div>
               ))}
             </div>
@@ -1085,7 +1081,7 @@ function LegacyTab({ fr, leagueHistory }) {
               <div key={label} style={{ textAlign: 'center', padding: '6px 4px' }}>
                 <div className="stat-label">{label}</div>
                 <div className="font-display" style={{ fontSize: '0.95rem', fontWeight: 700 }}>{val}</div>
-                {s && <div className="font-mono" style={{ fontSize: '0.6rem', color: 'var(--ink-muted)' }}>S{s}</div>}
+                {s && <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>S{s}</div>}
               </div>
             ))}
           </div>
@@ -1100,11 +1096,11 @@ function LegacyTab({ fr, leagueHistory }) {
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--cream-darker)', flexWrap: 'wrap', gap: 4 }}>
               <div>
                 <div className="font-display" style={{ fontSize: '0.85rem', fontWeight: 600 }}>{h.name}</div>
-                <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>
+                <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>
                   {h.position} · Peak {h.peakRating} · {h.seasons}yr · Inducted S{h.inductionSeason}
                 </div>
               </div>
-              <span className="badge badge-gold" style={{ fontSize: '0.55rem', background: 'var(--gold)', color: 'var(--ink)' }}>HOF</span>
+              <span className="badge badge-gold" style={{ fontSize: '0.7rem', background: 'var(--gold)', color: 'var(--ink)' }}>HOF</span>
             </div>
           ))}
         </div>
@@ -1136,7 +1132,7 @@ function LegacyTab({ fr, leagueHistory }) {
                   {c.city} {c.teamName}
                 </span>
               </div>
-              <span className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>{c.record}</span>
+              <span className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>{c.record}</span>
             </div>
           ))}
         </div>
@@ -1149,8 +1145,8 @@ function LegacyTab({ fr, leagueHistory }) {
           {[...notableSeasons].reverse().slice(0, 10).map((n, i) => (
             <div key={i} style={{ padding: '6px 0', borderBottom: '1px solid var(--cream-darker)' }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <span className="font-mono" style={{ fontSize: '0.65rem', fontWeight: 600 }}>S{n.season}</span>
-                <span className={`badge ${n.isPlayerTeam ? 'badge-red' : 'badge-ink'}`} style={{ fontSize: '0.5rem' }}>{n.type}</span>
+                <span className="font-mono" style={{ fontSize: '0.7rem', fontWeight: 600 }}>S{n.season}</span>
+                <span className={`badge ${n.isPlayerTeam ? 'badge-red' : 'badge-ink'}`} style={{ fontSize: '0.7rem' }}>{n.type}</span>
               </div>
               <div className="font-body" style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 2 }}>{n.description}</div>
             </div>
@@ -1168,8 +1164,8 @@ function LegacyTab({ fr, leagueHistory }) {
               const isChamp = trophies.some(t => t.season === h.season);
               return (
                 <div key={h.season} style={{ minWidth: 50, textAlign: 'center', padding: '6px 4px', borderRadius: 2, background: isChamp ? 'var(--gold)' : wp > 0.6 ? 'var(--green)' : wp < 0.35 ? 'var(--red)' : 'var(--cream-dark)', color: isChamp || wp > 0.6 || wp < 0.35 ? '#fff' : 'var(--ink)' }}>
-                  <div className="font-mono" style={{ fontSize: '0.6rem', fontWeight: 600 }}>S{h.season}</div>
-                  <div className="font-mono" style={{ fontSize: '0.55rem' }}>{h.wins}-{h.losses}</div>
+                  <div className="font-mono" style={{ fontSize: '0.7rem', fontWeight: 600 }}>S{h.season}</div>
+                  <div className="font-mono" style={{ fontSize: '0.7rem' }}>{h.wins}-{h.losses}</div>
                 </div>
               );
             })}
@@ -1240,11 +1236,11 @@ function LeagueScreen({ lt, fr }) {
         <button className={viewLeague === 'abl' ? 'btn-primary' : 'btn-secondary'} onClick={() => setViewLeague('abl')}>ABL — Basketball</button>
       </div>
       <div className="card table-wrap">
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
           <thead>
             <tr style={{ borderBottom: '2px solid var(--cream-darker)' }}>
               {['#', 'Team', 'Tier', 'W', 'L', 'Win%', 'Fan', 'Mkt'].map(h => (
-                <th key={h} className="stat-label" style={{ padding: '6px 8px', textAlign: 'left' }}>{h}</th>
+                <th key={h} className="stat-label" style={{ padding: '10px 12px', textAlign: 'left' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -1253,21 +1249,21 @@ function LeagueScreen({ lt, fr }) {
               const isPlayer = playerIds.includes(t.id);
               const tierInfo = getMarketTierInfo(t.market);
               return (
-                <tr key={t.id} style={{ borderBottom: '1px solid var(--cream-dark)', background: isPlayer ? '#fef5f5' : 'transparent', fontWeight: isPlayer ? 600 : 400 }}>
-                  <td className="font-mono" style={{ padding: '6px 8px' }}>{i + 1}</td>
-                  <td className="font-body" style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
+                <tr key={t.id} className={isPlayer ? 'table-player-row' : ''} style={{ borderBottom: '1px solid var(--cream-dark)', fontWeight: isPlayer ? 600 : 400 }}>
+                  <td className="font-mono" style={{ padding: '10px 12px' }}>{i + 1}</td>
+                  <td className="font-body" style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
                     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: t.primaryColor || 'var(--ink-muted)', marginRight: 6, verticalAlign: 'middle' }} />
                     {t.city} {t.name}
-                    {isPlayer && <span style={{ color: 'var(--red)', marginLeft: 4, fontSize: '0.6rem' }}>YOU</span>}
+                    {isPlayer && <span style={{ color: 'var(--red)', marginLeft: 4, fontSize: '0.7rem' }}>YOU</span>}
                   </td>
-                  <td><span className="font-mono" style={{ fontSize: '0.6rem', color: tierInfo?.color || 'var(--ink-muted)' }}>T{getMarketTier(t.market)}</span></td>
-                  <td className="font-mono" style={{ padding: '6px 8px' }}>{t.wins}</td>
-                  <td className="font-mono" style={{ padding: '6px 8px' }}>{t.losses}</td>
-                  <td className="font-mono" style={{ padding: '6px 8px' }}>
+                  <td style={{ padding: '10px 12px' }}><span className="font-mono" style={{ fontSize: '0.72rem', color: tierInfo?.color || 'var(--ink-muted)' }}>T{getMarketTier(t.market)}</span></td>
+                  <td className="font-mono" style={{ padding: '10px 12px' }}>{t.wins}</td>
+                  <td className="font-mono" style={{ padding: '10px 12px' }}>{t.losses}</td>
+                  <td className="font-mono" style={{ padding: '10px 12px' }}>
                     {t.wins + t.losses > 0 ? ((t.wins / (t.wins + t.losses)) * 100).toFixed(0) : '—'}
                   </td>
-                  <td className="font-mono" style={{ padding: '6px 8px' }}>{t.fanRating}</td>
-                  <td className="font-mono" style={{ padding: '6px 8px' }}>{t.market}</td>
+                  <td className="font-mono" style={{ padding: '10px 12px' }}>{t.fanRating}</td>
+                  <td className="font-mono" style={{ padding: '10px 12px' }}>{t.market}</td>
                 </tr>
               );
             })}
@@ -1322,14 +1318,14 @@ function MarketScreen({ lt, cash, stakes, season, setStakes, setCash }) {
               <div key={stake.id || i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--cream-dark)', flexWrap: 'wrap', gap: 6 }}>
                 <div>
                   <span className="font-body" style={{ fontSize: '0.85rem', fontWeight: 500 }}>{stake.teamName}</span>
-                  <div className="font-mono" style={{ fontSize: '0.62rem', color: 'var(--ink-muted)' }}>
+                  <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>
                     {stake.stakePct}% · Paid ${stake.purchasePrice}M · Now ${currentValue}M
                     <span style={{ color: gain >= 0 ? 'var(--green)' : 'var(--red)', marginLeft: 4 }}>({gain >= 0 ? '+' : ''}{gain}M)</span>
                   </div>
                 </div>
                 <button
                   className="btn-secondary"
-                  style={{ fontSize: '0.62rem', padding: '4px 10px', color: 'var(--green)', borderColor: 'var(--green)' }}
+                  style={{ fontSize: '0.7rem', padding: '4px 10px', color: 'var(--green)', borderColor: 'var(--green)' }}
                   onClick={() => sellStake(stake)}
                 >
                   Sell ${currentValue}M
@@ -1349,13 +1345,13 @@ function MarketScreen({ lt, cash, stakes, season, setStakes, setCash }) {
               <div key={offer.id} className="card" style={{ padding: '12px 14px', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                 <div>
                   <div className="font-display" style={{ fontSize: '0.85rem', fontWeight: 600 }}>{offer.teamName}</div>
-                  <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>
+                  <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>
                     {offer.league.toUpperCase()} · {offer.record} · T{getMarketTier(offer.market)} · {offer.stakePct}% stake
                   </div>
                 </div>
                 <button
                   className="btn-primary"
-                  style={{ fontSize: '0.65rem', padding: '5px 12px' }}
+                  style={{ fontSize: '0.7rem', padding: '5px 12px' }}
                   disabled={cash < offer.price || stakes.length >= 3}
                   onClick={() => buyStake(offer)}
                   title={stakes.length >= 3 ? 'Max 3 stakes allowed' : cash < offer.price ? 'Insufficient liquid capital' : ''}
@@ -1387,7 +1383,7 @@ function PortfolioScreen({ af, fr, stakes, lt, gmRep, dynasty, season, setScreen
         <span style={{ fontSize: '1.4rem' }}>{gmTier.badge}</span>
         <div>
           <div className="font-display" style={{ fontSize: '1rem', fontWeight: 700 }}>{gmTier.label}</div>
-          <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>GM Reputation: {gmRep}/100</div>
+          <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>GM Reputation: {gmRep}/100</div>
         </div>
         <div style={{ flex: 1, marginLeft: 8 }}>
           <div className="progress-bar">
@@ -1429,7 +1425,7 @@ function PortfolioScreen({ af, fr, stakes, lt, gmRep, dynasty, season, setScreen
             ].map(({ label, data, color }) => (
               <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--cream-darker)' }}>
                 <div>
-                  <div className="stat-label" style={{ fontSize: '0.62rem' }}>{label}</div>
+                  <div className="stat-label" style={{ fontSize: '0.7rem' }}>{label}</div>
                   <div className="font-mono" style={{ fontSize: '0.72rem', fontWeight: 600 }}>{data[data.length - 1]}{label === 'Win%' ? '%' : label === 'Fan Rating' ? '' : 'M'}</div>
                 </div>
                 <Sparkline data={data} color={color} height={24} />
@@ -1449,7 +1445,7 @@ function PortfolioScreen({ af, fr, stakes, lt, gmRep, dynasty, season, setScreen
           {dynasty.map((d, i) => (
             <div key={i} style={{ marginBottom: 10 }}>
               <div className="font-display" style={{ fontSize: '0.85rem', color: 'var(--gold)', fontWeight: 600 }}>
-                {d.era} <span className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>S{d.season}</span>
+                {d.era} <span className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>S{d.season}</span>
               </div>
               <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', lineHeight: 1.5 }}>{d.narrative}</p>
             </div>
@@ -1488,7 +1484,7 @@ function EmpireFinanceScreen({ af, fr, stakes, lt, season }) {
   function delta(val) {
     if (val === null) return null;
     return (
-      <span style={{ fontSize: '0.65rem', color: val > 0 ? 'var(--green)' : val < 0 ? 'var(--red)' : 'var(--ink-muted)', marginLeft: 4 }}>
+      <span style={{ fontSize: '0.7rem', color: val > 0 ? 'var(--green)' : val < 0 ? 'var(--red)' : 'var(--ink-muted)', marginLeft: 4 }}>
         {val > 0 ? '+' : ''}{val}M
       </span>
     );
@@ -1508,7 +1504,7 @@ function EmpireFinanceScreen({ af, fr, stakes, lt, season }) {
     <div style={{ maxWidth: 900, margin: '0 auto', padding: '16px 12px', fontFamily: 'var(--font-mono)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h2 className="font-display section-header" style={{ fontSize: '1.2rem', borderBottomColor: af.primaryColor || 'var(--red)' }}>Empire Finances</h2>
-        <span className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>Season {season}</span>
+        <span className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>Season {season}</span>
       </div>
 
       {/* Section 1: Empire Summary */}
@@ -1528,7 +1524,7 @@ function EmpireFinanceScreen({ af, fr, stakes, lt, season }) {
             ['Interest/yr', `$${interestCost}M`, debt > 0 ? 'var(--red)' : 'var(--ink-muted)', null],
           ].map(([label, value, color, d]) => (
             <div key={label} className="card" style={{ padding: '10px 12px', background: 'var(--cream-dark)' }}>
-              <div className="stat-label" style={{ fontSize: '0.6rem' }}>{label}</div>
+              <div className="stat-label" style={{ fontSize: '0.7rem' }}>{label}</div>
               <div className="font-mono" style={{ fontSize: '0.9rem', fontWeight: 700, color: color || 'var(--ink)' }}>
                 {value}{delta(d)}
               </div>
@@ -1552,29 +1548,29 @@ function EmpireFinanceScreen({ af, fr, stakes, lt, season }) {
             <div key={f.id} style={{ padding: '12px 0', borderBottom: '1px solid var(--cream-darker)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
               <div style={{ minWidth: 160 }}>
                 <div className="font-display" style={{ fontSize: '0.9rem', fontWeight: 700 }}>{f.city} {f.name}</div>
-                <div className="font-mono" style={{ fontSize: '0.6rem', color: 'var(--ink-muted)' }}>{f.league === 'ngl' ? 'NGL' : 'ABL'} · S{f.season}</div>
+                <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>{f.league === 'ngl' ? 'NGL' : 'ABL'} · S{f.season}</div>
               </div>
               <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                 <div style={{ textAlign: 'center' }}>
-                  <div className="stat-label" style={{ fontSize: '0.55rem' }}>Revenue</div>
+                  <div className="stat-label" style={{ fontSize: '0.7rem' }}>Revenue</div>
                   <div className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--green)' }}>${f.finances?.revenue || 0}M</div>
                 </div>
                 <div style={{ textAlign: 'center' }}>
-                  <div className="stat-label" style={{ fontSize: '0.55rem' }}>Profit</div>
+                  <div className="stat-label" style={{ fontSize: '0.7rem' }}>Profit</div>
                   <div className="font-mono" style={{ fontSize: '0.75rem', color: (f.finances?.profit || 0) > 0 ? 'var(--green)' : 'var(--red)' }}>${f.finances?.profit || 0}M</div>
                 </div>
                 <div style={{ textAlign: 'center' }}>
-                  <div className="stat-label" style={{ fontSize: '0.55rem' }}>Valuation</div>
+                  <div className="stat-label" style={{ fontSize: '0.7rem' }}>Valuation</div>
                   <div className="font-mono" style={{ fontSize: '0.75rem', fontWeight: 700 }}>${fVal}M</div>
                 </div>
                 <div style={{ textAlign: 'center' }}>
-                  <div className="stat-label" style={{ fontSize: '0.55rem' }}>Val Change</div>
+                  <div className="stat-label" style={{ fontSize: '0.7rem' }}>Val Change</div>
                   <div className="font-mono" style={{ fontSize: '0.75rem', color: valChangePct >= 0 ? 'var(--green)' : 'var(--red)' }}>
                     {valChangePct >= 0 ? '+' : ''}{valChangePct}%
                   </div>
                 </div>
                 <div>
-                  <div className="stat-label" style={{ fontSize: '0.55rem', marginBottom: 2 }}>5yr Trend</div>
+                  <div className="stat-label" style={{ fontSize: '0.7rem', marginBottom: 2 }}>5yr Trend</div>
                   <MiniSparkline data={valSparkData} width={80} height={24} color={valChangePct >= 0 ? 'var(--green)' : 'var(--red)'} />
                 </div>
               </div>
@@ -1659,7 +1655,7 @@ function EmpireFinanceScreen({ af, fr, stakes, lt, season }) {
                 <span className="font-body" style={{ fontSize: '0.8rem' }}>{f.city} {f.name}</span>
                 <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
                   <span className="font-mono" style={{ fontSize: '0.7rem' }}>${fVal}M vs avg ${Math.round(fAvg)}M</span>
-                  <span className="font-mono" style={{ fontSize: '0.65rem', fontWeight: 700, color: fColor }}>{fSignal}</span>
+                  <span className="font-mono" style={{ fontSize: '0.7rem', fontWeight: 700, color: fColor }}>{fSignal}</span>
                 </div>
               </div>
             );
@@ -1727,9 +1723,9 @@ function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, onPickMade, onAut
               const isNext = i === draftPicks.length - remainingPicks.length;
               return (
                 <div key={i} style={{ padding: '8px 12px', borderRadius: 2, background: isNext ? 'var(--red)' : used ? 'var(--cream-darker)' : 'var(--cream-dark)', color: isNext ? '#fff' : 'var(--ink)', minWidth: 80, textAlign: 'center' }}>
-                  <div className="font-mono" style={{ fontSize: '0.65rem', fontWeight: 700 }}>Round {p.round}</div>
+                  <div className="font-mono" style={{ fontSize: '0.7rem', fontWeight: 700 }}>Round {p.round}</div>
                   <div className="font-mono" style={{ fontSize: '0.75rem' }}>Pick #{p.pick}</div>
-                  {p.aiPicksBefore > 0 && <div className="font-mono" style={{ fontSize: '0.55rem', marginTop: 2, opacity: 0.7 }}>{p.aiPicksBefore} before</div>}
+                  {p.aiPicksBefore > 0 && <div className="font-mono" style={{ fontSize: '0.7rem', marginTop: 2, opacity: 0.7 }}>{p.aiPicksBefore} before</div>}
                 </div>
               );
             })}
@@ -1742,7 +1738,7 @@ function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, onPickMade, onAut
         <div className="card" style={{ padding: 16, marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <h3 className="font-display" style={{ fontSize: '0.85rem', fontWeight: 700 }}>Top Prospects</h3>
-            <button className="btn-secondary" style={{ fontSize: '0.65rem', padding: '5px 12px' }} onClick={handleAutoPickAction}>Auto-Pick</button>
+            <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '5px 12px' }} onClick={handleAutoPickAction}>Auto-Pick</button>
           </div>
           <div className="table-wrap">
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
@@ -1767,7 +1763,7 @@ function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, onPickMade, onAut
                       <td>
                         <button
                           className="btn-secondary"
-                          style={{ fontSize: '0.6rem', padding: '3px 8px', opacity: alreadyPicked ? 0.3 : 1 }}
+                          style={{ fontSize: '0.7rem', padding: '3px 8px', opacity: alreadyPicked ? 0.3 : 1 }}
                           disabled={alreadyPicked || remainingPicks.length === 0}
                           onClick={() => handlePick(p)}
                         >
@@ -1883,8 +1879,8 @@ function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSigningsLog, onDon
               {player ? (
                 <>
                   <div className="font-display" style={{ fontSize: '0.95rem', fontWeight: 700 }}>{player.name}</div>
-                  <div className="font-mono" style={{ fontSize: '0.62rem', color: 'var(--ink-muted)' }}>{player.position} · {player.rating} rtg · ${player.salary}M</div>
-                  <button className="btn-secondary" style={{ fontSize: '0.6rem', padding: '3px 8px', marginTop: 6, borderColor: 'var(--red)', color: 'var(--red)' }} onClick={() => doRelease(key)}>
+                  <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>{player.position} · {player.rating} rtg · ${player.salary}M</div>
+                  <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '3px 8px', marginTop: 6, borderColor: 'var(--red)', color: 'var(--red)' }} onClick={() => doRelease(key)}>
                     Release
                   </button>
                 </>
@@ -1945,7 +1941,7 @@ function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSigningsLog, onDon
                               <button
                                 key={key}
                                 className="btn-secondary"
-                                style={{ fontSize: '0.58rem', padding: '3px 6px', opacity: (!canAfford || wouldOverBudget || slotFull) ? 0.4 : 1 }}
+                                style={{ fontSize: '0.7rem', padding: '3px 6px', opacity: (!canAfford || wouldOverBudget || slotFull) ? 0.4 : 1 }}
                                 disabled={!canAfford || wouldOverBudget || slotFull}
                                 onClick={() => attemptSign(p, key)}
                                 title={slotFull ? 'Slot full' : !canAfford ? 'Insufficient cash' : wouldOverBudget ? 'Over budget' : `Sign to ${label}`}
@@ -2010,7 +2006,7 @@ function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSigningsLog, onDon
                 Walk Away
               </button>
             </div>
-            <p className="font-mono" style={{ fontSize: '0.6rem', color: 'var(--ink-muted)', marginTop: 8 }}>
+            <p className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginTop: 8 }}>
               Walk away = {biddingWar.aiTeamName} signs {biddingWar.player.name}.
             </p>
           </div>
@@ -2022,14 +2018,14 @@ function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSigningsLog, onDon
         <div className="card" style={{ padding: 14, marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
             <h3 className="font-display" style={{ fontSize: '0.78rem', fontWeight: 700 }}>League Transactions</h3>
-            <button className="btn-secondary" style={{ fontSize: '0.58rem', padding: '3px 8px' }} onClick={() => setShowTransactions(t => !t)}>
+            <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '3px 8px' }} onClick={() => setShowTransactions(t => !t)}>
               {showTransactions ? 'Hide' : 'Show'}
             </button>
           </div>
           {showTransactions && (
             <div style={{ maxHeight: 160, overflowY: 'auto' }}>
               {aiSigningsLog.map((s, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px solid var(--cream-dark)', fontSize: '0.68rem' }}>
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px solid var(--cream-dark)', fontSize: '0.7rem' }}>
                   <span className="font-body">{s.teamName}</span>
                   <span className="font-mono" style={{ color: 'var(--ink-muted)' }}>signed {s.player.name} · {s.player.rating} rtg · ${s.player.salary}M</span>
                 </div>
@@ -2085,13 +2081,13 @@ function PlayoffBracketScreen({ playoffResult, playerFranchise, season, onContin
     return (
       <span style={{
         display: 'inline-flex', alignItems: 'center', gap: 4,
-        fontFamily: 'var(--font-mono)', fontSize: '0.68rem',
+        fontFamily: 'var(--font-mono)', fontSize: '0.7rem',
         fontWeight: isPlayer ? 700 : 400,
         color: isChamp ? 'var(--gold)' : isPlayer ? 'var(--red)' : 'var(--ink)',
       }}>
-        <span style={{ fontSize: '0.55rem', color: 'var(--ink-muted)' }}>#{team?.seed}</span>
+        <span style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>#{team?.seed}</span>
         {' '}{team?.city} {team?.name}
-        {isPlayer && <span style={{ color: 'var(--red)', fontSize: '0.55rem' }}>YOU</span>}
+        {isPlayer && <span style={{ color: 'var(--red)', fontSize: '0.7rem' }}>YOU</span>}
       </span>
     );
   }
@@ -2110,10 +2106,10 @@ function PlayoffBracketScreen({ playoffResult, playerFranchise, season, onContin
             background: t.id === pId ? '#fef5f5' : 'transparent',
             borderLeft: t.id === pId ? '3px solid var(--red)' : '3px solid transparent',
           }}>
-            <span className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)', minWidth: 14 }}>#{t.seed}</span>
+            <span className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', minWidth: 14 }}>#{t.seed}</span>
             <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: t.primaryColor || 'var(--ink-muted)', marginLeft: 6, marginRight: 4, flexShrink: 0 }} />
-            <span className="font-body" style={{ fontSize: '0.68rem', flex: 1 }}>{t.city} {t.name}</span>
-            <span className="font-mono" style={{ fontSize: '0.62rem', color: 'var(--ink-muted)' }}>{t.wins}-{t.losses}</span>
+            <span className="font-body" style={{ fontSize: '0.7rem', flex: 1 }}>{t.city} {t.name}</span>
+            <span className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>{t.wins}-{t.losses}</span>
           </div>
         ))}
       </div>
@@ -2172,7 +2168,7 @@ function PlayoffBracketScreen({ playoffResult, playerFranchise, season, onContin
               <span className="font-body" style={{ color: 'var(--green)' }}>{g.winner?.city} {g.winner?.name}</span>
               <span className="font-mono" style={{ color: 'var(--ink-muted)', margin: '0 6px' }}>def.</span>
               <span className="font-body" style={{ color: 'var(--ink-muted)', textDecoration: 'line-through' }}>{g.loser?.city} {g.loser?.name}</span>
-              {g.isUpset && <span className="badge badge-amber" style={{ fontSize: '0.5rem', marginLeft: 6 }}>UPSET</span>}
+              {g.isUpset && <span className="badge badge-amber" style={{ fontSize: '0.7rem', marginLeft: 6 }}>UPSET</span>}
             </div>
           ))}
         </div>
@@ -2188,7 +2184,7 @@ function PlayoffBracketScreen({ playoffResult, playerFranchise, season, onContin
       <h2 className="font-display section-header" style={{ fontSize: '1.2rem' }}>
         NGL Playoffs — {currentRound?.name}
       </h2>
-      <p className="font-mono" style={{ fontSize: '0.62rem', color: 'var(--ink-muted)', marginBottom: 14 }}>
+      <p className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginBottom: 14 }}>
         Season {season} · Round {roundIdx + 1} of {rounds.length}
       </p>
 
@@ -2200,7 +2196,7 @@ function PlayoffBracketScreen({ playoffResult, playerFranchise, season, onContin
             <SeedsPanel seeds={eastSeeds} label="East" />
             <SeedsPanel seeds={westSeeds} label="West" />
           </div>
-          <p className="font-mono" style={{ fontSize: '0.6rem', color: 'var(--ink-muted)', marginTop: 8 }}>
+          <p className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginTop: 8 }}>
             Seeds 1-2 per conference have a bye. Seeds 3-6 play Wild Card round.
           </p>
         </div>
@@ -2240,7 +2236,7 @@ function PlayoffBracketScreen({ playoffResult, playerFranchise, season, onContin
           return (
             <div key={conf} style={{ marginBottom: 10 }}>
               {conf !== 'Neutral' && (
-                <div className="font-mono" style={{ fontSize: '0.58rem', color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 4, letterSpacing: '0.06em' }}>
+                <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 4, letterSpacing: '0.06em' }}>
                   {conf} Conference
                 </div>
               )}
@@ -2249,16 +2245,16 @@ function PlayoffBracketScreen({ playoffResult, playerFranchise, season, onContin
                   display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0',
                   borderBottom: '1px solid var(--cream-dark)', flexWrap: 'wrap',
                 }}>
-                  <span className="font-mono" style={{ fontSize: '0.58rem', color: 'var(--ink-faint)', minWidth: 70 }}>{g.label}</span>
+                  <span className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-faint)', minWidth: 70 }}>{g.label}</span>
                   <span className="font-body" style={{ fontSize: '0.72rem', color: 'var(--green)', fontWeight: 600, flex: '1 1 120px' }}>
                     {g.winner?.city} {g.winner?.name}
-                    {g.winner?.id === pId && <span style={{ color: 'var(--red)', marginLeft: 4, fontSize: '0.55rem' }}>YOU</span>}
+                    {g.winner?.id === pId && <span style={{ color: 'var(--red)', marginLeft: 4, fontSize: '0.7rem' }}>YOU</span>}
                   </span>
-                  <span className="font-mono" style={{ fontSize: '0.6rem', color: 'var(--ink-muted)' }}>def.</span>
+                  <span className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>def.</span>
                   <span className="font-body" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', flex: '1 1 100px', textDecoration: 'line-through' }}>
                     {g.loser?.city} {g.loser?.name}
                   </span>
-                  {g.isUpset && <span className="badge badge-amber" style={{ fontSize: '0.5rem' }}>UPSET</span>}
+                  {g.isUpset && <span className="badge badge-amber" style={{ fontSize: '0.7rem' }}>UPSET</span>}
                 </div>
               ))}
             </div>
@@ -2322,7 +2318,7 @@ function Settings({ onDelete, setScreen }) {
           />
           <button className="btn-secondary" onClick={saveApiKey}>{saved ? 'Saved' : 'Save'}</button>
         </div>
-        <div className="font-mono" style={{ fontSize: '0.65rem', color: hasNarrativeApi() ? 'var(--green)' : 'var(--ink-muted)', marginTop: 6 }}>
+        <div className="font-mono" style={{ fontSize: '0.7rem', color: hasNarrativeApi() ? 'var(--green)' : 'var(--ink-muted)', marginTop: 6 }}>
           {hasNarrativeApi() ? 'AI Active' : 'Procedural mode'}
         </div>
       </div>
@@ -2883,9 +2879,12 @@ export default function App() {
   // ── Render ───────────────────────────────────────────────────
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', flexDirection: 'column', gap: 14 }}>
-        <div className="spinner" style={{ width: 28, height: 28 }} />
-        <span className="font-display" style={{ color: 'var(--ink-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', fontSize: '0.75rem' }}>Loading...</span>
+      <div className="loading-overlay">
+        <div className="loading-panel">
+          <div className="spinner" style={{ width: 36, height: 36 }} />
+          <span className="font-display" style={{ color: 'var(--ink)', letterSpacing: '0.12em', textTransform: 'uppercase', fontSize: '0.95rem' }}>Preparing the Front Office</span>
+          <span className="font-mono" style={{ color: 'var(--ink-muted)', fontSize: '0.72rem' }}>Loading schedules, finances, and franchise history...</span>
+        </div>
       </div>
     );
   }
@@ -3050,7 +3049,7 @@ export default function App() {
       )}
 
       {/* Save indicator */}
-      <div style={{ position: 'fixed', bottom: 8, right: 8, padding: '3px 8px', borderRadius: 2, background: saveStatus === 'saving' ? 'var(--amber)' : 'var(--green)', color: '#fff', fontSize: '0.6rem', fontFamily: 'var(--font-mono)', opacity: 0.7 }}>
+      <div className="save-indicator" data-state={saveStatus}>
         {saveStatus === 'saving' ? 'Saving...' : 'Saved'}
       </div>
     </div>
