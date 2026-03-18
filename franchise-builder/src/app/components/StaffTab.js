@@ -3,7 +3,10 @@ import { useState } from 'react';
 import { STAFF_SALARIES } from '@/data/leagues';
 import {
   generateStaffCandidates, fireCoordinator, hireCoordinator, calculateSchemeFit,
+  generateCoachCandidates, fireCoach, hireCoach, canAfford,
 } from '@/lib/engine';
+
+const COACH_REP_GATE = { 3: 55, 4: 75 };
 
 function schemeLabel(s) {
   if (!s) return '—';
@@ -20,6 +23,84 @@ function levelBar(level, max = 3) {
   );
 }
 
+// --- Head Coach Card (full management) ---
+function HeadCoachCard({ fr, setFr, gmRep }) {
+  const [candidates, setCandidates] = useState(null);
+  const [confirmFire, setConfirmFire] = useState(false);
+  const coach = fr.coach;
+
+  return (
+    <div className="card-elevated" style={{ padding: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+        <div>
+          <div className="stat-label" style={{ fontSize: '0.65rem' }}>HEAD COACH</div>
+          <div className="font-display" style={{ fontSize: '1.05rem', fontWeight: 700, marginTop: 2 }}>{coach.name}</div>
+          <div className="font-body" style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 2 }}>
+            {coach.personality} · Lvl {coach.level}/4 · {coach.seasonsWithTeam || 0}yr tenure
+          </div>
+          <div className="font-body" style={{ fontSize: '0.68rem', color: 'var(--ink-muted)', marginTop: 2 }}>
+            {coach.developmentFocus ? `Focus: ${schemeLabel(coach.developmentFocus)}` : ''}
+            {coach.lockerRoomStyle ? ` · Style: ${schemeLabel(coach.lockerRoomStyle)}` : ''}
+          </div>
+          <div style={{ display: 'flex', gap: 3, marginTop: 6 }}>
+            {[1, 2, 3, 4].map(l => (
+              <div key={l} style={{ width: 20, height: 6, borderRadius: 2, background: coach.level >= l ? 'var(--red)' : 'var(--cream-darker)' }} />
+            ))}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {!confirmFire
+            ? <button className="btn-secondary" style={{ borderColor: 'var(--red)', color: 'var(--red)', fontSize: '0.65rem' }} onClick={() => setConfirmFire(true)}>Fire</button>
+            : <>
+                <button className="btn-primary" style={{ fontSize: '0.65rem', padding: '4px 8px' }} onClick={() => {
+                  setFr(() => fireCoach(fr));
+                  setCandidates(generateCoachCandidates(3));
+                  setConfirmFire(false);
+                }}>
+                  Confirm (-${coach.level * 2}M)
+                </button>
+                <button className="btn-secondary" style={{ fontSize: '0.65rem', padding: '4px 8px' }} onClick={() => setConfirmFire(false)}>Cancel</button>
+              </>
+          }
+        </div>
+      </div>
+
+      {/* Coaching Candidates */}
+      {candidates && (
+        <div style={{ borderTop: '1px solid var(--cream-darker)', paddingTop: 10, marginTop: 4 }}>
+          <div className="stat-label" style={{ fontSize: '0.65rem', marginBottom: 6 }}>Coaching Candidates</div>
+          {candidates.map(cd => {
+            const repRequired = COACH_REP_GATE[cd.level];
+            const repLocked = repRequired && gmRep < repRequired;
+            return (
+              <div key={cd.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--cream-darker)', flexWrap: 'wrap', gap: 6 }}>
+                <div>
+                  <div className="font-body" style={{ fontSize: '0.78rem', fontWeight: 600 }}>{cd.name}</div>
+                  <div className="font-body" style={{ fontSize: '0.68rem', color: 'var(--ink-muted)' }}>
+                    {cd.personality} · Lvl {cd.level}
+                  </div>
+                  <div className="font-body" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)', fontStyle: 'italic', marginTop: 2 }}>{cd.backstory}</div>
+                  {repLocked && <div style={{ fontSize: '0.6rem', color: 'var(--red)', marginTop: 2 }}>Requires {repRequired} GM Rep (you: {Math.round(gmRep)})</div>}
+                </div>
+                <button
+                  className="btn-primary"
+                  style={{ fontSize: '0.62rem', padding: '4px 10px', opacity: repLocked ? 0.4 : 1 }}
+                  disabled={repLocked}
+                  onClick={() => { setFr(() => hireCoach(fr, cd)); setCandidates(null); }}
+                >
+                  Hire
+                </button>
+              </div>
+            );
+          })}
+          <button className="btn-secondary" style={{ fontSize: '0.62rem', marginTop: 8 }} onClick={() => setCandidates(null)}>Cancel</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Coordinator Card ---
 function CoordCard({ title, coord, role, fr, setFr, gmRep }) {
   const [hiring, setHiring] = useState(false);
   const [confirmFire, setConfirmFire] = useState(false);
@@ -105,7 +186,7 @@ function CoordCard({ title, coord, role, fr, setFr, gmRep }) {
 }
 
 // ============================================================
-// STAFF TAB
+// STAFF TAB — comprehensive with HC + coordinators + scores
 // ============================================================
 export default function StaffTab({ fr, setFr, gmRep }) {
   const schemeFitScore = fr.schemeFit || calculateSchemeFit(fr);
@@ -117,20 +198,31 @@ export default function StaffTab({ fr, setFr, gmRep }) {
   const fitBonus = schemeFitScore >= 75 ? '+3% WP' : schemeFitScore >= 50 ? '0%' : schemeFitScore >= 25 ? '-2% WP' : '-5% WP';
   const chemBonus = `${staffChem >= 65 ? '+' : ''}${Math.round((staffChem - 65) * 0.1)}% WP`;
 
+  // Effect summary
+  const totalWPEffect = (schemeFitScore >= 75 ? 3 : schemeFitScore >= 50 ? 0 : schemeFitScore >= 25 ? -2 : -5) + Math.round((staffChem - 65) * 0.1);
+  const effectColor = totalWPEffect > 0 ? 'var(--green)' : totalWPEffect < 0 ? 'var(--red)' : 'var(--ink-muted)';
+
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-      {/* Scores summary */}
-      <div className="card-elevated" style={{ padding: 14, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 120 }}>
+      {/* Staff Overview scores */}
+      <div className="card-elevated" style={{ padding: 14, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ flex: 1, minWidth: 100 }}>
           <div className="stat-label">Scheme Fit</div>
           <div className="font-display" style={{ fontSize: '1.3rem', fontWeight: 700, color: fitColor }}>{schemeFitScore}</div>
           <div className="font-body" style={{ fontSize: '0.68rem', color: 'var(--ink-muted)' }}>{fitBonus}</div>
         </div>
-        <div style={{ flex: 1, minWidth: 120 }}>
+        <div style={{ flex: 1, minWidth: 100 }}>
           <div className="stat-label">Staff Chemistry</div>
           <div className="font-display" style={{ fontSize: '1.3rem', fontWeight: 700, color: chemColor }}>{staffChem}</div>
           <div className="font-body" style={{ fontSize: '0.68rem', color: 'var(--ink-muted)' }}>{chemBonus}</div>
+        </div>
+        <div style={{ flex: 1, minWidth: 100 }}>
+          <div className="stat-label">Net WP Effect</div>
+          <div className="font-display" style={{ fontSize: '1.3rem', fontWeight: 700, color: effectColor }}>
+            {totalWPEffect > 0 ? '+' : ''}{totalWPEffect}%
+          </div>
+          <div className="font-body" style={{ fontSize: '0.68rem', color: 'var(--ink-muted)' }}>Combined staff impact</div>
         </div>
         {fr.dynastyCohesionBonus && (
           <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -139,21 +231,10 @@ export default function StaffTab({ fr, setFr, gmRep }) {
         )}
       </div>
 
-      {/* Head Coach (read-only here — managed via Coach tab) */}
-      <div className="card" style={{ padding: 14 }}>
-        <div className="stat-label" style={{ fontSize: '0.65rem' }}>HEAD COACH</div>
-        <div className="font-display" style={{ fontSize: '0.9rem', fontWeight: 700, marginTop: 2 }}>{fr.coach?.name}</div>
-        <div className="font-body" style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 2 }}>
-          {fr.coach?.personality}
-          {fr.coach?.developmentFocus ? ` · Focus: ${schemeLabel(fr.coach.developmentFocus)}` : ''}
-          {fr.coach?.lockerRoomStyle ? ` · Style: ${schemeLabel(fr.coach.lockerRoomStyle)}` : ''}
-        </div>
-        <div className="font-body" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)', marginTop: 2 }}>
-          Manage via Coach tab
-        </div>
-      </div>
+      {/* Head Coach — full management */}
+      <HeadCoachCard fr={fr} setFr={setFr} gmRep={gmRep} />
 
-      {/* 2×2 Coordinator grid */}
+      {/* Coordinator grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
         <CoordCard
           title="OFFENSIVE COORDINATOR"

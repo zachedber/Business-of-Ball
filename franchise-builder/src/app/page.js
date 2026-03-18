@@ -22,7 +22,12 @@ import {
   applyStadiumUpgrade, startStadiumProject, calculatePublicFundingApproval,
   purchasePremiumSeating, generateNewStadiumNamingRightsOffer,
   generateStaffCandidates, fireCoordinator, hireCoordinator,
-  calculateSchemeFit,
+  calculateSchemeFit, canAfford,
+  initLeagueHistory, addChampion, checkNotableSeasons,
+  initFranchiseRecords, updateFranchiseRecords, evaluateHallOfFame,
+  initHeadToHead, updateHeadToHead, initRivalry, updateRivalry, getRivalryTier, getRivalryPlayoffNarrative,
+  initDraftPickInventory,
+  formatMoney, generateTVDealEvent, calculateAdjustedCap, formatLabel,
 } from '@/lib/engine';
 import {
   NGL_TEAMS, ABL_TEAMS, MARKET_TIERS, getMarketTier, getMarketTierInfo,
@@ -36,8 +41,9 @@ import {
 import TradeDeadlineScreen from '@/app/components/TradeDeadlineScreen';
 import NotificationsPanel, { NotificationBadge } from '@/app/components/NotificationsPanel';
 import AnalyticsScreen, { Sparkline } from '@/app/components/AnalyticsScreen';
-import StadiumTab from '@/app/components/StadiumTab';
+import InfrastructureTab from '@/app/components/InfrastructureTab';
 import StaffTab from '@/app/components/StaffTab';
+import HelpPanel from '@/app/components/HelpPanel';
 
 // ============================================================
 // TICKER
@@ -81,7 +87,7 @@ function Nav({ screen, setScreen, fr, gmRep, cash, notifCount }) {
             <div style={{ textAlign: 'right' }}>
               <span className="stat-label">Cash</span>
               <div className="stat-value" style={{ fontSize: '0.8rem', color: cash > 5 ? 'var(--green)' : cash > 0 ? 'var(--amber)' : 'var(--red)' }}>
-                ${Math.round(cash * 10) / 10}M
+                {formatMoney(cash)}
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
@@ -201,8 +207,9 @@ function FranchiseSelectionScreen({ onCreate }) {
                 cursor: isABL ? 'not-allowed' : 'pointer',
                 textAlign: 'left',
                 border: isSelected ? '2px solid var(--red)' : '1px solid var(--cream-darker)',
+                borderLeft: `3px solid ${team.primaryColor || 'var(--cream-darker)'}`,
                 background: isSelected ? '#fef5f5' : isABL ? '#f5f5f0' : 'var(--cream)',
-                transition: 'border-color 0.15s',
+                transition: 'border-color 0.2s, box-shadow 0.2s',
                 position: 'relative',
                 opacity: isABL ? 0.7 : 1,
               }}
@@ -211,7 +218,7 @@ function FranchiseSelectionScreen({ onCreate }) {
                 <div className="font-display" style={{ fontSize: '0.9rem', fontWeight: 700, lineHeight: 1.2 }}>
                   {team.city}<br />{team.name}
                 </div>
-                <span className="badge badge-ink" style={{ fontSize: '0.55rem', background: team.league === 'ngl' ? '#1a3a5c' : '#2d5a3d', color: '#fff', marginLeft: 6, flexShrink: 0 }}>
+                <span className="badge badge-ink" style={{ fontSize: '0.55rem', background: team.primaryColor || (team.league === 'ngl' ? '#1a3a5c' : '#2d5a3d'), color: '#fff', marginLeft: 6, flexShrink: 0 }}>
                   {team.league === 'ngl' ? 'NGL' : 'ABL'}
                 </span>
               </div>
@@ -337,7 +344,7 @@ function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve,
           </h2>
           <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>
             {fr.league === 'ngl' ? 'NGL' : 'ABL'} · S{fr.season || 1} · {fr.coach.name}
-            {fr.economyCycle === 'boom' ? ' UP' : fr.economyCycle === 'recession' ? ' DOWN' : ''}
+            {fr.economyCycle !== 'stable' ? ` · ${formatLabel(fr.economyCycle)}` : ''}
             {' · '}<span style={{ color: 'var(--ink-muted)' }}>{gmTier.badge} {gmTier.label}</span>
           </div>
         </div>
@@ -346,7 +353,7 @@ function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve,
             ['Record', `${fr.wins}-${fr.losses}`],
             ['Rank', `#${fr.leagueRank || '—'}`, 'var(--red)'],
             ['Value', `$${val}M`],
-            ['Cash', `$${Math.round((fr.cash || 0) * 10) / 10}M`, (fr.cash || 0) > 5 ? 'var(--green)' : 'var(--red)'],
+            ['Cash', formatMoney(fr.cash || 0), (fr.cash || 0) > 5 ? 'var(--green)' : 'var(--red)'],
           ].map(([label, value, color]) => (
             <div key={label} style={{ textAlign: 'center', padding: '4px 0' }}>
               <div className="stat-label">{label}</div>
@@ -356,19 +363,17 @@ function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve,
         </div>
       </div>
       <div className="tab-nav" style={{ marginBottom: 12 }}>
-        {['home', 'slots', 'coach', 'staff', 'biz', 'stadium', 'facilities', 'finance', 'legacy', 'history'].map(t => (
-          <button key={t} className={`tab-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>{t}</button>
+        {['home', 'slots', 'staff', 'biz', 'infra', 'finance', 'legacy', 'history'].map(t => (
+          <button key={t} className={`tab-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>{t === 'infra' ? 'infrastructure' : t}</button>
         ))}
       </div>
       {tab === 'home' && <HomeTab fr={fr} onSim={onSim} simming={simming} recap={recap} grade={grade} events={events} onResolve={onResolve} pressConf={pressConf} onPressConf={onPressConf} newspaper={newspaper} newspaperDismissed={newspaperDismissed} onDismissNewspaper={onDismissNewspaper} cbaEvent={cbaEvent} onCBA={onCBA} namingOffer={namingOffer} onNaming={onNaming} notifications={notifications} onDismissNotif={onDismissNotif} />}
       {tab === 'slots' && <SlotsTab fr={fr} setFr={setFr} gmRep={gmRep} />}
-      {tab === 'coach' && <CoachTab fr={fr} setFr={setFr} gmRep={gmRep} />}
       {tab === 'staff' && <StaffTab fr={fr} setFr={setFr} gmRep={gmRep} />}
       {tab === 'biz' && <BizTab fr={fr} setFr={setFr} />}
-      {tab === 'stadium' && <StadiumTab fr={fr} setFr={setFr} season={fr.season || 1} />}
-      {tab === 'facilities' && <FacTab fr={fr} setFr={setFr} onCashChange={onCashChange} />}
+      {tab === 'infra' && <InfrastructureTab fr={fr} setFr={setFr} season={fr.season || 1} onCashChange={onCashChange} />}
       {tab === 'finance' && <DashFinanceTab fr={fr} />}
-      {tab === 'legacy' && <LegacyTab fr={fr} />}
+      {tab === 'legacy' && <LegacyTab fr={fr} leagueHistory={leagueHistory} />}
       {tab === 'history' && <HistTab fr={fr} />}
     </div>
   );
@@ -506,6 +511,26 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
           </div>
         ))}
       </div>
+      {/* Rival Card */}
+      {fr.rivalry?.active && fr.rivalry.teamName && (
+        <div className="card" style={{ padding: '10px 14px', borderLeft: '3px solid var(--red)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+            <div>
+              <div className="stat-label" style={{ fontSize: '0.6rem' }}>RIVAL</div>
+              <div className="font-display" style={{ fontSize: '0.9rem', fontWeight: 700 }}>{fr.rivalry.teamName}</div>
+              <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)', marginTop: 2 }}>
+                {getRivalryTier(fr.rivalry.intensityScore)} · H2H: {fr.rivalry.h2hRecord?.wins || 0}-{fr.rivalry.h2hRecord?.losses || 0}
+              </div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div className="stat-label" style={{ fontSize: '0.55rem' }}>Intensity</div>
+              <div className="font-display" style={{ fontSize: '1.1rem', fontWeight: 700, color: fr.rivalry.intensityScore >= 76 ? 'var(--red)' : fr.rivalry.intensityScore >= 51 ? 'var(--amber)' : 'var(--ink-muted)' }}>
+                {fr.rivalry.intensityScore}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {fr.economyCycle && fr.economyCycle !== 'stable' && (
         <div className={`card`} style={{ padding: '8px 14px', textAlign: 'center', fontSize: '0.75rem', background: fr.economyCycle === 'boom' ? 'var(--green)' : 'var(--red)', color: '#fff' }}>
           {fr.economyCycle === 'boom' ? 'City Economy: BOOM — Revenue boosted' : 'City Economy: RECESSION — Revenue reduced'}
@@ -608,7 +633,7 @@ function SlotsTab({ fr, setFr, gmRep }) {
                   </div>
                   {player.trait && (
                     <span className={`badge ${player.trait === 'leader' ? 'badge-green' : player.trait === 'mercenary' ? 'badge-amber' : ['volatile', 'injury_prone'].includes(player.trait) ? 'badge-red' : 'badge-ink'}`} style={{ marginBottom: 8, display: 'inline-block' }}>
-                      {player.trait}
+                      {formatLabel(player.trait)}
                     </span>
                   )}
                   <div style={{ marginTop: 6 }}>
@@ -695,6 +720,56 @@ function SlotsTab({ fr, setFr, gmRep }) {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Rookie Slots */}
+      {(fr.rookieSlots || []).length > 0 && (
+        <div className="card" style={{ padding: 14, marginTop: 12 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.85rem' }}>Rookie Slots ({(fr.rookieSlots || []).length}/3)</h3>
+          <p className="font-body" style={{ fontSize: '0.68rem', color: 'var(--ink-muted)', marginBottom: 8 }}>
+            Drafted rookies develop here before joining the main roster. Promote to an open slot or release.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
+            {(fr.rookieSlots || []).map((r, idx) => (
+              <div key={r.id || idx} className="card" style={{ padding: '10px 12px' }}>
+                <div className="font-display" style={{ fontSize: '0.85rem', fontWeight: 600 }}>{r.name}</div>
+                <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>
+                  {r.position} · Age {r.age} · {r.rating} rtg
+                </div>
+                {r.draftRound && <div className="font-mono" style={{ fontSize: '0.6rem', color: 'var(--ink-muted)' }}>R{r.draftRound} P{r.draftPick}</div>}
+                {r.trait && <span className="badge badge-ink" style={{ fontSize: '0.5rem', marginTop: 4 }}>{r.trait}</span>}
+                <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                  {slotDefs.map(({ key, label }) => (
+                    <button
+                      key={key}
+                      className="btn-secondary"
+                      style={{ fontSize: '0.55rem', padding: '2px 6px', opacity: fr[key] ? 0.4 : 1 }}
+                      disabled={!!fr[key]}
+                      title={fr[key] ? 'Slot occupied' : `Promote to ${label}`}
+                      onClick={() => {
+                        setFr(prev => {
+                          const promoted = signToSlot(prev, key, r);
+                          return { ...promoted, rookieSlots: (promoted.rookieSlots || []).filter((_, ri) => ri !== idx) };
+                        });
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  <button
+                    className="btn-secondary"
+                    style={{ fontSize: '0.55rem', padding: '2px 6px', borderColor: 'var(--red)', color: 'var(--red)' }}
+                    onClick={() => {
+                      setFr(prev => ({ ...prev, rookieSlots: (prev.rookieSlots || []).filter((_, ri) => ri !== idx) }));
+                    }}
+                  >
+                    Cut
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -817,8 +892,8 @@ function BizTab({ fr, setFr }) {
           <div><span className="stat-label">Interest</span><div className="stat-value">8%/yr</div></div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <button className="btn-secondary" style={{ fontSize: '0.7rem' }} disabled={(fr.debt || 0) >= maxLoan(fr)} onClick={() => setFr(p => takeLoan(p, 10))}>Borrow $10M</button>
-          <button className="btn-secondary" style={{ fontSize: '0.7rem' }} disabled={!(fr.debt > 0 && fr.cash >= 10)} onClick={() => setFr(p => repayDebt(p, 10))}>Repay $10M</button>
+          <button className="btn-secondary" style={{ fontSize: '0.7rem', opacity: (fr.debt || 0) >= maxLoan(fr) ? 0.4 : 1 }} disabled={(fr.debt || 0) >= maxLoan(fr)} onClick={() => setFr(p => takeLoan(p, 10))}>Borrow $10M</button>
+          <button className="btn-secondary" style={{ fontSize: '0.7rem', opacity: !(fr.debt > 0 && canAfford(fr.cash, 10)) ? 0.4 : 1 }} disabled={!(fr.debt > 0 && canAfford(fr.cash, 10))} onClick={() => setFr(p => repayDebt(p, 10))}>Repay $10M</button>
         </div>
       </div>
       {fr.namingRightsActive && (
@@ -968,11 +1043,17 @@ function FacTab({ fr, setFr, onCashChange }) {
 // ============================================================
 // LEGACY TAB
 // ============================================================
-function LegacyTab({ fr }) {
+function LegacyTab({ fr, leagueHistory }) {
   const trophies = fr.trophies || [];
   const legends = fr.localLegends || [];
+  const records = fr.franchiseRecords || {};
+  const hof = (leagueHistory?.hallOfFame || []).filter(h => h.team === `${fr.city} ${fr.name}`);
+  const champions = leagueHistory?.champions || [];
+  const notableSeasons = leagueHistory?.notableSeasons || [];
+
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Championship Banners */}
       <div className="card" style={{ padding: 16 }}>
         <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Championship Banners</h3>
         {trophies.length === 0
@@ -987,6 +1068,49 @@ function LegacyTab({ fr }) {
             </div>
         }
       </div>
+
+      {/* Franchise Records */}
+      {Object.keys(records).length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Franchise Records</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+            {[
+              ['Most Wins', records.mostWinsInSeason?.value, records.mostWinsInSeason?.season],
+              ['Best Win%', records.bestWinPct?.value ? `${Math.round(records.bestWinPct.value * 100)}%` : null, records.bestWinPct?.season],
+              ['Top Revenue', records.mostRevenue?.value ? `$${records.mostRevenue.value}M` : null, records.mostRevenue?.season],
+              ['Peak Value', records.highestValuation?.value ? `$${records.highestValuation.value}M` : null, records.highestValuation?.season],
+              ['Championships', records.championships || 0, null],
+              ['Playoff Apps', records.playoffAppearances || 0, null],
+            ].map(([label, val, s]) => val != null && val !== 0 && (
+              <div key={label} style={{ textAlign: 'center', padding: '6px 4px' }}>
+                <div className="stat-label">{label}</div>
+                <div className="font-display" style={{ fontSize: '0.95rem', fontWeight: 700 }}>{val}</div>
+                {s && <div className="font-mono" style={{ fontSize: '0.6rem', color: 'var(--ink-muted)' }}>S{s}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Hall of Fame */}
+      {hof.length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Hall of Fame</h3>
+          {hof.map((h, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--cream-darker)', flexWrap: 'wrap', gap: 4 }}>
+              <div>
+                <div className="font-display" style={{ fontSize: '0.85rem', fontWeight: 600 }}>{h.name}</div>
+                <div className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>
+                  {h.position} · Peak {h.peakRating} · {h.seasons}yr · Inducted S{h.inductionSeason}
+                </div>
+              </div>
+              <span className="badge badge-gold" style={{ fontSize: '0.55rem', background: 'var(--gold)', color: 'var(--ink)' }}>HOF</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Local Legends */}
       <div className="card" style={{ padding: 16 }}>
         <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Local Legends</h3>
         {legends.length === 0
@@ -999,6 +1123,42 @@ function LegacyTab({ fr }) {
             ))
         }
       </div>
+
+      {/* League Champions History */}
+      {champions.length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>League Champions</h3>
+          {[...champions].reverse().map((c, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--cream-darker)', flexWrap: 'wrap', gap: 4 }}>
+              <div>
+                <span className="font-mono" style={{ fontSize: '0.7rem', fontWeight: 600 }}>S{c.season}</span>
+                <span className="font-body" style={{ fontSize: '0.8rem', marginLeft: 8, fontWeight: c.isPlayerTeam ? 700 : 400, color: c.isPlayerTeam ? 'var(--red)' : 'var(--ink)' }}>
+                  {c.city} {c.teamName}
+                </span>
+              </div>
+              <span className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)' }}>{c.record}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Notable Seasons */}
+      {notableSeasons.length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Notable Moments</h3>
+          {[...notableSeasons].reverse().slice(0, 10).map((n, i) => (
+            <div key={i} style={{ padding: '6px 0', borderBottom: '1px solid var(--cream-darker)' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span className="font-mono" style={{ fontSize: '0.65rem', fontWeight: 600 }}>S{n.season}</span>
+                <span className={`badge ${n.isPlayerTeam ? 'badge-red' : 'badge-ink'}`} style={{ fontSize: '0.5rem' }}>{n.type}</span>
+              </div>
+              <div className="font-body" style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', marginTop: 2 }}>{n.description}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Season Timeline */}
       {fr.history.length > 0 && (
         <div className="card" style={{ padding: 16 }}>
           <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Season Timeline</h3>
@@ -2249,6 +2409,8 @@ export default function App() {
   const [cbaEvent, setCbaEvent] = useState(null);
   const [namingOffer, setNamingOffer] = useState(null);
   const [saveStatus, setSaveStatus] = useState('saved');
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [leagueHistory, setLeagueHistory] = useState(() => initLeagueHistory());
 
   // Keep global cash in sync with active franchise cash
   useEffect(() => {
@@ -2280,6 +2442,7 @@ export default function App() {
         setSeason(saved.season || 1);
         setFreeAg(saved.freeAgents || { ngl: [], abl: [] });
         setNotifications(saved.notifications || []);
+        if (saved.leagueHistory) setLeagueHistory(saved.leagueHistory);
       }
       setLoading(false);
     })();
@@ -2289,9 +2452,9 @@ export default function App() {
   const doSave = useCallback(async () => {
     if (!lt || fr.length === 0) return;
     setSaveStatus('saving');
-    await saveGame({ cash, gmReputation: gmRep, dynastyHistory: dynasty, leagueTeams: lt, franchises: fr, stakes, season, freeAgents: freeAg, notifications });
+    await saveGame({ cash, gmReputation: gmRep, dynastyHistory: dynasty, leagueTeams: lt, franchises: fr, stakes, season, freeAgents: freeAg, notifications, leagueHistory });
     setSaveStatus('saved');
-  }, [cash, gmRep, dynasty, lt, fr, stakes, season, freeAg, notifications]);
+  }, [cash, gmRep, dynasty, lt, fr, stakes, season, freeAg, notifications, leagueHistory]);
 
   const saveTimer = useRef(null);
   useEffect(() => {
@@ -2309,7 +2472,7 @@ export default function App() {
   function handleNew() {
     const league = initializeLeague();
     setLt(league);
-    setCash(0); setGmRep(50); setDynasty([]); setFr([]); setStakes([]);
+    setCash(0); setGmRep(50); setDynasty([]); setFr([]); setStakes([]); setLeagueHistory(initLeagueHistory());
     setSeason(1);
     setFreeAg({ ngl: generateFreeAgents('ngl'), abl: generateFreeAgents('abl') });
     setRecap(null); setGrade(null); setEvents([]); setPressConf(null);
@@ -2448,15 +2611,19 @@ export default function App() {
   // ── Draft handlers ───────────────────────────────────────────
   function handleDraftPickMade(player, usedPick, tradeOffer) {
     if (player) {
-      // Add player to slot if empty
+      // B4: Place drafted player into rookie slots (up to 3)
       setFr(prev => prev.map((f, i) => {
         if (i !== activeIdx) return f;
-        const updated = { ...f };
-        // Find empty slot and fill
-        if (!updated.star1) return signToSlot(updated, 'star1', player);
-        if (!updated.star2) return signToSlot(updated, 'star2', player);
-        if (!updated.corePiece) return signToSlot(updated, 'corePiece', player);
-        return updated;
+        const rookies = [...(f.rookieSlots || [])];
+        if (rookies.length < 3) {
+          rookies.push({ ...player, isRookie: true, draftRound: usedPick?.round, draftPick: usedPick?.pick });
+          return { ...f, rookieSlots: rookies };
+        }
+        // If rookie slots full, try main slots
+        if (!f.star1) return signToSlot(f, 'star1', player);
+        if (!f.star2) return signToSlot(f, 'star2', player);
+        if (!f.corePiece) return signToSlot(f, 'corePiece', player);
+        return f;
       }));
     }
   }
@@ -2561,6 +2728,57 @@ export default function App() {
       setGmRep(newRep);
     }
 
+    // B2: League history — champion + notable seasons + franchise records
+    if (af && result.leagueTeams) {
+      // Determine NGL champion from playoff result or standings
+      const nglStandings = [...(result.leagueTeams.ngl || [])].sort((a, b) => b.wins - a.wins);
+      const champion = nglStandings[0];
+      if (champion) {
+        const isPlayer = fr.some(pf => pf.id === champion.id);
+        setLeagueHistory(prev => {
+          let h = addChampion(prev, {
+            season, teamName: champion.name, city: champion.city,
+            isPlayerTeam: isPlayer, record: `${champion.wins}-${champion.losses}`,
+            coachName: isPlayer ? af.coach?.name : null,
+            starPlayer: isPlayer ? (af.star1?.name || null) : null,
+          });
+          h = checkNotableSeasons(h, [...(result.leagueTeams.ngl || []), ...(result.leagueTeams.abl || [])], fr, season);
+          return h;
+        });
+      }
+
+      // Franchise records
+      const curRecords = af.franchiseRecords || initFranchiseRecords();
+      const { records: newRecords, newRecords: brokenList } = updateFranchiseRecords(curRecords, af, season);
+      setFr(prev => prev.map((x, i) => i === activeIdx ? { ...x, franchiseRecords: newRecords } : x));
+
+      // Hall of Fame eval for retiring players (age 34+ or low rating)
+      const retirees = (af.localLegends || []);
+      // We check current slot players approaching retirement
+      for (const slotKey of ['star1', 'star2', 'corePiece']) {
+        const p = af[slotKey];
+        if (p && p.age >= 34 && p.rating < 70) {
+          const hofCandidate = evaluateHallOfFame(p, af);
+          if (hofCandidate) {
+            setLeagueHistory(prev => ({
+              ...prev,
+              hallOfFame: [...(prev.hallOfFame || []), { ...hofCandidate, inductionSeason: season, team: `${af.city} ${af.name}` }],
+            }));
+          }
+        }
+      }
+    }
+
+    // B3: Rivalry update
+    if (af && result.leagueTeams) {
+      const leagueTeams = result.leagueTeams[af.league] || [];
+      const h2h = af.headToHead || initHeadToHead();
+      const curRivalry = af.rivalry || initRivalry();
+      const metInPlayoffs = false; // Will be set correctly by playoff handler
+      const newRivalry = updateRivalry(curRivalry, af, leagueTeams, season, h2h, metInPlayoffs);
+      setFr(prev => prev.map((x, i) => i === activeIdx ? { ...x, rivalry: newRivalry } : x));
+    }
+
     // Notifications
     if (af) {
       const newNotifs = generateNotifications(af, prevFranchise);
@@ -2616,6 +2834,21 @@ export default function App() {
         setNamingOffer(null);
       }
 
+      // B5: TV deal event (every 8 seasons)
+      const tvDeal = generateTVDealEvent(season);
+      if (tvDeal) {
+        setFr(prev => prev.map((x, i) => i === activeIdx ? {
+          ...x,
+          capModifier: (x.capModifier || 0) + tvDeal.capModifier,
+        } : x));
+        setNotifications(prev => [...prev, {
+          id: 'tv_deal_' + season,
+          severity: 'info',
+          message: `${tvDeal.title}: ${tvDeal.description}`,
+          type: 'league',
+        }]);
+      }
+
       // Phase 3: rival stake fan penalty (-2 fan per rival stake held)
       if (stakes.length > 0 && f.rivalIds?.length > 0) {
         const rivalStakeCount = stakes.filter(s => f.rivalIds.includes(s.teamId)).length;
@@ -2649,6 +2882,12 @@ export default function App() {
         ...(pressureEvt ? [{ ...pressureEvt, resolved: false }] : []),
       ];
       setEvents(allEvents);
+
+      // B4: Refresh draft pick inventory for next season
+      setFr(prev => prev.map((x, i) => i === activeIdx ? {
+        ...x,
+        draftPickInventory: initDraftPickInventory(season + 1, x.id),
+      } : x));
 
       // Draft flow
       const picks = generateDraftPickPositions(f, result.leagueTeams);
@@ -2809,6 +3048,26 @@ export default function App() {
           <AnalyticsScreen fr={af} lt={lt} stakes={stakes} season={season} />
         )}
       </main>
+
+      {/* Help Panel */}
+      <HelpPanel open={helpOpen} onClose={() => setHelpOpen(false)} />
+
+      {/* Floating help button */}
+      {fr.length > 0 && !helpOpen && (
+        <button
+          onClick={() => setHelpOpen(true)}
+          style={{
+            position: 'fixed', bottom: 48, right: 12, width: 36, height: 36,
+            borderRadius: '50%', background: 'var(--ink)', color: 'var(--cream)',
+            border: 'none', fontSize: '1rem', fontWeight: 700, cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.2)', zIndex: 50,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+          title="Help & Reference"
+        >
+          ?
+        </button>
+      )}
 
       {/* Save indicator */}
       <div style={{ position: 'fixed', bottom: 8, right: 8, padding: '3px 8px', borderRadius: 2, background: saveStatus === 'saving' ? 'var(--amber)' : 'var(--green)', color: '#fff', fontSize: '0.6rem', fontFamily: 'var(--font-mono)', opacity: 0.7 }}>

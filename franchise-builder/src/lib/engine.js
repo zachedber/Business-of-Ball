@@ -506,6 +506,17 @@ export function createPlayerFranchise(tmpl, lg) {
     staffChemistry: 65,
     staffChemistryStreakYears: 0,
     dynastyCohesionBonus: false,
+
+    // Phase B2: franchise records
+    franchiseRecords: initFranchiseRecords(),
+
+    // Phase B3: rivalry
+    headToHead: initHeadToHead(),
+    rivalry: initRivalry(),
+
+    // Phase B4: draft pick inventory + rookie slots
+    draftPickInventory: initDraftPickInventory(1, tmpl.id),
+    rookieSlots: [],  // up to 3 rookies separate from main roster
   };
 }
 
@@ -2675,4 +2686,494 @@ export function simulateAIFreeAgency(pool, leagueTeams, league) {
   }
 
   return { signed, remaining };
+}
+
+// ============================================================
+// PHASE B1: HARD CAP — canAfford utility
+// ============================================================
+
+/**
+ * Returns true if liquid cash is sufficient to cover cost.
+ * @param {number} cash - Current liquid cash
+ * @param {number} cost - Cost to check
+ * @returns {boolean}
+ */
+export function canAfford(cash, cost) {
+  return (cash ?? 0) >= cost;
+}
+
+// ============================================================
+// PHASE B5: DOLLAR DISPLAY FORMATTERS
+// ============================================================
+
+/**
+ * Format millions as full dollar string: $42,500,000
+ * @param {number} millions - Amount in millions
+ * @returns {string}
+ */
+export function formatFullDollars(millions) {
+  if (millions == null || isNaN(millions)) return '$0';
+  const full = Math.round(millions * 1_000_000);
+  return '$' + full.toLocaleString('en-US');
+}
+
+/**
+ * Format millions as abbreviated: $42.5M
+ * @param {number} millions - Amount in millions
+ * @returns {string}
+ */
+export function formatMoney(millions) {
+  if (millions == null || isNaN(millions)) return '$0M';
+  return `$${Math.round(millions * 10) / 10}M`;
+}
+
+// ============================================================
+// PHASE B5: CAP INFLATION — event-driven modifiers
+// ============================================================
+
+/**
+ * Calculate the adjusted salary cap for a given season, including
+ * base inflation and event-driven modifiers.
+ * @param {Object} f - Franchise state
+ * @param {number} [capModifier=0] - One-time modifier from events
+ * @returns {number} Adjusted cap
+ */
+export function calculateAdjustedCap(f, capModifier = 0) {
+  const baseCap = f.league === 'ngl' ? NGL_SALARY_CAP : ABL_SALARY_CAP;
+  const inf = Math.pow(1 + CAP_INFLATION_RATE, f.season || 0);
+  return r1(baseCap * inf + (capModifier || 0));
+}
+
+/**
+ * Generate a TV deal event every 8 seasons.
+ * @param {number} season - Current season
+ * @returns {Object|null} TV deal event or null
+ */
+export function generateTVDealEvent(season) {
+  if (season < 8 || season % 8 !== 0) return null;
+  return {
+    id: 'tv_deal_' + season,
+    title: 'New TV Deal',
+    description: 'The NGL signs a landmark new television deal. The salary cap will spike next season as revenue sharing increases.',
+    capModifier: 8,
+    type: 'tv_deal',
+  };
+}
+
+// ============================================================
+// PHASE B6: STRING FORMATTING — formatLabel
+// ============================================================
+
+const LABEL_MAP = {
+  'injury_prone': 'injury prone',
+  'players_coach': "player's coach",
+  'bend_dont_break': "bend don't break",
+  'run_heavy': 'run heavy',
+  'pass_heavy': 'pass heavy',
+  'all_around': 'all around',
+  'skill_positions': 'skill positions',
+  'hometown': 'hometown hero',
+  'volatile': 'volatile',
+  'mercenary': 'mercenary',
+  'boom': '🟢 Boom',
+  'recession': '🔴 Recession',
+  'stable': '⚪ Stable',
+  'youth': 'youth development',
+  'veterans': 'veteran development',
+  'stars': 'star development',
+  'disciplinarian': 'disciplinarian',
+  'analytics': 'analytics-driven',
+  'leader': 'leader',
+  'showman': 'showman',
+  'ironman': 'ironman',
+  'clutch': 'clutch',
+  'aggressive': 'aggressive',
+  'zone': 'zone',
+  'balanced': 'balanced',
+  'linemen': 'linemen',
+};
+
+/**
+ * Convert raw enum/code strings to display-friendly labels.
+ * @param {string} str - Raw string
+ * @returns {string} Display string
+ */
+export function formatLabel(str) {
+  if (!str) return '—';
+  if (LABEL_MAP[str]) return LABEL_MAP[str];
+  return str.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+}
+
+// ============================================================
+// PHASE B2: LEAGUE HISTORY, FRANCHISE RECORDS, HALL OF FAME
+// ============================================================
+
+/**
+ * Initialize leagueHistory object with defaults.
+ * @returns {Object}
+ */
+export function initLeagueHistory() {
+  return {
+    champions: [],
+    notableSeasons: [],
+    hallOfFame: [],
+  };
+}
+
+/**
+ * Push a champion entry to league history.
+ * @param {Object} history - leagueHistory object
+ * @param {Object} entry - { season, teamName, city, isPlayerTeam, record, coachName, starPlayer }
+ * @returns {Object} Updated history
+ */
+export function addChampion(history, entry) {
+  return { ...history, champions: [...(history.champions || []), entry] };
+}
+
+/**
+ * Check for notable season events and push them.
+ * @param {Object} history - leagueHistory object
+ * @param {Object[]} allTeams - All teams (NGL+ABL) with wins/losses
+ * @param {Object[]} playerFranchises - Player's franchises
+ * @param {number} season - Current season
+ * @returns {Object} Updated history
+ */
+export function checkNotableSeasons(history, allTeams, playerFranchises, season) {
+  const notable = [...(history.notableSeasons || [])];
+  const lg = 'ngl'; // default
+  const games = 17;
+
+  for (const t of allTeams) {
+    const g = t.league === 'ngl' ? 17 : 82;
+    const isPlayer = playerFranchises.some(pf => pf.id === t.id);
+    if (t.wins >= g - 2) {
+      notable.push({ season, type: 'Historic Season', description: `${t.city} ${t.name} posted a historic ${t.wins}-${t.losses} record.`, isPlayerTeam: isPlayer });
+    }
+    if (t.losses >= g - 2) {
+      notable.push({ season, type: 'Historic Collapse', description: `${t.city} ${t.name} suffered a historic ${t.wins}-${t.losses} collapse.`, isPlayerTeam: isPlayer });
+    }
+  }
+
+  for (const pf of playerFranchises) {
+    // Dynasty declared: 3+ consecutive championships
+    if ((pf.championships || 0) >= 3) {
+      const trophies = pf.trophies || [];
+      const last3 = trophies.slice(-3);
+      if (last3.length >= 3) {
+        const consecutive = last3.every((t, i) => i === 0 || t.season === last3[i - 1].season + 1);
+        if (consecutive && !notable.some(n => n.type === 'Dynasty Declared' && n.season === season)) {
+          notable.push({ season, type: 'Dynasty Declared', description: `The ${pf.city} ${pf.name} have won 3 consecutive championships. A dynasty is declared!`, isPlayerTeam: true });
+        }
+      }
+    }
+
+    // Greatest Turnaround: bottom-5 to champion in consecutive seasons
+    if (pf.history && pf.history.length >= 2) {
+      const prev = pf.history[pf.history.length - 2];
+      const curr = pf.history[pf.history.length - 1];
+      const g = pf.league === 'ngl' ? 17 : 82;
+      const prevWP = prev.wins / g;
+      const wonChamp = (pf.trophies || []).some(t => t.season === season);
+      if (prevWP < 0.30 && wonChamp) {
+        notable.push({ season, type: 'Greatest Turnaround', description: `The ${pf.city} ${pf.name} went from ${prev.wins}-${prev.losses} to champions!`, isPlayerTeam: true });
+      }
+    }
+
+    // All-Time Great: player hits 95+ rating
+    for (const p of (pf.players || [])) {
+      if (p.rating >= 95) {
+        if (!notable.some(n => n.type === 'All-Time Great Emerges' && n.description.includes(p.name))) {
+          notable.push({ season, type: 'All-Time Great Emerges', description: `${p.name} of the ${pf.city} ${pf.name} has reached a ${p.rating} rating — an all-time great.`, isPlayerTeam: true });
+        }
+      }
+    }
+  }
+
+  return { ...history, notableSeasons: notable };
+}
+
+/**
+ * Initialize franchise records with defaults.
+ * @returns {Object}
+ */
+export function initFranchiseRecords() {
+  return {
+    mostWinsInSeason: { value: 0, season: null },
+    bestWinPct: { value: 0, season: null },
+    mostRevenue: { value: 0, season: null },
+    highestValuation: { value: 0, season: null },
+    longestWinStreak: { value: 0, season: null },
+    championships: 0,
+    playoffAppearances: 0,
+    hallOfFamers: 0,
+  };
+}
+
+/**
+ * Update franchise records at end of season.
+ * @param {Object} records - Current franchise records
+ * @param {Object} f - Franchise state (post-season)
+ * @param {number} season - Current season
+ * @returns {{ records: Object, newRecords: string[] }} Updated records and list of broken records
+ */
+export function updateFranchiseRecords(records, f, season) {
+  const r = { ...(records || initFranchiseRecords()) };
+  const newRecords = [];
+  const games = f.league === 'ngl' ? 17 : 82;
+  const winPct = f.wins / Math.max(1, games);
+
+  if (f.wins > (r.mostWinsInSeason?.value || 0)) {
+    r.mostWinsInSeason = { value: f.wins, season };
+    newRecords.push('Most Wins in Season');
+  }
+  if (winPct > (r.bestWinPct?.value || 0)) {
+    r.bestWinPct = { value: Math.round(winPct * 1000) / 1000, season };
+    newRecords.push('Best Win %');
+  }
+  if ((f.finances?.revenue || 0) > (r.mostRevenue?.value || 0)) {
+    r.mostRevenue = { value: f.finances.revenue, season };
+    newRecords.push('Most Revenue');
+  }
+  const val = calculateValuation(f);
+  if (val > (r.highestValuation?.value || 0)) {
+    r.highestValuation = { value: val, season };
+    newRecords.push('Highest Valuation');
+  }
+  r.championships = f.championships || 0;
+  if (f.playoffTeam) r.playoffAppearances = (r.playoffAppearances || 0) + 1;
+
+  return { records: r, newRecords };
+}
+
+/**
+ * Evaluate a retiring player for Hall of Fame induction.
+ * @param {Object} player - Player object
+ * @param {Object} f - Franchise state
+ * @returns {Object|null} Induction candidate or null
+ */
+export function evaluateHallOfFame(player, f) {
+  const criteria = [];
+  const peakRating = player.careerStats?.bestRating || player.rating;
+  const seasonsWithTeam = player.seasonsWithTeam || 0;
+  const championships = (f.trophies || []).length;
+
+  if (seasonsWithTeam >= 5 && peakRating >= 88) criteria.push('5+ seasons with franchise AND peak rating ≥ 88');
+  if (championships >= 2) criteria.push('2+ championships with franchise');
+  if (peakRating >= 92) criteria.push('Peak rating 92+');
+  if (seasonsWithTeam >= 7 && peakRating >= 82) criteria.push('7+ seasons AND peak rating ≥ 82');
+
+  if (criteria.length === 0) return null;
+
+  return {
+    name: player.name,
+    position: player.position,
+    trait: player.trait,
+    peakRating,
+    seasons: seasonsWithTeam,
+    championships,
+    criteria,
+    rating: player.rating,
+    careerStats: player.careerStats,
+  };
+}
+
+// ============================================================
+// PHASE B3: RIVALRY INTENSITY
+// ============================================================
+
+/**
+ * Initialize head-to-head tracking object.
+ * @returns {Object}
+ */
+export function initHeadToHead() {
+  return {};
+}
+
+/**
+ * Update head-to-head record after a playoff meeting.
+ * @param {Object} h2h - Current H2H object
+ * @param {Object} opponent - Opponent team
+ * @param {boolean} won - Whether the player's team won
+ * @param {number} season - Current season
+ * @param {string} round - Playoff round name
+ * @returns {Object} Updated H2H
+ */
+export function updateHeadToHead(h2h, opponent, won, season, round) {
+  const prev = h2h[opponent.id] || { teamName: `${opponent.city} ${opponent.name}`, wins: 0, losses: 0, playoffMeetings: 0, lastMeeting: null };
+  return {
+    ...h2h,
+    [opponent.id]: {
+      ...prev,
+      teamName: `${opponent.city} ${opponent.name}`,
+      wins: prev.wins + (won ? 1 : 0),
+      losses: prev.losses + (won ? 0 : 1),
+      playoffMeetings: prev.playoffMeetings + 1,
+      lastMeeting: { season, result: won ? 'W' : 'L', round },
+    },
+  };
+}
+
+/**
+ * Initialize rivalry state.
+ * @returns {Object}
+ */
+export function initRivalry() {
+  return { teamId: null, teamName: null, intensityScore: 0, h2hRecord: { wins: 0, losses: 0 }, lastResult: null, active: false };
+}
+
+/**
+ * Assign or update rivalry at end of season.
+ * @param {Object} rivalry - Current rivalry state
+ * @param {Object} f - Franchise state
+ * @param {Object[]} leagueTeams - All teams in the franchise's league
+ * @param {number} season - Current season
+ * @param {Object} h2h - Head-to-head records
+ * @param {boolean} metInPlayoffs - Whether they met in playoffs this season
+ * @returns {Object} Updated rivalry state
+ */
+export function updateRivalry(rivalry, f, leagueTeams, season, h2h, metInPlayoffs) {
+  // Don't assign until season 2
+  if (season < 2) return rivalry || initRivalry();
+
+  let r = { ...(rivalry || initRivalry()) };
+  const teams = leagueTeams || [];
+
+  // Assign rival if not yet active (season 2+)
+  if (!r.active || !r.teamId) {
+    // Find same-conference team with closest win% that isn't the player
+    const candidates = teams
+      .filter(t => t.id !== f.id && !t.isPlayerOwned)
+      .map(t => ({ ...t, winDiff: Math.abs((t.wins / Math.max(1, t.wins + t.losses)) - (f.wins / Math.max(1, f.wins + f.losses))) }))
+      .sort((a, b) => a.winDiff - b.winDiff);
+
+    // Prefer playoff opponents
+    const playoffOpponent = candidates.find(c => h2h && h2h[c.id]?.playoffMeetings > 0);
+    const rival = playoffOpponent || candidates[0];
+
+    if (rival) {
+      const h2hRec = h2h?.[rival.id] || { wins: 0, losses: 0 };
+      r = {
+        teamId: rival.id,
+        teamName: `${rival.city} ${rival.name}`,
+        intensityScore: 15,
+        h2hRecord: { wins: h2hRec.wins || 0, losses: h2hRec.losses || 0 },
+        lastResult: null,
+        active: true,
+      };
+    }
+    return r;
+  }
+
+  // Update intensity
+  let delta = 3; // natural growth
+  if (metInPlayoffs) delta += 8;
+  // Check standings proximity
+  const rivalTeam = teams.find(t => t.id === r.teamId);
+  if (rivalTeam) {
+    const winDiff = Math.abs(f.wins - rivalTeam.wins);
+    if (winDiff <= 2) delta += 5;
+    if (rivalTeam.wins / Math.max(1, rivalTeam.wins + rivalTeam.losses) < 0.35) delta -= 5;
+  }
+
+  const h2hRec = h2h?.[r.teamId] || r.h2hRecord;
+  r.intensityScore = clamp((r.intensityScore || 0) + delta, 0, 100);
+  r.h2hRecord = { wins: h2hRec.wins || 0, losses: h2hRec.losses || 0 };
+
+  return r;
+}
+
+/**
+ * Get rivalry tier label from intensity score.
+ * @param {number} intensity - 0-100
+ * @returns {string}
+ */
+export function getRivalryTier(intensity) {
+  if (intensity >= 76) return 'Legendary';
+  if (intensity >= 51) return 'Heated';
+  if (intensity >= 26) return 'Conference Rivals';
+  return 'Emerging';
+}
+
+/**
+ * Get rivalry narrative for playoff matchup.
+ * @param {number} intensity - 0-100
+ * @param {string} teamName - Rival team name
+ * @returns {string}
+ */
+export function getRivalryPlayoffNarrative(intensity, teamName) {
+  if (intensity >= 76) return `A legendary rivalry reaches its peak. The entire league stops to watch this playoff showdown against ${teamName}.`;
+  if (intensity >= 51) return `The heated rivalry with ${teamName} spills into the playoffs. The intensity is palpable.`;
+  if (intensity >= 26) return `Conference rivals meet again in the playoffs. The ${teamName} matchup is circled on every calendar.`;
+  return `An emerging rivalry takes shape as ${teamName} stands in the way of a playoff run.`;
+}
+
+// ============================================================
+// PHASE B4: DRAFT PICK INVENTORY
+// ============================================================
+
+/**
+ * Initialize draft pick inventory for a new season.
+ * @param {number} season - Season number
+ * @param {string} teamId - Team ID
+ * @returns {Object[]} Array of pick objects
+ */
+export function initDraftPickInventory(season, teamId) {
+  return [
+    { id: generateId(), round: 1, season, originalTeam: teamId, isFuture: false },
+    { id: generateId(), round: 2, season, originalTeam: teamId, isFuture: false },
+  ];
+}
+
+/**
+ * Evaluate an AI trade offer for draft picks.
+ * @param {Object} offer - { playerPicks, playerCash, aiPick }
+ * @param {number} gmRep - GM reputation
+ * @returns {{ accepted: boolean, reason: string }}
+ */
+export function evaluatePickTrade(offer, gmRep) {
+  // Value picks linearly: pick 1 = 10pts, pick 32 = 1pt
+  function pickValue(round, pickPos) {
+    if (round === 1) return Math.max(1, 11 - (pickPos || 16) * 10 / 32);
+    return Math.max(0.5, 5 - (pickPos || 16) * 4 / 32);
+  }
+
+  let playerValue = 0;
+  for (const p of (offer.playerPicks || [])) {
+    playerValue += pickValue(p.round, p.pickPos);
+  }
+  playerValue += (offer.playerCash || 0) * 0.5; // $1M = 0.5 points
+
+  const aiValue = pickValue(offer.aiPick?.round || 1, offer.aiPick?.pickPos || 1);
+  const repDiscount = gmRep > 60 ? 0.90 : 1.0;
+  const variance = randFloat(0.85, 1.15);
+  const askValue = aiValue * repDiscount * variance;
+
+  if (playerValue >= askValue) {
+    return { accepted: true, reason: 'Trade accepted!' };
+  }
+  return { accepted: false, reason: 'Not enough value. Sweeten the deal.' };
+}
+
+/**
+ * Generate AI trade partners for draft day.
+ * @param {Object} lt - League teams
+ * @param {string} league - 'ngl' or 'abl'
+ * @param {number} season - Current season
+ * @returns {Object[]} Array of 3 trade partner objects
+ */
+export function generateDraftTradePartners(lt, league, season) {
+  const teams = (lt[league] || []).filter(t => !t.isPlayerOwned).sort(() => Math.random() - 0.5).slice(0, 3);
+  return teams.map(t => {
+    const pickPos = rand(1, 32);
+    const askCash = rand(3, 12);
+    return {
+      id: generateId(),
+      teamId: t.id,
+      teamName: `${t.city} ${t.name}`,
+      availablePick: { id: generateId(), round: 1, pickPos, season, originalTeam: t.id, isFuture: false },
+      askingPrice: `R1 Pick #${pickPos} — asking $${askCash}M or equivalent pick value`,
+      askCash,
+      askPickPos: pickPos,
+    };
+  });
 }
