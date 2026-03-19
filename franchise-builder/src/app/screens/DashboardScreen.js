@@ -4,11 +4,13 @@ import {
   calculateCapSpace, calculateValuation, getGMTier,
   projectRevenue, formatMoney, formatLabel,
   SLOT_BUDGET, calcSlotQuality, calcDepthQuality,
-  generateOffseasonFAPool, signToSlot, releaseSlot,
+  signToSlot, releaseSlot,
   maxLoan, takeLoan, repayDebt, canAfford,
   getRivalryTier,
   generateCoachCandidates, fireCoach, hireCoach,
+  r1,
 } from '@/lib/engine';
+import { DEBT_INTEREST, STAFF_SALARIES } from '@/data/leagues';
 import { UPGRADE_COSTS } from '@/data/leagues';
 import NotificationsPanel from '@/app/components/NotificationsPanel';
 import { Sparkline } from '@/app/components/AnalyticsScreen';
@@ -19,7 +21,7 @@ import { MiniChart } from '@/app/components/SharedComponents';
 // ============================================================
 // DASHBOARD
 // ============================================================
-export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve, pressConf, onPressConf, newspaper, newspaperDismissed, onDismissNewspaper, cbaEvent, onCBA, namingOffer, onNaming, gmRep, notifications, onDismissNotif, onCashChange, leagueHistory }) {
+export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve, pressConf, onPressConf, newspaper, newspaperDismissed, onDismissNewspaper, cbaEvent, onCBA, namingOffer, onNaming, gmRep, notifications, onDismissNotif, onCashChange, leagueHistory, offseasonFAPool }) {
   const [tab, setTab] = useState('home');
   const cap = useMemo(() => calculateCapSpace(fr), [fr]);
   const val = useMemo(() => calculateValuation(fr), [fr]);
@@ -57,7 +59,7 @@ export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, eve
         ))}
       </div>
       {tab === 'home' && <HomeTab fr={fr} onSim={onSim} simming={simming} recap={recap} grade={grade} events={events} onResolve={onResolve} pressConf={pressConf} onPressConf={onPressConf} newspaper={newspaper} newspaperDismissed={newspaperDismissed} onDismissNewspaper={onDismissNewspaper} cbaEvent={cbaEvent} onCBA={onCBA} namingOffer={namingOffer} onNaming={onNaming} notifications={notifications} onDismissNotif={onDismissNotif} />}
-      {tab === 'slots' && <SlotsTab fr={fr} setFr={setFr} gmRep={gmRep} />}
+      {tab === 'slots' && <SlotsTab fr={fr} setFr={setFr} gmRep={gmRep} offseasonFAPool={offseasonFAPool} />}
       {tab === 'staff' && <StaffTab fr={fr} setFr={setFr} gmRep={gmRep} />}
       {tab === 'biz' && <BizTab fr={fr} setFr={setFr} />}
       {tab === 'infra' && <InfrastructureTab fr={fr} setFr={setFr} season={fr.season || 1} onCashChange={onCashChange} />}
@@ -243,23 +245,17 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
 // ============================================================
 // SLOTS TAB
 // ============================================================
-function SlotsTab({ fr, setFr, gmRep }) {
+function SlotsTab({ fr, setFr, gmRep, offseasonFAPool: frozenPool }) {
   const [showFA, setShowFA] = useState(false);
-  const [faPool, setFaPool] = useState([]);
   const [signingSlot, setSigningSlot] = useState(null);
+  // Read-only frozen pool from state — never regenerate
+  const faPool = frozenPool || [];
 
   const budget = SLOT_BUDGET[fr.league] || 80;
   const usedBudget = ['star1', 'star2', 'corePiece'].reduce((s, k) => s + (fr[k]?.salary || 0), 0);
   const budgetDelta = Math.round((budget - usedBudget) * 10) / 10;
   const depthQ = calcDepthQuality(fr);
   const slotQ = calcSlotQuality(fr);
-  const isOffseason = (fr.season || 1) > 0 && fr.wins !== undefined;
-
-  function openFA() {
-    const pool = generateOffseasonFAPool(fr.league, gmRep, 10);
-    setFaPool(pool);
-    setShowFA(true);
-  }
 
   function doRelease(slotName) {
     setFr(prev => releaseSlot(prev, slotName));
@@ -267,7 +263,6 @@ function SlotsTab({ fr, setFr, gmRep }) {
 
   function doSign(player, slotName) {
     setFr(prev => signToSlot(prev, slotName, player));
-    setFaPool(prev => prev.filter(p => p.id !== player.id));
     setSigningSlot(null);
   }
 
@@ -344,8 +339,9 @@ function SlotsTab({ fr, setFr, gmRep }) {
                   <div style={{ marginTop: 8 }}>
                     <button
                       className="btn-secondary"
-                      style={{ fontSize: '0.7rem', padding: '4px 10px' }}
-                      onClick={() => { openFA(); setSigningSlot(key); }}
+                      style={{ fontSize: '0.7rem', padding: '4px 10px', opacity: faPool.length > 0 ? 1 : 0.4 }}
+                      disabled={faPool.length === 0}
+                      onClick={() => { setShowFA(true); setSigningSlot(key); }}
                     >
                       Sign Player
                     </button>
@@ -356,11 +352,13 @@ function SlotsTab({ fr, setFr, gmRep }) {
           );
         })}
       </div>
-      <div style={{ marginTop: 4 }}>
-        <button className="btn-primary" onClick={() => { openFA(); setSigningSlot(null); }}>
-          Offseason Signing Pool
-        </button>
-      </div>
+      {faPool.length > 0 && (
+        <div style={{ marginTop: 4 }}>
+          <button className="btn-primary" onClick={() => { setShowFA(true); setSigningSlot(null); }}>
+            Offseason Signing Pool
+          </button>
+        </div>
+      )}
       {showFA && faPool.length > 0 && (
         <div className="card" style={{ padding: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -619,64 +617,200 @@ function BizTab({ fr, setFr }) {
 }
 
 // ============================================================
-// DASHBOARD FINANCE TAB (Phase 4)
+// DASHBOARD FINANCE TAB (Phase 1.5 — Full Itemized Ledger)
 // ============================================================
 function DashFinanceTab({ fr }) {
+  const proj = useMemo(() => projectRevenue(fr), [fr]);
+  const cap = useMemo(() => calculateCapSpace(fr), [fr]);
   const history = fr.history || [];
-  if (history.length === 0) {
-    return (
-      <div className="fade-in card" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-muted)' }}>
-        <div className="font-body" style={{ fontSize: '0.85rem' }}>Complete Season 1 to see finance history.</div>
-      </div>
-    );
-  }
+
+  // ── Revenue items ────────────────────────────────────────────
+  const revenueItems = [
+    { label: 'Gate Revenue', amount: proj.gateRevenue },
+    { label: 'TV Revenue', amount: proj.tvRevenue },
+    { label: 'Merchandise', amount: proj.merchRevenue },
+    { label: 'Sponsorship', amount: proj.sponsorRevenue || 0 },
+    { label: 'Naming Rights', amount: proj.namingRevenue || 0 },
+  ];
+  const totalRevenue = proj.totalRevenue;
+
+  // ── Expense items ────────────────────────────────────────────
+  const star1Sal = fr.star1?.salary || 0;
+  const star2Sal = fr.star2?.salary || 0;
+  const coreSal = fr.corePiece?.salary || 0;
+  const depthPayroll = r1(Math.max(0, (fr.totalSalary || 0) - star1Sal - star2Sal - coreSal));
+  const coachSalary = r1((fr.coach?.level || 1) * 2);
+  const ocSal = fr.offensiveCoordinator ? (STAFF_SALARIES.oc[fr.offensiveCoordinator.level] || 1) : 0;
+  const dcSal = fr.defensiveCoordinator ? (STAFF_SALARIES.dc[fr.defensiveCoordinator.level] || 1) : 0;
+  const pdcSal = fr.playerDevCoach ? (STAFF_SALARIES.pdc[fr.playerDevCoach.level] || 0.8) : 0;
+  const scoutCost = (fr.scoutingStaff || 1) * 2;
+  const devCost = (fr.developmentStaff || 1) * 2;
+  const medCost = (fr.medicalStaff || 1) * 2;
+  const mktCost = (fr.marketingStaff || 1) * 2;
+  const trainFac = (fr.trainingFacility || 1) * 1.5;
+  const weightRm = (fr.weightRoom || 1) * 1.5;
+  const filmRm = (fr.filmRoom || 1) * 1.5;
+  const stadMaint = fr.stadiumAge > 15 ? r1(fr.stadiumAge * 0.3) : 1;
+  const deadCap = fr.capDeadMoney || 0;
+  const debtRepay = r1((fr.debt || 0) * DEBT_INTEREST);
+
+  const expenseItems = [
+    { label: fr.star1 ? `Star 1 — ${fr.star1.name}` : 'Star 1 (vacant)', amount: star1Sal },
+    { label: fr.star2 ? `Star 2 — ${fr.star2.name}` : 'Star 2 (vacant)', amount: star2Sal },
+    { label: fr.corePiece ? `Core — ${fr.corePiece.name}` : 'Core Piece (vacant)', amount: coreSal },
+    { label: 'Depth Roster Payroll', amount: depthPayroll },
+    { label: 'Head Coach', amount: coachSalary },
+    { label: 'OC Salary', amount: r1(ocSal) },
+    { label: 'DC Salary', amount: r1(dcSal) },
+    { label: 'PDC Salary', amount: r1(pdcSal) },
+    { label: 'Scouting Staff', amount: r1(scoutCost) },
+    { label: 'Player Development', amount: r1(devCost) },
+    { label: 'Medical Staff', amount: r1(medCost) },
+    { label: 'Marketing Staff', amount: r1(mktCost) },
+    { label: 'Training Facility', amount: r1(trainFac) },
+    { label: 'Weight Room', amount: r1(weightRm) },
+    { label: 'Film Room', amount: r1(filmRm) },
+    { label: 'Stadium Maintenance', amount: r1(stadMaint) },
+    { label: 'Dead Cap', amount: r1(deadCap) },
+    { label: 'Debt Interest', amount: debtRepay },
+  ];
+  const totalExpenses = proj.totalExpenses;
+  const netProfit = proj.projectedProfit;
+
+  // ── Dead cap breakdown ───────────────────────────────────────
+  const deadCapLog = fr.deadCapLog || [];
+  const currentSeasonDead = deadCapLog.filter(d => d.season === (fr.season || 1));
+  const adjCap = cap.cap;
+  const deadCapPct = adjCap > 0 ? r1((deadCap / adjCap) * 100) : 0;
+
+  const LedgerRow = ({ label, amount, color, bold }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--cream-darker)' }}>
+      <span className="font-body" style={{ fontSize: '0.78rem', fontWeight: bold ? 700 : 400, color: color || 'var(--ink)' }}>{label}</span>
+      <span className="font-mono" style={{ fontSize: '0.78rem', fontWeight: bold ? 700 : 400, color: color || 'var(--ink)' }}>${r1(amount)}M</span>
+    </div>
+  );
+
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div className="card" style={{ padding: 14 }}>
-        <h3 className="font-display section-header" style={{ fontSize: '0.85rem', marginBottom: 6 }}>Season-by-Season Finances</h3>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem', fontFamily: 'var(--font-mono, monospace)' }}>
-            <thead>
-              <tr style={{ borderBottom: '2px solid var(--cream-darker)' }}>
-                {['S', 'W-L', 'Revenue', 'Expenses', 'Profit', 'Cash', 'Fan', 'Chem'].map(h => (
-                  <th key={h} style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 600, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {[...history].reverse().map((h, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid var(--cream-darker)' }}>
-                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>{h.season}</td>
-                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>{h.wins}-{h.losses}</td>
-                  <td style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--green)' }}>${h.revenue}M</td>
-                  <td style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--red)' }}>${h.expenses}M</td>
-                  <td style={{ padding: '4px 8px', textAlign: 'right', color: (h.profit || 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>${h.profit || 0}M</td>
-                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>${h.cash || 0}M</td>
-                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>{h.fanRating || '—'}</td>
-                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>{h.chemistry || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Available Cash — prominent top card */}
+      <div className="card-elevated" style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderLeft: '5px solid var(--green)' }}>
+        <div>
+          <div className="stat-label" style={{ fontSize: '0.72rem', letterSpacing: '0.1em' }}>AVAILABLE CASH</div>
+          <div className="font-display" style={{ fontSize: '1.5rem', fontWeight: 700, color: (fr.cash || 0) > 0 ? 'var(--green)' : 'var(--red)' }}>
+            {formatMoney(fr.cash || 0)}
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div className="stat-label" style={{ fontSize: '0.68rem' }}>Franchise Valuation</div>
+          <div className="font-mono" style={{ fontSize: '0.85rem', color: 'var(--ink-muted)' }}>{formatMoney(calculateValuation(fr))}</div>
         </div>
       </div>
-      {/* Sparkline summary cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
-        {[
-          { label: 'Revenue', data: history.map(h => h.revenue || 0), color: '#1A6B3A' },
-          { label: 'Profit', data: history.map(h => h.profit || 0), color: '#D4A843' },
-          { label: 'Fan Rating', data: history.map(h => h.fanRating || 0), color: '#2A5FA0' },
-          { label: 'Win%', data: history.map(h => Math.round((h.winPct || 0) * 100)), color: '#C8202A' },
-        ].map(({ label, data, color }) => (
-          <div key={label} className="card" style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div className="stat-label">{label}</div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="stat-value" style={{ fontSize: '0.85rem' }}>{data[data.length - 1]}{label === 'Win%' ? '%' : label === 'Fan Rating' ? '' : 'M'}</span>
-              <Sparkline data={data} color={color} height={22} />
+
+      {/* Revenue Section */}
+      <div className="card" style={{ padding: 14 }}>
+        <h3 className="font-display section-header" style={{ fontSize: '0.85rem', color: 'var(--green)', marginBottom: 8 }}>Revenue</h3>
+        {revenueItems.filter(r => r.amount > 0).map(r => (
+          <LedgerRow key={r.label} label={r.label} amount={r.amount} color="var(--green)" />
+        ))}
+        <LedgerRow label="Total Revenue" amount={totalRevenue} color="var(--green)" bold />
+      </div>
+
+      {/* Expenses Section */}
+      <div className="card" style={{ padding: 14 }}>
+        <h3 className="font-display section-header" style={{ fontSize: '0.85rem', color: 'var(--red)', marginBottom: 8 }}>Expenses</h3>
+        {expenseItems.filter(e => e.amount > 0).map(e => (
+          <LedgerRow key={e.label} label={e.label} amount={e.amount} color="var(--ink-soft)" />
+        ))}
+        <LedgerRow label="Total Expenses" amount={totalExpenses} color="var(--red)" bold />
+      </div>
+
+      {/* Net Profit/Loss */}
+      <div className="card-elevated" style={{ padding: '12px 16px', borderLeft: `5px solid ${netProfit >= 0 ? 'var(--green)' : 'var(--red)'}` }}>
+        <LedgerRow label="Net Profit / Loss" amount={netProfit} color={netProfit >= 0 ? 'var(--green)' : 'var(--red)'} bold />
+      </div>
+
+      {/* Dead Cap Breakdown */}
+      {(deadCap > 0 || (fr.deferredDeadCap || 0) > 0 || deadCapLog.length > 0) && (
+        <div className="card" style={{ padding: 14, borderLeft: '3px solid var(--amber)' }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.85rem', color: 'var(--amber)', marginBottom: 8 }}>Dead Cap</h3>
+          <div style={{ display: 'flex', gap: 16, marginBottom: 10, flexWrap: 'wrap' }}>
+            <div>
+              <div className="stat-label">This Season</div>
+              <div className="font-mono" style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--red)' }}>{formatMoney(deadCap)}</div>
+            </div>
+            <div>
+              <div className="stat-label">Deferred (Next Season)</div>
+              <div className="font-mono" style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--amber)' }}>{formatMoney(fr.deferredDeadCap || 0)}</div>
+            </div>
+            <div>
+              <div className="stat-label">% of Cap</div>
+              <div className="font-mono" style={{ fontSize: '0.9rem', color: deadCapPct > 10 ? 'var(--red)' : 'var(--ink)' }}>{deadCapPct}%</div>
             </div>
           </div>
-        ))}
-      </div>
+          {deadCapLog.length > 0 && (
+            <div>
+              <div className="stat-label" style={{ marginBottom: 4 }}>Sources</div>
+              {deadCapLog.map((d, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px solid var(--cream-darker)', fontSize: '0.72rem' }}>
+                  <span className="font-body">{d.name} <span style={{ color: 'var(--ink-muted)' }}>({d.reason})</span></span>
+                  <span className="font-mono" style={{ color: 'var(--red)' }}>${d.amount}M <span style={{ color: 'var(--ink-muted)' }}>S{d.season}</span></span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Season-by-Season History Table */}
+      {history.length > 0 && (
+        <div className="card" style={{ padding: 14 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.85rem', marginBottom: 6 }}>Season-by-Season Finances</h3>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem', fontFamily: 'var(--font-mono, monospace)' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid var(--cream-darker)' }}>
+                  {['S', 'W-L', 'Revenue', 'Expenses', 'Profit', 'Cash', 'Fan'].map(h => (
+                    <th key={h} style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 600, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[...history].reverse().map((h, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid var(--cream-darker)' }}>
+                    <td style={{ padding: '4px 8px', textAlign: 'right' }}>{h.season}</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right' }}>{h.wins}-{h.losses}</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--green)' }}>${h.revenue}M</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--red)' }}>${h.expenses}M</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', color: (h.profit || 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>${h.profit || 0}M</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right' }}>${h.cash || 0}M</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right' }}>{h.fanRating || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Sparkline summary */}
+      {history.length > 1 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
+          {[
+            { label: 'Revenue', data: history.map(h => h.revenue || 0), color: '#1A6B3A' },
+            { label: 'Profit', data: history.map(h => h.profit || 0), color: '#D4A843' },
+            { label: 'Fan Rating', data: history.map(h => h.fanRating || 0), color: '#2A5FA0' },
+            { label: 'Win%', data: history.map(h => Math.round((h.winPct || 0) * 100)), color: '#C8202A' },
+          ].map(({ label, data, color }) => (
+            <div key={label} className="card" style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div className="stat-label">{label}</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span className="stat-value" style={{ fontSize: '0.85rem' }}>{data[data.length - 1]}{label === 'Win%' ? '%' : label === 'Fan Rating' ? '' : 'M'}</span>
+                <Sparkline data={data} color={color} height={22} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

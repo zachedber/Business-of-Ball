@@ -297,10 +297,11 @@ export function simPlayerSeason(f, season) {
   const tierGateMult = _stadTier ? _stadTier.gateMultiplier : 1.0;
   const constructionPenalty = f.stadiumUnderConstruction ? 0.80 : 1.0;
   const honeymoonBonus = (f.newStadiumHoneymoon || 0) > 0 ? 1.25 : 1.0;
-  const gate = att * f.stadiumCapacity * f.ticketPrice * games / 1e6 * econMod * tierGateMult * constructionPenalty * honeymoonBonus;
-  const tv = f.market * (0.5 + (f.tvTier || 1) * 0.3) * randFloat(0.9, 1.1);
-  const merch = f.market * (f.merchMultiplier || 1) * winPct * randFloat(0.3, 0.5) * econMod;
-  const spon = (f.sponsorLevel || 1) * f.market * 0.08 * randFloat(0.9, 1.1);
+  const leagueGateMult2 = lg === 'ngl' ? 1.6 : 1.1;
+  const gate = att * f.stadiumCapacity * f.ticketPrice * games / 1e6 * econMod * tierGateMult * constructionPenalty * honeymoonBonus * leagueGateMult2;
+  const tv = (15 + f.market * (0.25 + (f.tvTier || 1) * 0.18)) * randFloat(0.9, 1.1);
+  const merch = f.market * (f.merchMultiplier || 1) * (0.15 + winPct * 0.25) * econMod * randFloat(0.9, 1.1);
+  const spon = (f.sponsorLevel || 1) * f.market * 0.14 * randFloat(0.9, 1.1);
   const naming = f.namingRightsActive ? (f.namingRightsDeal || 3) : 0;
   // A1: Premium seating revenue
   const luxuryBoxRev = (f.luxuryBoxes || 0) * 0.8;
@@ -518,10 +519,12 @@ export function simPlayerSeasonSecondHalf(f, season) {
   const tierGateMult = _stadTier ? _stadTier.gateMultiplier : 1.0;
   const constructionPenalty = f.stadiumUnderConstruction ? 0.80 : 1.0;
   const honeymoonBonus = (f.newStadiumHoneymoon || 0) > 0 ? 1.25 : 1.0;
-  const gate = att * f.stadiumCapacity * f.ticketPrice * games / 1e6 * econMod * tierGateMult * constructionPenalty * honeymoonBonus;
-  const tv = f.market * (0.5 + (f.tvTier || 1) * 0.3) * randFloat(0.9, 1.1);
-  const merch = f.market * (f.merchMultiplier || 1) * winPct * randFloat(0.3, 0.5) * econMod;
-  const spon = (f.sponsorLevel || 1) * f.market * 0.08 * randFloat(0.9, 1.1);
+  // Revenue recalibration: boosted base multipliers
+  const leagueGateMult = lg === 'ngl' ? 1.6 : 1.1;
+  const gate = att * f.stadiumCapacity * f.ticketPrice * games / 1e6 * econMod * tierGateMult * constructionPenalty * honeymoonBonus * leagueGateMult;
+  const tv = (15 + f.market * (0.25 + (f.tvTier || 1) * 0.18)) * randFloat(0.9, 1.1);
+  const merch = f.market * (f.merchMultiplier || 1) * (0.15 + winPct * 0.25) * econMod * randFloat(0.9, 1.1);
+  const spon = (f.sponsorLevel || 1) * f.market * 0.14 * randFloat(0.9, 1.1);
   const naming = f.namingRightsActive ? (f.namingRightsDeal || 3) : 0;
   // A1: Premium seating revenue
   const luxuryBoxRev = (f.luxuryBoxes || 0) * 0.8;
@@ -1090,6 +1093,8 @@ export function createPlayerFranchise(tmpl, lg) {
     dynastyEra: null,
     leagueRank: null,
     capDeadMoney: 0,
+    deferredDeadCap: 0,
+    deadCapLog: [],
     scoutingStaff: 1,
     developmentStaff: 1,
     medicalStaff: 1,

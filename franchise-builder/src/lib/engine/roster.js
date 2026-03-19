@@ -262,10 +262,15 @@ export function generateCoachCandidates(n = 3) {
  * @returns {Object} Updated franchise with interim coach and cap dead money
  */
 export function fireCoach(f) {
+  const deadAmount = f.coach.level * 2;
   return {
     ...f,
     coach: { name: 'Interim Coach', level: 1, personality: 'Tactician', seasonsWithTeam: 0, age: 50 },
-    capDeadMoney: (f.capDeadMoney || 0) + f.coach.level * 2,
+    capDeadMoney: (f.capDeadMoney || 0) + deadAmount,
+    deadCapLog: [
+      ...(f.deadCapLog || []),
+      { name: f.coach.name, reason: 'Coach Fired', amount: deadAmount, season: f.season || 1 },
+    ],
   };
 }
 
@@ -556,6 +561,10 @@ export function releaseSlot(franchise, slotName) {
     [slotName]: null,
     capDeadMoney: r1((franchise.capDeadMoney || 0) + dead60),
     deferredDeadCap: r1((franchise.deferredDeadCap || 0) + dead40),
+    deadCapLog: [
+      ...(franchise.deadCapLog || []),
+      ...(p ? [{ name: p.name, reason: 'Released', amount: r1(dead60 + dead40), season: franchise.season || 1 }] : []),
+    ],
   };
   updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
   updated.depthQuality = calcDepthQuality(updated);

@@ -699,6 +699,7 @@ export default function App() {
             onDismissNotif={id => dispatch({ type: 'DISMISS_NOTIF', payload: id })}
             onCashChange={newCash => dispatch({ type: 'SET_CASH', payload: newCash })}
             leagueHistory={leagueHistory}
+            offseasonFAPool={offseasonFAPool}
           />
         )}
 
