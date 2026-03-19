@@ -1,11 +1,13 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { releaseSlot, r1 } from '@/lib/engine';
+import { releaseSlot, r1, calcDepthQuality, calcSlotQuality } from '@/lib/engine';
+import { NGL_SALARY_CAP, ABL_SALARY_CAP, NGL_ROSTER_SIZE, ABL_ROSTER_SIZE } from '@/data/leagues';
 
 // ============================================================
-// SLOT DECISION SCREEN — 1.5
+// SLOT DECISION SCREEN — 1.5-taxi
 // Appears between DraftFlowScreen and FreeAgencyScreen when at least
 // one franchise slot is vacant and there are eligible depth players.
+// Now sources candidates from both fr.taxiSquad and fr.players.
 // Props: { fr, setFr, onDone }
 // ============================================================
 
@@ -15,21 +17,56 @@ const SLOT_DEFS = [
   { key: 'corePiece', label: 'Core Piece' },
 ];
 
+/** Ensure a player has all required slot fields with safe defaults */
+function ensurePlayerShape(p) {
+  if (!p) return null;
+  return {
+    id: p.id || Math.random().toString(36).slice(2, 10),
+    name: p.name || 'Unknown',
+    position: p.position || '—',
+    age: p.age || 22,
+    rating: p.rating || 50,
+    morale: p.morale || 60,
+    trait: p.trait || null,
+    salary: p.salary || 0,
+    yearsLeft: p.yearsLeft || 0,
+    seasonsPlayed: p.seasonsPlayed || 0,
+    injured: p.injured || false,
+    injurySeverity: p.injurySeverity || null,
+    gamesOut: p.gamesOut || 0,
+    isLocalLegend: p.isLocalLegend || false,
+    seasonsWithTeam: p.seasonsWithTeam || 0,
+    careerStats: p.careerStats || { seasons: 0, bestRating: p.rating || 50 },
+    ...p,
+  };
+}
+
 export default function SlotDecisionScreen({ fr, setFr, onDone }) {
   // Identify vacant slots
   const vacantSlots = SLOT_DEFS.filter(({ key }) => !fr[key]);
 
-  // Eligible depth candidates: rookieSlots not already occupying a slot,
-  // plus any players in fr.players not in a slot. Ranked by rating desc.
+  // Eligible candidates: taxi squad + depth players not in a slot, ranked by rating desc.
   const slotIds = new Set(
     ['star1', 'star2', 'corePiece'].map(k => fr[k]?.id).filter(Boolean)
   );
-  const candidates = [
+
+  // Build candidates with source labels
+  const taxiCandidates = (fr.taxiSquad || [])
+    .filter(p => p && !slotIds.has(p.id))
+    .map(p => ({ ...p, _source: 'taxi' }));
+
+  const depthCandidates = [
     ...(fr.rookieSlots || []),
     ...(fr.players || []).filter(p => !slotIds.has(p.id)),
   ]
     .filter(p => p && !slotIds.has(p.id))
-    .sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    .map(p => ({ ...p, _source: 'depth' }));
+
+  // Taxi squad first, then depth, all sorted by rating
+  const candidates = [
+    ...taxiCandidates.sort((a, b) => (b.rating || 0) - (a.rating || 0)),
+    ...depthCandidates.sort((a, b) => (b.rating || 0) - (a.rating || 0)),
+  ];
 
   // If nothing to decide, fire onDone immediately
   useEffect(() => {
@@ -48,34 +85,66 @@ export default function SlotDecisionScreen({ fr, setFr, onDone }) {
   const allResolved = vacantSlots.every(({ key }) => resolved[key]);
 
   function handlePromote(slotKey, player) {
+    const isTaxi = player._source === 'taxi';
+
     setFr(prev => {
-      // Move player into slot on current contract
-      const updated = {
-        ...prev,
-        [slotKey]: { ...player, slotType: slotKey },
-      };
-      // Remove from rookieSlots if present
-      updated.rookieSlots = (prev.rookieSlots || []).filter(p => p.id !== player.id);
+      const safePlayer = ensurePlayerShape(player);
+
+      let updated;
+      if (isTaxi) {
+        // Taxi squad promotion: bypass signToSlot, write slot directly on rookie contract
+        const cap = prev.league === 'ngl' ? NGL_SALARY_CAP : ABL_SALARY_CAP;
+        const rs = prev.league === 'ngl' ? NGL_ROSTER_SIZE : ABL_ROSTER_SIZE;
+        const rookieSalary = r1(cap / rs * 0.4);
+        updated = {
+          ...prev,
+          [slotKey]: { ...safePlayer, slotType: slotKey, salary: rookieSalary, yearsLeft: 1 },
+          taxiSquad: (prev.taxiSquad || []).filter(p => p.id !== player.id),
+        };
+      } else {
+        // Depth roster promotion: move player into slot on current contract
+        updated = {
+          ...prev,
+          [slotKey]: { ...safePlayer, slotType: slotKey },
+          rookieSlots: (prev.rookieSlots || []).filter(p => p.id !== player.id),
+        };
+      }
+
+      // Remove _source from slot player
+      delete updated[slotKey]._source;
+
+      // Recalculate derived fields
       updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
       updated.totalSalary = r1(updated.players.reduce((s, p) => s + (p.salary || 0), 0));
+      updated.depthQuality = calcDepthQuality(updated);
+      updated.rosterQuality = calcSlotQuality(updated);
       return updated;
     });
     setResolved(prev => ({ ...prev, [slotKey]: 'promote' }));
   }
 
   function handleRelease(slotKey) {
-    // Slot is already null — apply dead cap as if releasing from an empty slot is a no-op
-    // If there was a player pending for this slot (already null), just mark resolved
+    // Slot is already null — just mark resolved
     setResolved(prev => ({ ...prev, [slotKey]: 'release' }));
   }
 
   function handleReleaseExisting(slotKey, player) {
-    // Release a depth player (remove from roster, add dead cap 60/40, log it)
+    const isTaxi = player._source === 'taxi';
+
     setFr(prev => {
-      const remainingValue = player.yearsLeft > 0 ? r1(player.salary * player.yearsLeft) : 0;
+      if (isTaxi) {
+        // Taxi squad release: no dead cap
+        return {
+          ...prev,
+          taxiSquad: (prev.taxiSquad || []).filter(p => p.id !== player.id),
+        };
+      }
+
+      // Depth roster release: apply dead cap 60/40
+      const remainingValue = player.yearsLeft > 0 ? r1((player.salary || 0) * player.yearsLeft) : 0;
       const dead60 = r1(remainingValue * 0.6);
       const dead40 = r1(remainingValue * 0.4);
-      const updated = {
+      return {
         ...prev,
         capDeadMoney: r1((prev.capDeadMoney || 0) + dead60),
         deferredDeadCap: r1((prev.deferredDeadCap || 0) + dead40),
@@ -86,7 +155,6 @@ export default function SlotDecisionScreen({ fr, setFr, onDone }) {
           { name: player.name, reason: 'Released (Slot Decision)', amount: r1(dead60 + dead40), season: prev.season || 1 },
         ],
       };
-      return updated;
     });
     setResolved(prev => ({ ...prev, [slotKey]: 'release' }));
   }
@@ -109,14 +177,13 @@ export default function SlotDecisionScreen({ fr, setFr, onDone }) {
 
       {vacantSlots.map(({ key, label }) => {
         const isResolved = !!resolved[key];
-        // Top 2–3 candidates not already used in a resolved promote
+        // Top 3 candidates not already used in a resolved promote
         const promotedIds = new Set(
           Object.entries(resolved)
             .filter(([, v]) => v === 'promote')
             .map(([k]) => fr[k]?.id)
             .filter(Boolean)
         );
-        // Re-check current fr slot ids after promotions
         const currentSlotIds = new Set(
           ['star1', 'star2', 'corePiece'].map(k => fr[k]?.id).filter(Boolean)
         );
@@ -163,22 +230,27 @@ export default function SlotDecisionScreen({ fr, setFr, onDone }) {
                 {/* Player info */}
                 <div style={{ flex: '1 1 180px' }}>
                   <div className="font-display" style={{ fontSize: '0.9rem', fontWeight: 700 }}>
-                    {player.name}
+                    {player.name || 'Unknown'}
                   </div>
                   <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginTop: 2 }}>
-                    {player.position} · Age {player.age} · {player.rating} rtg
+                    {player.position || '—'} · Age {player.age || '?'} · {player.rating || 0} rtg
                   </div>
                   <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>
-                    ${player.salary}M · {player.yearsLeft}yr left
+                    ${player.salary || 0}M · {player.yearsLeft || 0}yr left
                   </div>
                   {player.trait && (
                     <span className="badge badge-ink" style={{ fontSize: '0.65rem', marginTop: 4 }}>
                       {player.trait}
                     </span>
                   )}
-                  {player.isRookie && (
+                  {player._source === 'taxi' && (
+                    <span className="badge" style={{ fontSize: '0.65rem', marginTop: 4, marginLeft: 4, background: 'var(--blue)', color: '#fff' }}>
+                      Taxi Squad
+                    </span>
+                  )}
+                  {(player.isRookie || player._source === 'depth') && player._source !== 'taxi' && (
                     <span className="badge" style={{ fontSize: '0.65rem', marginTop: 4, marginLeft: 4, background: 'var(--amber)', color: '#fff' }}>
-                      Rookie
+                      {player.isRookie ? 'Rookie' : 'Depth Roster'}
                     </span>
                   )}
                 </div>

@@ -271,14 +271,19 @@ export default function App() {
         type: 'SET_FRANCHISE',
         payload: prev => prev.map((f, i) => {
           if (i !== activeIdx) return f;
+          const taxi = [...(f.taxiSquad || [])];
+          const draftedPlayer = { ...player, isRookie: true, draftRound: usedPick?.round, draftPick: usedPick?.pick, seasonsOnTaxi: 0 };
+          if (taxi.length < 4) {
+            // Route to taxi squad (max 4)
+            taxi.push(draftedPlayer);
+            return { ...f, taxiSquad: taxi };
+          }
+          // Overflow: taxi squad full, route to players/rookieSlots
           const rookies = [...(f.rookieSlots || [])];
           if (rookies.length < 3) {
-            rookies.push({ ...player, isRookie: true, draftRound: usedPick?.round, draftPick: usedPick?.pick });
+            rookies.push(draftedPlayer);
             return { ...f, rookieSlots: rookies };
           }
-          if (!f.star1) return signToSlot(f, 'star1', player);
-          if (!f.star2) return signToSlot(f, 'star2', player);
-          if (!f.corePiece) return signToSlot(f, 'corePiece', player);
           return f;
         }),
       });
@@ -300,8 +305,9 @@ export default function App() {
       aiSigned = result.signed;
     }
 
-    // Slot decision (1.5): show if any slot is vacant and depth candidates exist
-    const needsSlotDecision = (!af.star1 || !af.star2 || !af.corePiece) && af.players.length > 0;
+    // Slot decision (1.5): show if any slot is vacant and depth/taxi candidates exist
+    const hasCandidates = (af.taxiSquad || []).length > 0 || (af.rookieSlots || []).length > 0 || af.players.length > 0;
+    const needsSlotDecision = (!af.star1 || !af.star2 || !af.corePiece) && hasCandidates;
     if (needsSlotDecision) {
       dispatch({ type: 'SLOT_DECISION_OPEN', payload: { offseasonFAPool: playerPool, aiSigningsLog: aiSigned } });
     } else {
@@ -465,6 +471,12 @@ export default function App() {
 
     if (af) {
       const newNotifs = generateNotifications(af, prevFranchise);
+      // Taxi squad auto-release notifications from endOfSeasonAging
+      const afCurrent = newFr[activeIdx];
+      if (afCurrent?.taxiNotifications) {
+        newNotifs.push(...afCurrent.taxiNotifications);
+        newFr = newFr.map((x, i) => i === activeIdx ? { ...x, taxiNotifications: undefined } : x);
+      }
       if (stakeIncome > 0.1) {
         newNotifs.push({ id: 'stake_' + Date.now(), severity: 'info', message: `Stake income: +$${Math.round(stakeIncome * 10) / 10}M added to liquid capital.`, type: 'stakes' });
       }

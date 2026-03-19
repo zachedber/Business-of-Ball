@@ -27,6 +27,8 @@ const FRANCHISE_DEFAULTS = {
   playoffTeam: false,
   wins: 0,
   losses: 0,
+  taxiSquad: [],
+  rookieSlots: [],
 };
 
 const TOP_LEVEL_DEFAULTS = {
