@@ -370,9 +370,19 @@ export function gameReducer(state, action) {
       };
     }
 
-    /** Closes free agency UI, resets draftDone, and clears FA pool for next season. */
+    /** Closes free agency UI and clears all offseason flow state for next season. */
     case 'FA_CLOSE': {
-      return { ...state, freeAgencyActive: false, draftDone: false, offseasonFAPool: [] };
+      return {
+        ...state,
+        freeAgencyActive: false,
+        draftDone: false,
+        draftActive: false,
+        draftPicks: [],
+        draftProspects: [],
+        slotDecisionActive: false,
+        offseasonFAPool: [],
+        aiSigningsLog: [],
+      };
     }
 
     /** Opens slot decision screen, stores FA pool for use after decisions. */

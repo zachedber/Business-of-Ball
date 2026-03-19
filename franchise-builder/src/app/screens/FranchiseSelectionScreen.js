@@ -1,6 +1,5 @@
 'use client';
 import { useState, useMemo, useCallback } from 'react';
-import { getFranchiseAskingPrice, getFranchiseFlavor } from '@/lib/engine';
 import { NGL_TEAMS, ABL_TEAMS, getMarketTier, getMarketTierInfo } from '@/data/leagues';
 
 // ============================================================
@@ -22,14 +21,45 @@ export default function FranchiseSelectionScreen({ onCreate }) {
     return allTeams.filter(t => t.league === leagueFilter);
   }, [allTeams, leagueFilter]);
 
+  // Precompute stable extras for all teams once — no Math.random() on re-render
+  const teamExtrasMap = useMemo(() => {
+    const map = {};
+    for (const team of allTeams) {
+      const key = `${team.league}-${team.id}`;
+      // Deterministic seed from team ID
+      let seed = 0;
+      for (let i = 0; i < team.id.length; i++) seed = (seed * 31 + team.id.charCodeAt(i)) | 0;
+      seed = Math.abs(seed);
+      const fanRating = 40 + ((seed * 17 + 3) % 41);
+      const stadiumCondition = 60 + (((seed >>> 3) * 13 + 7) % 31);
+      // Seeded asking price (replaces getFranchiseAskingPrice which uses Math.random)
+      const m = team.market;
+      const base = m >= 88 ? 68 : m >= 82 ? 54 : m >= 75 ? 42 : m >= 68 ? 32 : m >= 62 ? 24 : m >= 58 ? 18 : 13;
+      const priceSeed = ((seed * 7 + 13) % 100) / 100; // 0..0.99
+      const priceMultiplier = 0.88 + priceSeed * 0.30; // 0.88..1.18
+      const askingPrice = Math.round(base * priceMultiplier);
+      // Deterministic flavor text (replaces getFranchiseFlavor which uses Math.random pick())
+      const tier = getMarketTier(team.market);
+      const debt = Math.max(0, askingPrice - 30);
+      const flavors = {
+        1: ['Large-market powerhouse — expectations are sky-high', 'Premium franchise in a media giant city', 'Big-city titan — resources to win, pressure to perform'],
+        2: ['Established major-market franchise with a hungry fanbase', 'Storied team ready for the right GM to unlock its potential', 'Strong market foundation — ready to build a winner'],
+        3: ['Mid-market contender with a proven, loyal fan base', 'Competitive city franchise — solid bones, room to grow', 'A franchise with history — and a chip on its shoulder'],
+        4: ['Small-market team with a passionate, devoted fanbase', 'Scrappy underdog — low ceiling, maximum heart', 'Tight budgets, loyal fans, draft lottery upside'],
+        5: ['Struggling basement franchise — maximum rebuild potential', 'Every dynasty starts somewhere — yours starts here', 'Rock bottom. The only direction is up.'],
+      };
+      const flavorArr = flavors[tier] || flavors[4];
+      const flavorIdx = seed % flavorArr.length;
+      let flavor = flavorArr[flavorIdx];
+      if (debt > 0) flavor = `${flavor} — starts $${debt}M in debt`;
+      map[key] = { fanRating, stadiumCondition, askingPrice, flavor };
+    }
+    return map;
+  }, [allTeams]);
+
   const getTeamExtras = useCallback((team) => {
-    const seed = team.id ? team.id.charCodeAt(0) + team.id.charCodeAt(team.id.length - 1) : 42;
-    const fanRating = 40 + ((seed * 17 + 3) % 41);
-    const stadiumCondition = 60 + ((seed * 13 + 7) % 31);
-    const askingPrice = getFranchiseAskingPrice(team);
-    const flavor = getFranchiseFlavor(team, askingPrice);
-    return { fanRating, stadiumCondition, askingPrice, flavor };
-  }, []);
+    return teamExtrasMap[`${team.league}-${team.id}`] || { fanRating: 50, stadiumCondition: 70, askingPrice: 20, flavor: '' };
+  }, [teamExtrasMap]);
 
   const sel = selected ? getTeamExtras(selected) : null;
   const hasDebt = sel && sel.askingPrice > STARTING;

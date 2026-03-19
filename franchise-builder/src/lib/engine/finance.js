@@ -50,10 +50,15 @@ export function projectRevenue(f) {
     f.ticketPrice, f.fanRating, wp, f.market, f.stadiumCondition,
     f.rosterQuality || 70
   );
-  const gate = att * f.stadiumCapacity * f.ticketPrice * games / 1e6;
-  const tv = f.market * (0.5 + (f.tvTier || 1) * 0.3);
-  const merch = f.market * (f.merchMultiplier || 1) * Math.max(0.3, wp) * 0.4;
-  const spon = (f.sponsorLevel || 1) * f.market * 0.08;
+  // Gate: boosted base (1.6x multiplier for NGL to hit $40-60M mid-market; 1.1x ABL for $55-80M)
+  const gateMultiplier = f.league === 'ngl' ? 1.6 : 1.1;
+  const gate = att * f.stadiumCapacity * f.ticketPrice * games / 1e6 * gateMultiplier;
+  // TV: base $15M floor + market scaling to hit $30-50M mid-market
+  const tv = 15 + f.market * (0.25 + (f.tvTier || 1) * 0.18);
+  // Merch: raised floor and multiplier to hit $15-25M mid-market
+  const merch = f.market * (f.merchMultiplier || 1) * (0.15 + Math.max(0.3, wp) * 0.25);
+  // Sponsorship: increased to be proportional
+  const spon = (f.sponsorLevel || 1) * f.market * 0.14;
   const naming = f.namingRightsActive ? (f.namingRightsDeal || 3) : 0;
   const rev = gate + tv + merch + spon + naming;
   const staff = (f.scoutingStaff + f.developmentStaff + f.medicalStaff + f.marketingStaff) * 2;
@@ -66,6 +71,8 @@ export function projectRevenue(f) {
     gateRevenue: r1(gate),
     tvRevenue: r1(tv),
     merchRevenue: r1(merch),
+    sponsorRevenue: r1(spon),
+    namingRevenue: r1(naming),
     totalRevenue: r1(rev),
     totalExpenses: r1(exp),
     projectedProfit: r1(rev - exp),

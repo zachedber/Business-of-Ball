@@ -70,7 +70,7 @@ export default function SlotDecisionScreen({ fr, setFr, onDone }) {
   }
 
   function handleReleaseExisting(slotKey, player) {
-    // Release a depth player (remove from roster, add dead cap 60/40)
+    // Release a depth player (remove from roster, add dead cap 60/40, log it)
     setFr(prev => {
       const remainingValue = player.yearsLeft > 0 ? r1(player.salary * player.yearsLeft) : 0;
       const dead60 = r1(remainingValue * 0.6);
@@ -81,6 +81,10 @@ export default function SlotDecisionScreen({ fr, setFr, onDone }) {
         deferredDeadCap: r1((prev.deferredDeadCap || 0) + dead40),
         rookieSlots: (prev.rookieSlots || []).filter(p => p.id !== player.id),
         players: (prev.players || []).filter(p => p.id !== player.id),
+        deadCapLog: [
+          ...(prev.deadCapLog || []),
+          { name: player.name, reason: 'Released (Slot Decision)', amount: r1(dead60 + dead40), season: prev.season || 1 },
+        ],
       };
       return updated;
     });
