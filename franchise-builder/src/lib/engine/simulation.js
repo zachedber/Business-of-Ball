@@ -78,6 +78,104 @@ function calcCoordSalaries(f) {
 }
 
 // ============================================================
+// SHARED WIN PROBABILITY ENGINE
+// ============================================================
+
+/**
+ * Calculates pre-injury win probability for both AI and Player teams.
+ * Applies a mathematical, interconnected scale based on compounding factors.
+ */
+function calcWinProb(f, options = {}) {
+  const isAI = options.isAI || false;
+
+  // 1. ROSTER QUALITY FACTOR
+  let slotQ = 70;
+  if (!isAI && f.star1 !== undefined) {
+    slotQ = calcSlotQuality(f);
+  } else {
+    slotQ = f.rosterQuality || 70;
+  }
+  let rosterDelta = (slotQ - 72) / 40;
+
+  // 2. COACHING FACTOR
+  const coachLevel = f.coach?.level || 1;
+  const coachMult = 0.85 + coachLevel * 0.075;
+  rosterDelta *= coachMult;
+
+  // 3. SCHEME & STAFF FACTOR (Player only)
+  let schemeFitBonus = 0;
+  let staffChemBonus = 0;
+  let ocBonus = 0;
+  let dcBonus = 0;
+  if (!isAI) {
+    const schemeFit = f.schemeFit || 50;
+    const staffChem = f.staffChemistry || 65;
+    schemeFitBonus = (schemeFit - 50) / 1000;
+    staffChemBonus = (staffChem - 65) / 800;
+    const _oc = f.offensiveCoordinator;
+    const _dc = f.defensiveCoordinator;
+    ocBonus = _oc ? (_oc.scheme === 'run_heavy' ? 0.01 : _oc.scheme === 'pass_heavy' ? 0.015 : 0.005) : 0;
+    dcBonus = _dc ? (_dc.scheme === 'aggressive' ? 0.015 : _dc.scheme === 'zone' ? 0.01 : 0.005) : 0;
+  }
+
+  // 4. FACILITY FACTOR (Player only)
+  const facilityFactor = !isAI ? (((f.trainingFacility || 1) + (f.filmRoom || 1)) * 0.01) : 0;
+
+  // 5. CHEMISTRY FACTOR
+  const chemFactor = ((f.lockerRoomChemistry || 65) - 50) * 0.002;
+
+  // 6. MOMENTUM FACTOR
+  let momentumDelta = 0;
+  if (f.history && f.history.length > 0) {
+    const hist = f.history;
+
+    // Win% trend
+    let momentumBonus = 0;
+    if (hist.length >= 2) {
+      const getWp = h => h.winPct !== undefined ? h.winPct : (h.wins / Math.max(1, h.wins + h.losses));
+      const recentWP = getWp(hist[hist.length - 1]);
+      const prevWP = getWp(hist[hist.length - 2]);
+      const trend = recentWP - prevWP;
+      momentumBonus = clamp(trend * 0.15, -0.04, 0.04);
+    }
+
+    // Winning streak (Dynasty)
+    let streak = 0;
+    for (let i = hist.length - 1; i >= 0; i--) {
+      const h = hist[i];
+      const wp = h.winPct !== undefined ? h.winPct : (h.wins / Math.max(1, h.wins + h.losses));
+      if (wp > 0.5) streak++;
+      else break;
+    }
+    const dynastyBonus = Math.min(streak * 0.008, 0.025);
+
+    // Losing streak (Collapse)
+    let loseStreak = 0;
+    for (let i = hist.length - 1; i >= 0; i--) {
+      const h = hist[i];
+      const wp = h.winPct !== undefined ? h.winPct : (h.wins / Math.max(1, h.wins + h.losses));
+      if (wp < 0.4) loseStreak++;
+      else break;
+    }
+    const collapsePenalty = -Math.min(loseStreak * 0.010, 0.030);
+
+    momentumDelta = momentumBonus + dynastyBonus + collapsePenalty;
+  }
+
+  // 7. FAN RATING FACTOR
+  const homeFactor = ((f.fanRating || 50) - 50) * 0.0008;
+
+  // ASSEMBLE WP
+  let wp = 0.40 + rosterDelta + facilityFactor + chemFactor + ocBonus + dcBonus + schemeFitBonus + staffChemBonus + momentumDelta + homeFactor;
+
+  // VARIANCE
+  const structuralVar = isAI ? randFloat(-0.06, 0.06) : randFloat(-0.04, 0.04);
+  const schemeVar = isAI ? 0 : (f.offensiveCoordinator?.scheme === 'balanced' ? randFloat(-0.03, 0.03) : randFloat(-0.05, 0.05));
+
+  return clamp(wp + structuralVar + schemeVar, 0.06, 0.82);
+}
+
+// ============================================================
 // SEASON SIMULATION — AI TEAMS
 // ============================================================
 
@@ -90,23 +188,25 @@ function calcCoordSalaries(f) {
 export function simAITeam(team, season) {
   const lg = team.league;
   const games = lg === 'ngl' ? 17 : 82;
-  let wp = (team.rosterQuality - 40) / 60 + team.coach.level * 0.03 + (team.fanRating - 50) * 0.001 + randFloat(-0.08, 0.08);
-  wp = clamp(wp, 0.1, 0.92);
+
+  let wp = calcWinProb(team, { isAI: true });
+
   let w = 0;
   for (let g = 0; g < games; g++) if (Math.random() < wp) w++;
   team.wins = w;
   team.losses = games - w;
   team.season = season;
-  const att = calcAttendance(80, team.fanRating, w / games, team.market, team.stadiumCondition, team.rosterQuality || 70);
+  const winPct = w / games;
+  const att = calcAttendance(80, team.fanRating, winPct, team.market, team.stadiumCondition, team.rosterQuality || 70);
   team.finances.revenue = r1(
     att * team.stadiumCapacity * 80 * games / 1e6 +
     team.market * randFloat(0.8, 1.2) +
-    team.market * (w / games) * randFloat(0.3, 0.6)
+    team.market * winPct * randFloat(0.3, 0.6)
   );
   team.finances.expenses = r1(team.totalSalary + team.market * randFloat(0.3, 0.6));
   team.finances.profit = r1(team.finances.revenue - team.finances.expenses);
-  if (w / games > 0.6) team.fanRating = clamp(team.fanRating + rand(1, 4), 0, 100);
-  else if (w / games < 0.35) team.fanRating = clamp(team.fanRating - rand(1, 5), 0, 100);
+  if (winPct > 0.6) team.fanRating = clamp(team.fanRating + rand(1, 4), 0, 100);
+  else if (winPct < 0.35) team.fanRating = clamp(team.fanRating - rand(1, 5), 0, 100);
   team.stadiumAge++;
   if (team.stadiumAge > 15) team.stadiumCondition = clamp(team.stadiumCondition - rand(1, 3), 20, 100);
   team.players.forEach(p => {
@@ -123,8 +223,8 @@ export function simAITeam(team, season) {
   }
   team.rosterQuality = Math.round(team.players.reduce((s, p) => s + p.rating, 0) / team.players.length);
   team.coach.seasonsWithTeam++;
-  if (w / games < 0.35 && team.coach.seasonsWithTeam >= 2 && Math.random() < 0.5) team.coach = generateCoach();
-  team.history.push({ season, wins: w, losses: games - w, rosterQuality: team.rosterQuality, revenue: team.finances.revenue, fanRating: team.fanRating });
+  if (winPct < 0.35 && team.coach.seasonsWithTeam >= 2 && Math.random() < 0.5) team.coach = generateCoach();
+  team.history.push({ season, wins: w, losses: games - w, winPct: r1(winPct), rosterQuality: team.rosterQuality, revenue: team.finances.revenue, fanRating: team.fanRating });
   return team;
 }
 
@@ -155,23 +255,7 @@ export function simPlayerSeason(f, season) {
   // A1: Advance stadium project if one is in progress
   if (f.stadiumProject) f = advanceStadiumProject(f, season);
 
-  // Win prob — coaching staff is the biggest multiplier
-  const slotQ = f.star1 !== undefined ? calcSlotQuality(f) : (f.rosterQuality || 70);
-  const playerFactor = (slotQ - 65) / 35;
-  const coachFactor = f.coach.level * 0.0625;
-  const facilityFactor = ((f.trainingFacility || 1) + (f.filmRoom || 1)) * 0.01;
-  const chemFactor = ((f.lockerRoomChemistry || 65) - 50) * 0.002;
-  // A2: OC/DC scheme bonuses, scheme fit modifier, staff chemistry
-  const _oc = f.offensiveCoordinator;
-  const _dc = f.defensiveCoordinator;
-  const ocBonus = _oc ? (_oc.scheme === 'run_heavy' ? 0.01 : _oc.scheme === 'pass_heavy' ? 0.015 : 0.005) : 0;
-  const dcBonus = _dc ? (_dc.scheme === 'aggressive' ? 0.015 : _dc.scheme === 'zone' ? 0.01 : 0.005) : 0;
-  const schemeFitScore = f.schemeFit || 50;
-  const schemeFitBonus = schemeFitScore >= 75 ? 0.03 : schemeFitScore >= 50 ? 0 : schemeFitScore >= 25 ? -0.02 : -0.05;
-  const staffChemBonus = ((f.staffChemistry || 65) - 65) * 0.001;
-  const ocVariance = (_oc?.scheme === 'balanced') ? 0.07 : 0.10;
-  let wp = 0.25 + playerFactor * 0.30 + coachFactor + facilityFactor + chemFactor + ocBonus + dcBonus + schemeFitBonus + staffChemBonus;
-  wp = clamp(wp + randFloat(-ocVariance, ocVariance), 0.05, 0.78);
+  let wp = calcWinProb(f, { isAI: false });
 
   // Injuries (works on f.players = slot players for 3-slot model)
   f.players.forEach(p => {
@@ -188,14 +272,14 @@ export function simPlayerSeason(f, season) {
       p.gamesOut = 0;
     }
   });
-  // Phase 2: injury WP impact by severity (removed flat -0.04 per 80+ rated)
+  // Phase 2: injury WP impact by severity
   f.players.forEach(p => {
     if (!p.injured) return;
     if (p.injurySeverity === 'minor') wp -= 0.02;
     else if (p.injurySeverity === 'moderate') wp -= 0.04;
     else if (p.injurySeverity === 'severe') wp -= 0.07;
   });
-  wp = clamp(wp, 0.05, 0.78);
+  wp = clamp(wp, 0.05, 0.80);
 
   let w = 0;
   for (let g = 0; g < games; g++) if (Math.random() < wp) w++;
@@ -358,23 +442,7 @@ export function simPlayerSeasonFirstHalf(f, season) {
   // A1: Advance stadium project if one is in progress
   if (f.stadiumProject) f = advanceStadiumProject(f, season);
 
-  // Win prob — coaching staff is the biggest multiplier
-  const slotQ = f.star1 !== undefined ? calcSlotQuality(f) : (f.rosterQuality || 70);
-  const playerFactor = (slotQ - 65) / 35;
-  const coachFactor = f.coach.level * 0.0625;
-  const facilityFactor = ((f.trainingFacility || 1) + (f.filmRoom || 1)) * 0.01;
-  const chemFactor = ((f.lockerRoomChemistry || 65) - 50) * 0.002;
-  // A2: OC/DC scheme bonuses, scheme fit modifier, staff chemistry
-  const _oc = f.offensiveCoordinator;
-  const _dc = f.defensiveCoordinator;
-  const ocBonus = _oc ? (_oc.scheme === 'run_heavy' ? 0.01 : _oc.scheme === 'pass_heavy' ? 0.015 : 0.005) : 0;
-  const dcBonus = _dc ? (_dc.scheme === 'aggressive' ? 0.015 : _dc.scheme === 'zone' ? 0.01 : 0.005) : 0;
-  const schemeFitScore = f.schemeFit || 50;
-  const schemeFitBonus = schemeFitScore >= 75 ? 0.03 : schemeFitScore >= 50 ? 0 : schemeFitScore >= 25 ? -0.02 : -0.05;
-  const staffChemBonus = ((f.staffChemistry || 65) - 65) * 0.001;
-  const ocVariance = (_oc?.scheme === 'balanced') ? 0.07 : 0.10;
-  let wp = 0.25 + playerFactor * 0.30 + coachFactor + facilityFactor + chemFactor + ocBonus + dcBonus + schemeFitBonus + staffChemBonus;
-  wp = clamp(wp + randFloat(-ocVariance, ocVariance), 0.05, 0.78);
+  let wp = calcWinProb(f, { isAI: false });
 
   // Injuries (works on f.players = slot players for 3-slot model)
   f.players.forEach(p => {
@@ -391,14 +459,14 @@ export function simPlayerSeasonFirstHalf(f, season) {
       p.gamesOut = 0;
     }
   });
-  // Phase 2: injury WP impact by severity (removed flat -0.04 per 80+ rated)
+  // Phase 2: injury WP impact by severity
   f.players.forEach(p => {
     if (!p.injured) return;
     if (p.injurySeverity === 'minor') wp -= 0.02;
     else if (p.injurySeverity === 'moderate') wp -= 0.04;
     else if (p.injurySeverity === 'severe') wp -= 0.07;
   });
-  wp = clamp(wp, 0.05, 0.78);
+  wp = clamp(wp, 0.05, 0.80);
 
   let w = 0;
   for (let g = 0; g < halfGames; g++) if (Math.random() < wp) w++;
@@ -428,7 +496,7 @@ export function simPlayerSeasonSecondHalf(f, season) {
   const games = lg === 'ngl' ? 17 : 82;
   const halfGames = f._halfGames || Math.floor(games / 2);
   const remainingGames = games - halfGames;
-  const wp = f._halfWinProb || clamp((f.rosterQuality - 40) / 60, 0.05, 0.78);
+  const wp = f._halfWinProb || calcWinProb(f, { isAI: false });
   const econMod = f._halfEconMod || 1.0;
 
   // Simulate remaining games from half-season starting point
@@ -736,8 +804,10 @@ export function simulatePlayoffs(nglTeams, playerFranchise) {
   function simGame(teamA, teamB, neutralSite = false) {
     const qA = teamA.rosterQuality || 70;
     const qB = teamB.rosterQuality || 70;
-    // Base WP from quality difference (compressed — quality alone never decides)
-    let wpA = 0.5 + (qA - qB) / 200;
+
+    // Base WP from quality difference
+    const rosterDiff = (qA - qB) / 40;
+    let wpA = 0.50 + rosterDiff * 0.35;
 
     // Upset variance: underdog (higher seed #) gets +0.08 per seed gap, max +0.20
     const seedDiff = Math.abs(teamA.seed - teamB.seed);
@@ -751,7 +821,7 @@ export function simulatePlayoffs(nglTeams, playerFranchise) {
       else if (teamB.seed < teamA.seed) wpA -= 0.05;
     }
 
-    wpA = clamp(wpA, 0.05, 0.95);
+    wpA = clamp(wpA, 0.10, 0.90);
     const winner = Math.random() < wpA ? teamA : teamB;
     const loser = winner.id === teamA.id ? teamB : teamA;
     const isUpset = winner.seed > loser.seed;
