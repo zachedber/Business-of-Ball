@@ -11,6 +11,7 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
   const [showTransactions, setShowTransactions] = useState(false);
   const budget = SLOT_BUDGET[fr.league] || 80;
   const usedBudget = ['star1', 'star2', 'corePiece'].reduce((s, k) => s + (fr[k]?.salary || 0), 0);
+  const budgetDelta = Math.round((budget - usedBudget) * 10) / 10;
 
   const slotDefs = [
     { key: 'star1', label: 'Star 1' },
@@ -88,14 +89,16 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
 
       {/* Budget bar */}
       <div className="card" style={{ padding: '10px 14px', marginBottom: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
           <span className="stat-label">Slot Budget</span>
-          <span className="font-mono" style={{ fontSize: '0.75rem' }}>
-            ${usedBudget}M / ${budget}M
-            <span style={{ color: usedBudget > budget ? 'var(--red)' : 'var(--green)', marginLeft: 6 }}>
-              (${budget - usedBudget}M free)
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+            <span className="font-mono" style={{ fontSize: '0.75rem', textAlign: 'right' }}>
+              ${usedBudget}M / ${budget}M
             </span>
-          </span>
+            <span className="font-mono" style={{ fontSize: '0.68rem', color: budgetDelta < 0 ? 'var(--red)' : 'var(--green)', textAlign: 'right' }}>
+              {budgetDelta < 0 ? `$${Math.abs(budgetDelta)}M over` : `$${budgetDelta}M free`}
+            </span>
+          </div>
         </div>
         <div className="progress-bar">
           <div className="progress-bar-fill" style={{ width: `${Math.min(100, (usedBudget / budget) * 100)}%`, background: usedBudget > budget ? 'var(--red)' : 'var(--green)' }} />
