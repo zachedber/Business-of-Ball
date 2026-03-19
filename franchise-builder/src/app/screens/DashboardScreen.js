@@ -1,5 +1,5 @@
 'use client';
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   calculateCapSpace, calculateValuation, getGMTier,
   projectRevenue, formatMoney, formatLabel,
@@ -250,6 +250,7 @@ function SlotsTab({ fr, setFr, gmRep }) {
 
   const budget = SLOT_BUDGET[fr.league] || 80;
   const usedBudget = ['star1', 'star2', 'corePiece'].reduce((s, k) => s + (fr[k]?.salary || 0), 0);
+  const budgetDelta = Math.round((budget - usedBudget) * 10) / 10;
   const depthQ = calcDepthQuality(fr);
   const slotQ = calcSlotQuality(fr);
   const isOffseason = (fr.season || 1) > 0 && fr.wins !== undefined;
@@ -279,14 +280,16 @@ function SlotsTab({ fr, setFr, gmRep }) {
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div className="card" style={{ padding: '10px 14px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
           <span className="stat-label">Slot Budget</span>
-          <span className="font-mono" style={{ fontSize: '0.75rem' }}>
-            ${usedBudget}M / ${budget}M
-            <span style={{ color: usedBudget > budget ? 'var(--red)' : 'var(--green)', marginLeft: 6 }}>
-              (${budget - usedBudget}M free)
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+            <span className="font-mono" style={{ fontSize: '0.75rem', textAlign: 'right' }}>
+              ${usedBudget}M / ${budget}M
             </span>
-          </span>
+            <span className="font-mono" style={{ fontSize: '0.68rem', color: budgetDelta < 0 ? 'var(--red)' : 'var(--green)', textAlign: 'right' }}>
+              {budgetDelta < 0 ? `$${Math.abs(budgetDelta)}M over` : `$${budgetDelta}M free`}
+            </span>
+          </div>
         </div>
         <div className="progress-bar">
           <div className="progress-bar-fill" style={{ width: `${Math.min(100, (usedBudget / budget) * 100)}%`, background: usedBudget > budget ? 'var(--red)' : usedBudget / budget > 0.85 ? 'var(--amber)' : 'var(--green)' }} />
@@ -540,10 +543,21 @@ function CoachTab({ fr, setFr, gmRep }) {
 // BUSINESS TAB
 // ============================================================
 function BizTab({ fr, setFr }) {
+  const [ticketPriceDraft, setTicketPriceDraft] = useState(fr.ticketPrice);
+
+  useEffect(() => {
+    setTicketPriceDraft(fr.ticketPrice);
+  }, [fr.ticketPrice]);
+
   const proj = useMemo(() => projectRevenue(fr), [fr]);
-  const valuePerception = Math.round((fr.rosterQuality / 100) * 200 - fr.ticketPrice);
+  const valuePerception = Math.round((fr.rosterQuality / 100) * 200 - ticketPriceDraft);
   const isOverpriced = valuePerception < -40;
   const isGoodValue = valuePerception > 60;
+
+  function commitTicketPrice(nextPrice) {
+    setFr(prev => (prev.ticketPrice === nextPrice ? prev : { ...prev, ticketPrice: nextPrice }));
+  }
+
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div className="card" style={{ padding: 16 }}>
@@ -558,10 +572,19 @@ function BizTab({ fr, setFr }) {
         <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Ticket Pricing</h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span className="stat-label">Price</span>
-          <input type="range" min="30" max="200" step="5" value={fr.ticketPrice}
-            onChange={e => setFr(p => ({ ...p, ticketPrice: Number(e.target.value) }))}
-            style={{ flex: 1, minWidth: 100 }} />
-          <span className="stat-value">${fr.ticketPrice}</span>
+          <input
+            type="range"
+            min="30"
+            max="200"
+            step="5"
+            value={ticketPriceDraft}
+            onChange={e => setTicketPriceDraft(Number(e.target.value))}
+            onMouseUp={e => commitTicketPrice(Number(e.currentTarget.value))}
+            onTouchEnd={e => commitTicketPrice(Number(e.currentTarget.value))}
+            onKeyUp={e => commitTicketPrice(Number(e.currentTarget.value))}
+            style={{ flex: 1, minWidth: 160 }}
+          />
+          <span className="stat-value">${ticketPriceDraft}</span>
           {isOverpriced && <span className="badge badge-red">OVERPRICED</span>}
           {isGoodValue && <span className="badge badge-green">GOOD VALUE</span>}
         </div>
