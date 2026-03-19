@@ -1137,5 +1137,8 @@ export function createPlayerFranchise(tmpl, lg) {
     // Phase B4: draft pick inventory + rookie slots
     draftPickInventory: initDraftPickInventory(1, tmpl.id),
     rookieSlots: [],  // up to 3 rookies separate from main roster
+
+    // Phase 1.5-taxi: taxi squad (max 4 players, develop but don't count against cap)
+    taxiSquad: [],
   };
 }

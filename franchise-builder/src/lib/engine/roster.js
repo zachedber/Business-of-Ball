@@ -965,6 +965,64 @@ export function endOfSeasonAging(franchise, winPct) {
   fr = { ...fr, star1, star2, corePiece };
   fr.players = [fr.star1, fr.star2, fr.corePiece].filter(Boolean);
 
+  // ── Step 5: Taxi squad aging + auto-release at 2 seasons ────────────
+  const taxiSquad = (fr.taxiSquad || []).map(p => {
+    if (!p) return null;
+    const aged = { ...p };
+    aged.age = (p.age || 22) + 1;
+    aged.seasonsOnTaxi = (p.seasonsOnTaxi || 0) + 1;
+    aged.seasonsPlayed = (p.seasonsPlayed || 0) + 1;
+
+    // Development: same formula as slot players
+    if (!p.injured || p.injurySeverity !== 'severe') {
+      const ageFactor = aged.age < ps
+        ? (ps - aged.age) * 0.6
+        : aged.age <= pe ? 0.3 : -(aged.age - pe) * 0.8;
+      let traitBonus = 0;
+      if (p.trait === 'hometown') traitBonus = 0.3;
+      else if (p.trait === 'volatile') traitBonus = randFloat(-1, 1.5);
+      else if (p.trait === 'leader') traitBonus = 0.2;
+      const ceilingPenalty = (p.rating || 50) > 85 ? -((p.rating || 50) - 85) * 0.15 : 0;
+      const delta = Math.round(clamp(
+        ageFactor + devStaff * 0.5 + ((p.morale || 60) - 50) * 0.015 + traitBonus + ceilingPenalty + randFloat(-1.5, 1.5),
+        -5, 8
+      ));
+      aged.rating = clamp((p.rating || 50) + delta, 40, 99);
+      aged.careerStats = {
+        ...aged.careerStats,
+        seasons: ((aged.careerStats?.seasons || 0) + 1),
+        bestRating: Math.max(aged.rating, aged.careerStats?.bestRating || 0),
+      };
+    }
+
+    // Morale shift
+    if (winPct > 0.6) aged.morale = clamp((aged.morale || 60) + rand(1, 3), 0, 100);
+    else if (winPct < 0.35) aged.morale = clamp((aged.morale || 60) - rand(1, 3), 0, 100);
+
+    return aged;
+  }).filter(Boolean);
+
+  // Auto-release taxi squad players at 2+ seasons
+  const taxiNotifications = [];
+  const keptTaxi = [];
+  for (const p of taxiSquad) {
+    if ((p.seasonsOnTaxi || 0) >= 2) {
+      taxiNotifications.push({
+        id: 'taxi_release_' + p.id,
+        severity: 'info',
+        message: `${p.name} has been auto-released from the taxi squad after 2 seasons.`,
+        type: 'player',
+      });
+    } else {
+      keptTaxi.push(p);
+    }
+  }
+
+  fr = { ...fr, taxiSquad: keptTaxi };
+  if (taxiNotifications.length > 0) {
+    fr.taxiNotifications = taxiNotifications;
+  }
+
   return fr;
 }
 

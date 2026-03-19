@@ -34,7 +34,7 @@ export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, eve
             {fr.city} {fr.name}
           </h2>
           <div className="font-mono" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', position: 'relative' }}>
-            {fr.league === 'ngl' ? 'NGL' : 'ABL'} · S{fr.season || 1} · {fr.coach.name}
+            {fr.league === 'ngl' ? 'NGL' : 'ABL'} · S{fr.season || 1} · {fr.coach?.name || 'No Coach'}
             {fr.economyCycle !== 'stable' ? ` · ${formatLabel(fr.economyCycle)}` : ''}
             {' · '}<span style={{ color: 'var(--ink-muted)' }}>{gmTier.badge} {gmTier.label}</span>
           </div>
@@ -302,20 +302,20 @@ function SlotsTab({ fr, setFr, gmRep, offseasonFAPool: frozenPool }) {
               <div className="font-display" style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-muted)', marginBottom: 8, letterSpacing: '0.08em' }}>{label}</div>
               {player ? (
                 <>
-                  <div className="font-display" style={{ fontSize: '1rem', fontWeight: 700 }}>{player.name}</div>
-                  <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginBottom: 4 }}>{player.position} · Age {player.age}</div>
+                  <div className="font-display" style={{ fontSize: '1rem', fontWeight: 700 }}>{player.name || 'Unknown'}</div>
+                  <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginBottom: 4 }}>{player.position || '—'} · Age {player.age || '?'}</div>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
                     <div>
                       <span className="stat-label" style={{ fontSize: '0.7rem' }}>Rating</span>
-                      <div className="font-display" style={{ fontSize: '1.2rem', fontWeight: 700, color: player.rating >= 85 ? 'var(--green)' : player.rating >= 70 ? 'var(--amber)' : 'var(--ink)' }}>{player.rating}</div>
+                      <div className="font-display" style={{ fontSize: '1.2rem', fontWeight: 700, color: (player.rating || 0) >= 85 ? 'var(--green)' : (player.rating || 0) >= 70 ? 'var(--amber)' : 'var(--ink)' }}>{player.rating || 0}</div>
                     </div>
                     <div>
                       <span className="stat-label" style={{ fontSize: '0.7rem' }}>Salary</span>
-                      <div className="font-mono" style={{ fontSize: '0.85rem' }}>${player.salary}M</div>
+                      <div className="font-mono" style={{ fontSize: '0.85rem' }}>${player.salary || 0}M</div>
                     </div>
                     <div>
                       <span className="stat-label" style={{ fontSize: '0.7rem' }}>Years</span>
-                      <div className="font-mono" style={{ fontSize: '0.85rem', color: player.yearsLeft <= 1 ? 'var(--red)' : 'var(--ink)' }}>{player.yearsLeft}yr</div>
+                      <div className="font-mono" style={{ fontSize: '0.85rem', color: (player.yearsLeft || 0) <= 1 ? 'var(--red)' : 'var(--ink)' }}>{player.yearsLeft || 0}yr</div>
                     </div>
                   </div>
                   {player.trait && (
@@ -414,19 +414,70 @@ function SlotsTab({ fr, setFr, gmRep, offseasonFAPool: frozenPool }) {
         </div>
       )}
 
-      {/* Rookie Slots */}
+      {/* Taxi Squad */}
+      {(fr.taxiSquad || []).length > 0 && (
+        <div className="card" style={{ padding: 14, marginTop: 12, borderLeft: '3px solid var(--blue)' }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.85rem' }}>Taxi Squad ({(fr.taxiSquad || []).length}/4)</h3>
+          <p className="font-body" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginBottom: 8 }}>
+            Drafted rookies develop here without counting against salary cap. Max 2 seasons before they must be promoted or released.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
+            {(fr.taxiSquad || []).map((r, idx) => (
+              <div key={r.id || idx} className="card" style={{ padding: '10px 12px' }}>
+                <div className="font-display" style={{ fontSize: '0.85rem', fontWeight: 600 }}>{r.name || 'Unknown'}</div>
+                <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>
+                  {r.position || '—'} · Age {r.age || '?'} · {r.rating || 0} rtg
+                </div>
+                <div className="font-mono" style={{ fontSize: '0.7rem', color: (r.seasonsOnTaxi || 0) >= 1 ? 'var(--amber)' : 'var(--ink-muted)' }}>
+                  Year {(r.seasonsOnTaxi || 0) + 1} of 2
+                </div>
+                {r.draftRound && <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>R{r.draftRound} P{r.draftPick}</div>}
+                {r.trait && <span className="badge badge-ink" style={{ fontSize: '0.7rem', marginTop: 4 }}>{r.trait}</span>}
+                <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                  <button
+                    className="btn-primary"
+                    style={{ fontSize: '0.7rem', padding: '3px 8px' }}
+                    onClick={() => {
+                      setFr(prev => {
+                        const updated = { ...prev };
+                        updated.taxiSquad = (prev.taxiSquad || []).filter((_, ri) => ri !== idx);
+                        // Move to depth roster (fr.players is derived from slots, so add to rookieSlots)
+                        updated.rookieSlots = [...(prev.rookieSlots || []), r];
+                        return updated;
+                      });
+                    }}
+                  >
+                    Promote
+                  </button>
+                  <button
+                    className="btn-secondary"
+                    style={{ fontSize: '0.7rem', padding: '3px 8px', borderColor: 'var(--red)', color: 'var(--red)' }}
+                    onClick={() => {
+                      setFr(prev => ({ ...prev, taxiSquad: (prev.taxiSquad || []).filter((_, ri) => ri !== idx) }));
+                    }}
+                  >
+                    Release
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Rookie Slots (overflow / legacy) */}
       {(fr.rookieSlots || []).length > 0 && (
         <div className="card" style={{ padding: 14, marginTop: 12 }}>
-          <h3 className="font-display section-header" style={{ fontSize: '0.85rem' }}>Rookie Slots ({(fr.rookieSlots || []).length}/3)</h3>
+          <h3 className="font-display section-header" style={{ fontSize: '0.85rem' }}>Depth Roster ({(fr.rookieSlots || []).length})</h3>
           <p className="font-body" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginBottom: 8 }}>
-            Drafted rookies develop here before joining the main roster. Promote to an open slot or release.
+            Players ready for promotion to a franchise slot or release.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
             {(fr.rookieSlots || []).map((r, idx) => (
               <div key={r.id || idx} className="card" style={{ padding: '10px 12px' }}>
-                <div className="font-display" style={{ fontSize: '0.85rem', fontWeight: 600 }}>{r.name}</div>
+                <div className="font-display" style={{ fontSize: '0.85rem', fontWeight: 600 }}>{r.name || 'Unknown'}</div>
                 <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>
-                  {r.position} · Age {r.age} · {r.rating} rtg
+                  {r.position || '—'} · Age {r.age || '?'} · {r.rating || 0} rtg
                 </div>
                 {r.draftRound && <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>R{r.draftRound} P{r.draftPick}</div>}
                 {r.trait && <span className="badge badge-ink" style={{ fontSize: '0.7rem', marginTop: 4 }}>{r.trait}</span>}
@@ -441,6 +492,16 @@ function SlotsTab({ fr, setFr, gmRep, offseasonFAPool: frozenPool }) {
                       onClick={() => {
                         setFr(prev => {
                           const promoted = signToSlot(prev, key, r);
+                          if (!promoted) {
+                            // Over budget — bypass signToSlot and write slot directly (promotion, not new signing)
+                            const direct = { ...prev, [key]: { ...r, slotType: key } };
+                            direct.rookieSlots = (prev.rookieSlots || []).filter((_, ri) => ri !== idx);
+                            direct.players = [direct.star1, direct.star2, direct.corePiece].filter(Boolean);
+                            direct.totalSalary = r1(direct.players.reduce((s, p) => s + (p.salary || 0), 0));
+                            direct.depthQuality = calcDepthQuality(direct);
+                            direct.rosterQuality = calcSlotQuality(direct);
+                            return direct;
+                          }
                           return { ...promoted, rookieSlots: (promoted.rookieSlots || []).filter((_, ri) => ri !== idx) };
                         });
                       }}
