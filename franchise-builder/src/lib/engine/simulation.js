@@ -77,6 +77,19 @@ function calcCoordSalaries(f) {
   return total;
 }
 
+function getSeasonGames(league) {
+  return league === 'ngl' ? 17 : 82;
+}
+
+function sortTeamsByStanding(a, b) {
+  return (b.wins - a.wins) || ((a.losses || 0) - (b.losses || 0)) || ((b.rosterQuality || 0) - (a.rosterQuality || 0)) || a.id.localeCompare(b.id);
+}
+
+function applyLeagueStandings(teams, playoffSlots) {
+  teams.forEach((t, i) => { t.playoffTeam = i < playoffSlots; t.leagueRank = i + 1; }); // Bugfix: playoff flags now match each league's actual field size so the standings cut line stays accurate.
+  return teams;
+}
+
 // ============================================================
 // SHARED WIN PROBABILITY ENGINE
 // ============================================================
@@ -187,7 +200,7 @@ function calcWinProb(f, options = {}) {
  */
 export function simAITeam(team, season) {
   const lg = team.league;
-  const games = lg === 'ngl' ? 17 : 82;
+  const games = getSeasonGames(lg); // Bugfix: AI season length now comes from the same league-aware helper used across the sim.
 
   let wp = calcWinProb(team, { isAI: true });
 
@@ -242,7 +255,7 @@ export function simAITeam(team, season) {
  */
 export function simPlayerSeason(f, season) {
   const lg = f.league;
-  const games = lg === 'ngl' ? 17 : 82;
+  const games = getSeasonGames(lg);
 
   // Phase 3: Roll deferred dead cap into current season cap dead money
   if (f.deferredDeadCap > 0) {
@@ -429,7 +442,7 @@ export function simPlayerSeason(f, season) {
  */
 export function simPlayerSeasonFirstHalf(f, season) {
   const lg = f.league;
-  const games = lg === 'ngl' ? 17 : 82;
+  const games = getSeasonGames(lg);
   const halfGames = Math.floor(games / 2);
 
   // Phase 3: Roll deferred dead cap into current season cap dead money
@@ -494,7 +507,7 @@ export function simPlayerSeasonFirstHalf(f, season) {
  */
 export function simPlayerSeasonSecondHalf(f, season) {
   const lg = f.league;
-  const games = lg === 'ngl' ? 17 : 82;
+  const games = getSeasonGames(lg);
   const halfGames = f._halfGames || Math.floor(games / 2);
   const remainingGames = games - halfGames;
   const wp = f._halfWinProb || calcWinProb(f, { isAI: false });
@@ -668,10 +681,8 @@ export function simulateFullSeason(lt, pf, season) {
     const i = arr.findIndex(t => t.id === p.id);
     if (i >= 0) arr[i] = { ...arr[i], wins: p.wins, losses: p.losses, rosterQuality: p.rosterQuality, fanRating: p.fanRating };
   });
-  const ns = [...ul.ngl].sort((a, b) => b.wins - a.wins);
-  const as2 = [...ul.abl].sort((a, b) => b.wins - a.wins);
-  ns.forEach((t, i) => { t.playoffTeam = i < 14; t.leagueRank = i + 1; });
-  as2.forEach((t, i) => { t.playoffTeam = i < 16; t.leagueRank = i + 1; });
+  const ns = applyLeagueStandings([...ul.ngl].sort(sortTeamsByStanding), 12); // Bugfix: NGL standings now match the 12-team playoff field instead of over-qualifying teams.
+  const as2 = applyLeagueStandings([...ul.abl].sort(sortTeamsByStanding), 16);
 
   // Championships & rankings
   // NGL championships awarded via simulatePlayoffs. ABL keeps rank-1 logic.
@@ -740,10 +751,8 @@ export function simulateFullSeasonSecondHalf(lt, pf, season) {
     if (i >= 0) arr[i] = { ...arr[i], wins: p.wins, losses: p.losses, rosterQuality: p.rosterQuality, fanRating: p.fanRating };
   });
 
-  const ns = [...lt.ngl].sort((a, b) => b.wins - a.wins);
-  const as2 = [...lt.abl].sort((a, b) => b.wins - a.wins);
-  ns.forEach((t, i) => { t.playoffTeam = i < 14; t.leagueRank = i + 1; });
-  as2.forEach((t, i) => { t.playoffTeam = i < 16; t.leagueRank = i + 1; });
+  const ns = applyLeagueStandings([...lt.ngl].sort(sortTeamsByStanding), 12); // Bugfix: second-half standings reuse the same playoff cutoffs as the full-season path.
+  const as2 = applyLeagueStandings([...lt.abl].sort(sortTeamsByStanding), 16);
 
   // Championships & rankings
   // NGL championships are awarded via simulatePlayoffs — not here.
@@ -792,15 +801,17 @@ export function simulateFullSeasonSecondHalf(lt, pf, season) {
 export function simulatePlayoffs(nglTeams, playerFranchise) {
   const eastIds = new Set(NGL_CONFERENCES.East);
   const westIds = new Set(NGL_CONFERENCES.West);
+  const eastAll = nglTeams.filter(t => eastIds.has(t.id)).sort(sortTeamsByStanding);
+  const westAll = nglTeams.filter(t => westIds.has(t.id)).sort(sortTeamsByStanding);
 
-  const eastAll = nglTeams.filter(t => eastIds.has(t.id)).sort((a, b) => b.wins - a.wins);
-  const westAll = nglTeams.filter(t => westIds.has(t.id)).sort((a, b) => b.wins - a.wins);
-
-  const eastSeeds = eastAll.slice(0, 6).map((t, i) => ({ ...t, seed: i + 1, conf: 'East' }));
-  const westSeeds = westAll.slice(0, 6).map((t, i) => ({ ...t, seed: i + 1, conf: 'West' }));
+  const eastSeeds = eastAll.slice(0, 6).map((t, i) => ({ ...t, seed: i + 1, conf: 'East' })); // Bugfix: conference seeds now stay ordered best-to-worst so seed #1 is always the top team.
+  const westSeeds = westAll.slice(0, 6).map((t, i) => ({ ...t, seed: i + 1, conf: 'West' })); // Bugfix: west seeding mirrors the east path so seed numbers stay aligned with team quality.
+  const seededTeamIds = new Set([...eastSeeds, ...westSeeds].map(t => t.id));
+  if (seededTeamIds.size !== eastSeeds.length + westSeeds.length) throw new Error('Duplicate team detected in playoff bracket'); // Bugfix: duplicate playoff entrants now fail fast instead of filling multiple bracket slots.
+  if (eastSeeds.length < 6 || westSeeds.length < 6) throw new Error('Not enough NGL teams to build the playoff bracket'); // Bugfix: the bracket now refuses to render incomplete conference fields.
 
   const playerMadePlayoffs = playerFranchise
-    ? [...eastSeeds, ...westSeeds].some(t => t.id === playerFranchise.id)
+    ? seededTeamIds.has(playerFranchise.id)
     : false;
 
   /** Simulate a single playoff game with upset variance & optional home advantage */
@@ -852,19 +863,19 @@ export function simulatePlayoffs(nglTeams, playerFranchise) {
   });
 
   // ── Divisional Round: 1 vs worst WC winner, 2 vs best WC winner ───
-  const eWC = [ewc1.winner, ewc2.winner].sort((a, b) => a.seed - b.seed);
-  const wWC = [wwc1.winner, wwc2.winner].sort((a, b) => a.seed - b.seed);
-  const ediv1 = simGame(eastSeeds[0], eWC[1]); // 1 vs higher-seeded WC winner
-  const ediv2 = simGame(eastSeeds[1], eWC[0]); // 2 vs lower-seeded WC winner
-  const wdiv1 = simGame(westSeeds[0], wWC[1]);
-  const wdiv2 = simGame(westSeeds[1], wWC[0]);
+  const eWC = [ewc1.winner, ewc2.winner].sort((a, b) => b.seed - a.seed); // Bugfix: wild-card winners now sort weakest-to-strongest so the #1 seed gets the weaker remaining opponent.
+  const wWC = [wwc1.winner, wwc2.winner].sort((a, b) => b.seed - a.seed); // Bugfix: west wild-card reassignment now matches the east bracket logic.
+  const ediv1 = simGame(eastSeeds[0], eWC[0]);
+  const ediv2 = simGame(eastSeeds[1], eWC[1]);
+  const wdiv1 = simGame(westSeeds[0], wWC[0]);
+  const wdiv2 = simGame(westSeeds[1], wWC[1]);
   rounds.push({
     name: 'Divisional',
     games: [
-      { conf: 'East', label: `#1 vs #${eWC[1].seed}`, ...ediv1 },
-      { conf: 'East', label: `#2 vs #${eWC[0].seed}`, ...ediv2 },
-      { conf: 'West', label: `#1 vs #${wWC[1].seed}`, ...wdiv1 },
-      { conf: 'West', label: `#2 vs #${wWC[0].seed}`, ...wdiv2 },
+      { conf: 'East', label: `#1 vs #${eWC[0].seed}`, ...ediv1 },
+      { conf: 'East', label: `#2 vs #${eWC[1].seed}`, ...ediv2 },
+      { conf: 'West', label: `#1 vs #${wWC[0].seed}`, ...wdiv1 },
+      { conf: 'West', label: `#2 vs #${wWC[1].seed}`, ...wdiv2 },
     ],
   });
 
