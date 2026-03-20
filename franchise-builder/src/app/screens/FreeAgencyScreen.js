@@ -22,7 +22,9 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
   const aiTeamNames = ['Dallas Lone Stars', 'Bay City Gold', 'New York Titans', 'Chicago Wolves', 'Los Angeles Crown', 'Seattle Rain', 'Miami Surge'];
 
   function doSign(player, slotName) {
-    setFr(prev => signToSlot(prev, slotName, player));
+    const signedFranchise = signToSlot(fr, slotName, player);
+    if (!signedFranchise) return; // Bugfix: failed free-agency bids now stop before mutating the pool or slot state.
+    setFr(() => signedFranchise);
     setPool(prev => prev.filter(p => p.id !== player.id));
   }
 

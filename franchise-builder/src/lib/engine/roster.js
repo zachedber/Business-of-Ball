@@ -542,6 +542,10 @@ export function generateInitialSlots(league, market, gmRep = 50) {
 
 /** Put a player in a slot (returns updated franchise or null if over budget) */
 export function signToSlot(franchise, slotName, player) {
+  if (!franchise || !player || !slotName) return null; // Bugfix: invalid free-agency calls now fail closed instead of writing partial slot state.
+  if (franchise[slotName]) return null; // Bugfix: the same free-agency slot can no longer be filled twice in one signing window.
+  if ((franchise.cash || 0) < (player.salary || 0)) return null; // Bugfix: cash-poor franchises can no longer sign players they cannot afford.
+  if (['star1', 'star2', 'corePiece'].some((slot) => franchise[slot]?.id === player.id)) return null; // Bugfix: a player already rostered in a slot cannot be signed twice.
   const budget = SLOT_BUDGET[franchise.league] || 80;
   const others = ['star1', 'star2', 'corePiece'].filter(s => s !== slotName);
   const otherSalary = others.reduce((s, sl) => s + (franchise[sl]?.salary || 0), 0);
@@ -587,6 +591,7 @@ export function releaseSlot(franchise, slotName) {
  * @returns {Object[]} Sorted array of prospect objects by projected rating
  */
 export function generateDraftProspects(lg, count, scoutLvl = 1, round = 1) {
+  if (!count || count <= 0) return []; // Bugfix: draft generation now returns an empty board when no pick inventory remains.
   const pos = lg === 'ngl' ? NGL_POSITIONS : ABL_POSITIONS;
   const roundProfile = round === 1
     ? { ratingMin: 68, ratingMax: 82, upsideWeights: ['high', 'high', 'mid', 'mid', 'low'] }
@@ -622,6 +627,7 @@ export function generateDraftProspects(lg, count, scoutLvl = 1, round = 1) {
  * @returns {Object} Player object on a rookie deal
  */
 export function draftPlayer(p, lg) {
+  if (!p) return null; // Bugfix: empty draft clicks now resolve safely instead of crashing player creation.
   const cap = lg === 'ngl' ? NGL_SALARY_CAP : ABL_SALARY_CAP;
   const rs = lg === 'ngl' ? NGL_ROSTER_SIZE : ABL_ROSTER_SIZE;
   return {

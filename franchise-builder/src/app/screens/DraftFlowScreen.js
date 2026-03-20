@@ -1,5 +1,5 @@
 'use client';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { draftPlayer, generateDraftProspects } from '@/lib/engine';
 
 // ============================================================
@@ -8,20 +8,35 @@ import { draftPlayer, generateDraftProspects } from '@/lib/engine';
 export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, onPickMade, onAutoPick, onDone, gmRep }) {
   const [pickedPlayers, setPickedPlayers] = useState([]);
   const [remainingPicks, setRemainingPicks] = useState(draftPicks || []);
+  const [availableProspects, setAvailableProspects] = useState(draftProspects || []);
   const currentRound = remainingPicks[0]?.round || draftPicks?.[draftPicks.length - 1]?.round || 1;
-  const prospects = useMemo(() => {
-    const roundProspects = generateDraftProspects(fr.league, Math.max((draftProspects || []).length, 20), fr.scoutingStaff, currentRound);
-    return roundProspects.sort((a, b) => b.projectedRating - a.projectedRating).slice(0, 15);
-  }, [currentRound, draftProspects, fr.league, fr.scoutingStaff]);
+
+  useEffect(() => {
+    setRemainingPicks(draftPicks || []);
+    setAvailableProspects(draftProspects || []);
+    setPickedPlayers([]);
+  }, [draftPicks, draftProspects]);
+
+  useEffect(() => {
+    if (remainingPicks.length === 0 || availableProspects.length > 0) return;
+    setAvailableProspects(generateDraftProspects(fr.league, 20, fr.scoutingStaff, currentRound));
+  }, [availableProspects.length, currentRound, fr.league, fr.scoutingStaff, remainingPicks.length]);
+
+  const prospects = useMemo(
+    () => [...availableProspects].sort((a, b) => b.projectedRating - a.projectedRating).slice(0, 15),
+    [availableProspects],
+  );
 
   const allPicksDone = remainingPicks.length === 0;
 
   function handlePick(prospect) {
-    if (remainingPicks.length === 0) return;
+    if (remainingPicks.length === 0 || !prospect) return; // Bugfix: the draft flow now stops cleanly when no picks remain on the board.
     const usedPick = remainingPicks[0];
     const player = draftPlayer(prospect, fr.league);
+    if (!player) return;
     setPickedPlayers(prev => [...prev, { ...player, round: usedPick.round, pick: usedPick.pick }]);
     setRemainingPicks(prev => prev.slice(1));
+    setAvailableProspects(prev => prev.filter(p => p.id !== prospect.id)); // Bugfix: drafted prospects are now removed immediately so they cannot be selected twice.
     onPickMade(player, usedPick);
   }
 

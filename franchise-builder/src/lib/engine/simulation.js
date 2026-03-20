@@ -1110,6 +1110,7 @@ export function createPlayerFranchise(tmpl, lg) {
     developmentStaff: 1,
     medicalStaff: 1,
     marketingStaff: 1,
+    gmInvestments: {},
     ticketPrice: TICKET_BASE_PRICE,
     merchMultiplier: 1.0,
     sponsorLevel: 1,

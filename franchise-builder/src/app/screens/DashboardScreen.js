@@ -298,7 +298,9 @@ function SlotsTab({ fr, setFr, gmRep, offseasonFAPool: frozenPool }) {
   }
 
   function doSign(player, slotName) {
-    setFr(prev => signToSlot(prev, slotName, player));
+    const signedFranchise = signToSlot(fr, slotName, player);
+    if (!signedFranchise) return; // Bugfix: dashboard slot signings now ignore invalid FA moves instead of writing a null franchise.
+    setFr(() => signedFranchise);
     setSigningSlot(null);
   }
 
