@@ -7,9 +7,10 @@ import { useState } from 'react';
 // ============================================================
 
 const SEVERITY_STYLES = {
-  info:     { bg: '#e8f0fb', border: 'var(--blue)',  color: 'var(--blue)',  icon: 'ℹ' },
-  warning:  { bg: '#fff3e0', border: 'var(--amber)', color: 'var(--amber)', icon: '⚠' },
-  critical: { bg: '#fde8e8', border: 'var(--red)',   color: 'var(--red)',   icon: '🚨' },
+  info:     { bg: '#DBEAFE', border: 'var(--info)',  color: 'var(--info)',  icon: 'i' },
+  warning:  { bg: '#FEF9C3', border: 'var(--warn)', color: 'var(--warn)', icon: '!' },
+  critical: { bg: '#FEE2E2', border: 'var(--loss)',   color: 'var(--loss)',   icon: '!!' },
+  success:  { bg: '#DCFCE7', border: 'var(--profit)', color: 'var(--profit)', icon: '+' },
 };
 
 /**
@@ -40,7 +41,7 @@ export default function NotificationsPanel({ notifications, onDismiss }) {
               borderRadius: 2,
             }}
           >
-            <span style={{ fontSize: '0.9rem', flexShrink: 0, marginTop: 1 }}>{style.icon}</span>
+            <span style={{ fontSize: '0.65rem', flexShrink: 0, marginTop: 1, fontFamily: 'var(--font-mono)', fontWeight: 700, color: style.color, width: 18, height: 18, borderRadius: '50%', border: `1.5px solid ${style.border}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{style.icon}</span>
             <span
               className="font-body"
               style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', flex: 1, lineHeight: 1.4 }}
@@ -84,7 +85,7 @@ export function NotificationBadge({ count }) {
       justifyContent: 'center',
       width: 16,
       height: 16,
-      background: 'var(--red)',
+      background: 'var(--loss)',
       color: '#fff',
       borderRadius: '50%',
       fontSize: '0.55rem',

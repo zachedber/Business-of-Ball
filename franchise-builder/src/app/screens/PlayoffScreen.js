@@ -77,7 +77,7 @@ export default function PlayoffBracketScreen({ playoffResult, playerFranchise, s
   if (isLastRound && playerWonChampionship) {
     return (
       <div style={{ maxWidth: 700, margin: '0 auto', padding: '30px 16px', textAlign: 'center' }}>
-        <div style={{ fontSize: '3rem', marginBottom: 12 }}>🏆</div>
+        <div className="font-display" style={{ fontSize: '2.4rem', marginBottom: 12, color: 'var(--gold)', fontWeight: 700 }}>CHAMPIONS</div>
         <h2 className="font-display" style={{ fontSize: 'clamp(1.4rem,5vw,2.2rem)', fontWeight: 700, color: 'var(--gold)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
           NGL Champions!
         </h2>

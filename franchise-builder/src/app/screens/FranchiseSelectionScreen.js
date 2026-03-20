@@ -1,178 +1,215 @@
 'use client';
-import { useState, useMemo, useCallback } from 'react';
-import { NGL_TEAMS, ABL_TEAMS, getMarketTier, getMarketTierInfo } from '@/data/leagues';
+import { useState, useMemo } from 'react';
+import { NGL_TEAMS, ABL_TEAMS, MARKET_TIERS, getMarketTier, getMarketTierInfo } from '@/data/leagues';
+import { getContrastText } from '@/data/teamColors';
+
+// Starting cash by market tier
+const TIER_CASH = { 1: 120, 2: 100, 3: 85, 4: 75, 5: 65 };
+
+// Identity flavor lookup by team id
+const IDENTITY = {
+  'ngl-bos': 'Legacy', 'ngl-chi': 'Legacy',
+  'ngl-bay': 'Dynasty', 'ngl-lac': 'Dynasty',
+  'ngl-grb': 'Underdog', 'ngl-buf': 'Underdog', 'ngl-jax': 'Underdog',
+  'ngl-cle': 'Rebuild', 'ngl-det': 'Rebuild',
+  'abl-bos': 'Legacy', 'abl-chi': 'Legacy', 'abl-lal': 'Legacy', 'abl-bay': 'Legacy',
+  'abl-nyk': 'Dynasty', 'abl-lac': 'Dynasty',
+  'abl-okc': 'Underdog', 'abl-mil': 'Underdog', 'abl-mem': 'Underdog',
+  'abl-det': 'Rebuild', 'abl-cle': 'Rebuild', 'abl-cha': 'Rebuild',
+};
+function getIdentity(id) { return IDENTITY[id] || 'Contender'; }
+
+const IDENTITY_COLORS = {
+  Legacy: 'badge-purple',
+  Dynasty: 'badge-amber',
+  Underdog: 'badge-teal',
+  Rebuild: 'badge-red',
+  Contender: 'badge-blue',
+};
 
 // ============================================================
 // FRANCHISE SELECTION SCREEN
 // ============================================================
 export default function FranchiseSelectionScreen({ onCreate }) {
-  const [leagueFilter, setLeagueFilter] = useState('all');
+  const [leagueTab, setLeagueTab] = useState('ngl');
   const [selected, setSelected] = useState(null);
-  const STARTING = 30;
+  const [collapsed, setCollapsed] = useState({});
 
-  const allTeams = useMemo(() => {
-    const ngl = NGL_TEAMS.map(t => ({ ...t, league: 'ngl' }));
-    const abl = ABL_TEAMS.map(t => ({ ...t, league: 'abl' }));
-    return [...ngl, ...abl];
-  }, []);
+  const nglTeams = useMemo(() => NGL_TEAMS.map(t => ({ ...t, league: 'ngl' })), []);
+  const ablTeams = useMemo(() => ABL_TEAMS.map(t => ({ ...t, league: 'abl' })), []);
 
-  const filtered = useMemo(() => {
-    if (leagueFilter === 'all') return allTeams;
-    return allTeams.filter(t => t.league === leagueFilter);
-  }, [allTeams, leagueFilter]);
+  const teams = leagueTab === 'ngl' ? nglTeams : ablTeams;
 
-  // Precompute stable extras for all teams once — no Math.random() on re-render
-  const teamExtrasMap = useMemo(() => {
-    const map = {};
-    for (const team of allTeams) {
-      const key = `${team.league}-${team.id}`;
-      // Deterministic seed from team ID
-      let seed = 0;
-      for (let i = 0; i < team.id.length; i++) seed = (seed * 31 + team.id.charCodeAt(i)) | 0;
-      seed = Math.abs(seed);
-      const fanRating = 40 + ((seed * 17 + 3) % 41);
-      const stadiumCondition = 60 + (((seed >>> 3) * 13 + 7) % 31);
-      // Seeded asking price (replaces getFranchiseAskingPrice which uses Math.random)
-      const m = team.market;
-      const base = m >= 88 ? 68 : m >= 82 ? 54 : m >= 75 ? 42 : m >= 68 ? 32 : m >= 62 ? 24 : m >= 58 ? 18 : 13;
-      const priceSeed = ((seed * 7 + 13) % 100) / 100; // 0..0.99
-      const priceMultiplier = 0.88 + priceSeed * 0.30; // 0.88..1.18
-      const askingPrice = Math.round(base * priceMultiplier);
-      // Deterministic flavor text (replaces getFranchiseFlavor which uses Math.random pick())
-      const tier = getMarketTier(team.market);
-      const debt = Math.max(0, askingPrice - 30);
-      const flavors = {
-        1: ['Large-market powerhouse — expectations are sky-high', 'Premium franchise in a media giant city', 'Big-city titan — resources to win, pressure to perform'],
-        2: ['Established major-market franchise with a hungry fanbase', 'Storied team ready for the right GM to unlock its potential', 'Strong market foundation — ready to build a winner'],
-        3: ['Mid-market contender with a proven, loyal fan base', 'Competitive city franchise — solid bones, room to grow', 'A franchise with history — and a chip on its shoulder'],
-        4: ['Small-market team with a passionate, devoted fanbase', 'Scrappy underdog — low ceiling, maximum heart', 'Tight budgets, loyal fans, draft lottery upside'],
-        5: ['Struggling basement franchise — maximum rebuild potential', 'Every dynasty starts somewhere — yours starts here', 'Rock bottom. The only direction is up.'],
-      };
-      const flavorArr = flavors[tier] || flavors[4];
-      const flavorIdx = seed % flavorArr.length;
-      let flavor = flavorArr[flavorIdx];
-      if (debt > 0) flavor = `${flavor} — starts $${debt}M in debt`;
-      map[key] = { fanRating, stadiumCondition, askingPrice, flavor };
+  // Group by tier
+  const tierGroups = useMemo(() => {
+    const groups = {};
+    for (const t of teams) {
+      const tier = getMarketTier(t.market);
+      if (!groups[tier]) groups[tier] = [];
+      groups[tier].push(t);
     }
-    return map;
-  }, [allTeams]);
+    return Object.entries(groups).sort(([a], [b]) => Number(a) - Number(b));
+  }, [teams]);
 
-  const getTeamExtras = useCallback((team) => {
-    return teamExtrasMap[`${team.league}-${team.id}`] || { fanRating: 50, stadiumCondition: 70, askingPrice: 20, flavor: '' };
-  }, [teamExtrasMap]);
+  function toggleTier(tier) {
+    setCollapsed(prev => ({ ...prev, [tier]: !prev[tier] }));
+  }
 
-  const sel = selected ? getTeamExtras(selected) : null;
-  const hasDebt = sel && sel.askingPrice > STARTING;
+  const sel = selected;
+  const selTier = sel ? getMarketTier(sel.market) : null;
+  const selCash = sel ? TIER_CASH[selTier] : 0;
 
   return (
     <div style={{ maxWidth: 1080, margin: '0 auto', padding: '20px 12px' }}>
-      <h2 className="font-display section-header" style={{ fontSize: '1.3rem' }}>Choose Your Franchise</h2>
-      <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)', marginBottom: 16 }}>
-        You start with <strong>$30M</strong> liquid capital. If the asking price exceeds $30M you will carry acquisition debt.
+      <h2 className="font-display" style={{ fontSize: '1.3rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+        Choose Your Franchise
+      </h2>
+      <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)', marginBottom: 18 }}>
+        Select a team. Starting capital depends on market tier.
       </p>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span className="stat-label" style={{ marginRight: 4 }}>Filter:</span>
-        {[['all', 'All Leagues', false], ['ngl', 'NGL — Football', false], ['abl', 'ABL — Basketball', true]].map(([val, label, comingSoon]) => (
+
+      {/* League tabs */}
+      <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '1px solid var(--border)' }}>
+        {[['ngl', 'NGL \u2014 Football'], ['abl', 'ABL \u2014 Basketball']].map(([key, label]) => (
           <button
-            key={val}
-            className={leagueFilter === val ? 'btn-primary' : 'btn-secondary'}
-            style={{ fontSize: '0.78rem', opacity: comingSoon ? 0.55 : 1, position: 'relative' }}
-            onClick={() => !comingSoon && setLeagueFilter(val)}
-            disabled={comingSoon}
-            title={comingSoon ? 'ABL — Coming Soon' : undefined}
+            key={key}
+            onClick={() => { setLeagueTab(key); setSelected(null); }}
+            className="font-display"
+            style={{
+              padding: '10px 20px',
+              fontSize: '0.85rem',
+              fontWeight: leagueTab === key ? 700 : 500,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              border: 'none',
+              borderBottom: leagueTab === key ? '3px solid var(--ink)' : '3px solid transparent',
+              background: 'transparent',
+              color: leagueTab === key ? 'var(--ink)' : 'var(--ink-muted)',
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+            }}
           >
-            {label}{comingSoon && <span className="badge badge-amber" style={{ marginLeft: 6, verticalAlign: 'middle' }}>Soon</span>}
+            {label}
           </button>
         ))}
       </div>
-      <div className="franchise-grid">
-        {filtered.map(team => {
-          const extras = getTeamExtras(team);
-          const tierInfo = getMarketTierInfo(team.market);
-          const isSelected = selected?.id === team.id && selected?.league === team.league;
-          const isABL = team.league === 'abl';
+
+      {/* Tier groups */}
+      <div style={{ marginBottom: 120 }}>
+        {tierGroups.map(([tier, tierTeams]) => {
+          const tierInfo = MARKET_TIERS[tier];
+          const isCollapsed = collapsed[tier];
           return (
-            <div
-              key={`${team.league}-${team.id}`}
-              className={`card franchise-card ${isSelected ? 'selected' : ''}`}
-              onClick={() => !isABL && setSelected(isSelected ? null : team)}
-              style={{
-                cursor: isABL ? 'not-allowed' : 'pointer',
-                textAlign: 'left',
-                borderLeft: `5px solid ${team.primaryColor || 'var(--cream-darker)'}`,
-                background: isABL ? '#f5f5f0' : undefined,
-                transition: 'border-color 0.2s, box-shadow 0.2s',
-                opacity: isABL ? 0.7 : 1,
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                <div className="font-display" style={{ fontSize: '1.1rem', fontWeight: 700, lineHeight: 1.08 }}>
-                  {team.city}<br />{team.name}
-                </div>
-                <span className="badge badge-ink" style={{ background: team.primaryColor || (team.league === 'ngl' ? '#1a3a5c' : '#2d5a3d'), color: '#fff', marginLeft: 6, flexShrink: 0 }}>
-                  {team.league === 'ngl' ? 'NGL' : 'ABL'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-                <span className="font-mono" style={{ fontSize: '0.72rem', color: tierInfo?.color || 'var(--ink-muted)' }}>Tier {getMarketTier(team.market)} · {tierInfo?.label}</span>
-                <span className="font-mono" style={{ fontSize: '0.72rem', color: 'var(--ink-muted)' }}>{team.division || ''}</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 10, marginBottom: 10 }}>
-                <div>
-                  <div className="stat-label">Ask Price</div>
-                  <div className="font-mono" style={{ fontSize: '0.88rem', color: extras.askingPrice > STARTING ? 'var(--red)' : 'var(--green)', fontWeight: 700 }}>
-                    ${extras.askingPrice}M
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div className="stat-label">Fans</div>
-                  <div className="font-mono" style={{ fontSize: '0.88rem' }}>{extras.fanRating}</div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div className="stat-label">Stadium</div>
-                  <div className="font-mono" style={{ fontSize: '0.88rem', color: extras.stadiumCondition > 75 ? 'var(--green)' : extras.stadiumCondition > 60 ? 'var(--amber)' : 'var(--red)' }}>
-                    {extras.stadiumCondition}%
-                  </div>
-                </div>
-              </div>
-              <p className="font-body" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', lineHeight: 1.55, marginTop: 4, fontStyle: 'italic' }}>
-                {extras.flavor}
-              </p>
-              {extras.askingPrice > STARTING && !isABL && (
-                <div className="badge badge-red" style={{ marginTop: 10 }}>
-                  DEBT: ${extras.askingPrice - STARTING}M
-                </div>
-              )}
-              {isABL && (
-                <div style={{
-                  position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
-                  justifyContent: 'center', background: 'rgba(245,245,240,0.82)', borderRadius: 6,
+            <div key={tier} style={{ marginBottom: 16 }}>
+              {/* Tier header */}
+              <button
+                onClick={() => toggleTier(tier)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                  padding: '10px 14px', background: 'var(--card-secondary)',
+                  border: '1px solid var(--border)', borderRadius: 6,
+                  cursor: 'pointer', textAlign: 'left',
+                }}
+              >
+                <span className="font-display" style={{
+                  fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase',
+                  letterSpacing: '0.06em', color: 'var(--ink)',
                 }}>
-                  <span className="font-display" style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--ink-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                    Coming Soon
-                  </span>
+                  {isCollapsed ? '+' : '\u2013'} Tier {tier}: {tierInfo.label}
+                </span>
+                <span className="font-body" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', flex: 1 }}>
+                  {tierInfo.desc}
+                </span>
+                <span className="font-mono" style={{ fontSize: '0.72rem', color: 'var(--ink-muted)' }}>
+                  {tierTeams.length} teams \u00b7 ${TIER_CASH[tier]}M start
+                </span>
+              </button>
+
+              {/* Team cards */}
+              {!isCollapsed && (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                  gap: 10, marginTop: 10,
+                }}>
+                  {tierTeams.map(team => {
+                    const isSelected = selected?.id === team.id && selected?.league === team.league;
+                    const identity = getIdentity(team.id);
+                    const teamTier = getMarketTier(team.market);
+                    const startCash = TIER_CASH[teamTier];
+                    return (
+                      <div
+                        key={`${team.league}-${team.id}`}
+                        onClick={() => setSelected(isSelected ? null : team)}
+                        className={`card ${isSelected ? 'selected' : ''}`}
+                        style={{
+                          cursor: 'pointer',
+                          borderLeft: `5px solid ${team.primaryColor || 'var(--border)'}`,
+                          padding: '14px 16px',
+                          transition: 'border-color 0.2s, box-shadow 0.2s',
+                          background: isSelected ? `linear-gradient(180deg, rgba(37,99,235,0.04), var(--card))` : 'var(--card)',
+                          borderColor: isSelected ? team.primaryColor : undefined,
+                          boxShadow: isSelected ? `0 8px 20px rgba(0,0,0,0.08)` : undefined,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                          <div>
+                            <div className="font-display" style={{ fontSize: '1.1rem', fontWeight: 700, lineHeight: 1.1 }}>
+                              {team.city}
+                            </div>
+                            <div className="font-display" style={{ fontSize: '1.1rem', fontWeight: 700, lineHeight: 1.1 }}>
+                              {team.name}
+                            </div>
+                          </div>
+                          <span className={`badge ${IDENTITY_COLORS[identity]}`} style={{ flexShrink: 0 }}>
+                            {identity}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: '0.72rem', marginBottom: 4 }}>
+                          <span className="font-mono" style={{ color: 'var(--ink-muted)' }}>Mkt {team.market}</span>
+                          <span className="font-mono" style={{ color: 'var(--profit)' }}>${startCash}M</span>
+                          <span className="font-mono" style={{ color: 'var(--ink-muted)' }}>{team.division}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
           );
         })}
       </div>
-      {selected && sel && (
-        <div className="card-elevated confirm-sheet" style={{ background: 'rgba(245,240,232,0.98)', borderTop: '3px solid var(--ink)' }}>
+
+      {/* Sticky confirmation sheet */}
+      {selected && (
+        <div className="card-elevated confirm-sheet" style={{
+          background: 'rgba(255,255,255,0.98)',
+          borderTop: `3px solid ${selected.primaryColor || 'var(--ink)'}`,
+          padding: '16px 20px',
+        }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
             <div>
-              <div className="font-display" style={{ fontSize: '1.25rem', fontWeight: 700 }}>{selected.city} {selected.name}</div>
-              <div className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
-                {selected.league === 'ngl' ? 'NGL Football' : 'ABL Basketball'} · Asking ${sel.askingPrice}M · Starting Cash $30M
+              <div className="font-display" style={{ fontSize: '1.25rem', fontWeight: 700 }}>
+                {selected.city} {selected.name}
               </div>
-              {hasDebt && (
-                <div className="font-mono" style={{ fontSize: '0.8rem', color: 'var(--red)', marginTop: 6 }}>
-                  You will carry ${sel.askingPrice - STARTING}M acquisition debt at 8% interest.
-                </div>
-              )}
+              <div className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
+                {selected.league === 'ngl' ? 'NGL Football' : 'ABL Basketball'} \u00b7 Starting Cash ${selCash}M
+              </div>
             </div>
-            <button className="btn-gold" style={{ minHeight: 46, padding: '12px 28px' }} onClick={() => onCreate(selected, selected.league)}>
-              {hasDebt ? `Buy Franchise (${sel.askingPrice - STARTING}M Debt)` : 'Launch Franchise'}
+            <button
+              onClick={() => onCreate(selected, selected.league)}
+              style={{
+                minHeight: 46, padding: '12px 28px', borderRadius: 4,
+                border: 'none', cursor: 'pointer',
+                fontFamily: 'var(--font-display)', textTransform: 'uppercase',
+                letterSpacing: '0.06em', fontWeight: 700, fontSize: '0.88rem',
+                background: selected.primaryColor || 'var(--ink)',
+                color: getContrastText(selected.primaryColor || '#0E1117'),
+                boxShadow: '0 6px 18px rgba(0,0,0,0.15)',
+                transition: 'all 0.15s',
+              }}
+            >
+              Start Franchise
             </button>
           </div>
         </div>

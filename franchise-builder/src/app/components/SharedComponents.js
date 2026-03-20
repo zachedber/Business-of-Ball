@@ -2,6 +2,7 @@
 import { useMemo } from 'react';
 import { getGMTier, formatMoney } from '@/lib/engine';
 import { NotificationBadge } from '@/app/components/NotificationsPanel';
+import { Building2, ClipboardList, Trophy, TrendingUp, DollarSign, BarChart2, Settings } from 'lucide-react';
 
 // ============================================================
 // TICKER
@@ -35,7 +36,7 @@ export function Nav({ screen, setScreen, fr, gmRep, cash, notifCount }) {
       <div className="nav-top">
         <h1
           className="font-display"
-          style={{ fontSize: '1rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
+          style={{ fontSize: '1rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', color: '#fff' }}
           onClick={() => setScreen(fr.length > 0 ? 'portfolio' : 'intro')}
         >
           Business of Ball
@@ -43,27 +44,29 @@ export function Nav({ screen, setScreen, fr, gmRep, cash, notifCount }) {
         <div className="nav-stats">
           {fr.length > 0 && <>
             <div style={{ textAlign: 'right' }}>
-              <span className="stat-label">Cash</span>
-              <div className="stat-value" style={{ fontSize: '0.95rem', color: cash > 5 ? 'var(--green)' : cash > 0 ? 'var(--amber)' : 'var(--red)' }}>
+              <span className="stat-label" style={{ color: 'rgba(255,255,255,0.5)' }}>Cash</span>
+              <div className="stat-value" style={{ fontSize: '0.95rem', color: cash > 5 ? '#4ade80' : cash > 0 ? '#fbbf24' : '#f87171' }}>
                 {formatMoney(cash)}
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <span className="stat-label">{tier.badge}</span>
-              <div className="stat-value" style={{ fontSize: '0.8rem' }}>{gmRep}</div>
+              <span className="stat-label" style={{ color: 'rgba(255,255,255,0.5)' }}>Rep</span>
+              <div className="stat-value" style={{ fontSize: '0.8rem', color: '#fff' }}>{gmRep}</div>
             </div>
           </>}
-          <button className={`tab-btn ${screen === 'settings' ? 'active' : ''}`} onClick={() => setScreen('settings')} style={{ minWidth: 44, paddingInline: 12, fontSize: '0.9rem' }} aria-label="Settings">⚙</button>
+          <button className={`tab-btn ${screen === 'settings' ? 'active' : ''}`} onClick={() => setScreen('settings')} style={{ minWidth: 44, paddingInline: 12, fontSize: '0.9rem', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: 4 }} aria-label="Settings"><Settings size={14} /></button>
         </div>
       </div>
       {fr.length > 0 && (
         <div className="nav-links">
-          {[['portfolio', '🏟 Empire'], ['dashboard', '📋 Team'], ['league', '🏆 League'], ['market', '📈 Market'], ['finances', '💰 Finances'], ['analytics', '📊 Analytics']].map(([s, label]) => (
+          {[['portfolio', 'Empire', Building2], ['dashboard', 'Team', ClipboardList], ['league', 'League', Trophy], ['market', 'Market', TrendingUp], ['finances', 'Finances', DollarSign], ['analytics', 'Analytics', BarChart2]].map(([s, label, Icon]) => (
             <button
               key={s}
               className={`tab-btn ${screen === s ? 'active' : ''}`}
               onClick={() => setScreen(s)}
+              style={{ color: screen === s ? '#fff' : 'rgba(255,255,255,0.6)', display: 'inline-flex', alignItems: 'center', gap: 5 }}
             >
+              <Icon size={14} />
               {label}
               {s === 'dashboard' && notifCount > 0 && <NotificationBadge count={notifCount} />}
             </button>
