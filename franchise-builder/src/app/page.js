@@ -369,7 +369,7 @@ export default function App() {
         type: 'PLAYOFF_OPEN',
         payload: { playoffResult: pResult, tradeDeadlineLeague: result.leagueTeams },
       });
-      return; // PLAYOFF_OPEN clears simming; runEndOfSeasonFlow called from handlePlayoffFinished
+      return; // Bugfix: the trade-deadline pause now exits cleanly into the playoff flow without auto-running the offseason.
     }
 
     // ABL / fallback path
@@ -381,16 +381,25 @@ export default function App() {
   // Called by PlayoffBracketScreen when all rounds are viewed
   async function handlePlayoffFinished() {
     dispatch({ type: 'PLAYOFF_CLOSE' });
-    // fr[activeIdx] already has championship update (dispatched in handleContinueSeason)
-    const afNow = fr[activeIdx];
+    const playoffChampion = playoffResult?.champion;
+    const playoffFranchises = fr.map(f => playoffChampion && f.id === playoffChampion.id && !playoffResult?.playerWonChampionship
+      ? { ...f, championships: (f.championships || 0) + 1, trophies: [...(f.trophies || []), { season, wins: playoffChampion.wins, losses: playoffChampion.losses }], leagueRank: 1 }
+      : f
+    ); // Bugfix: playoff champions now get their title credited even when the user is not the team that won the bracket.
+    const playoffLeagueTeams = {
+      ...lt,
+      ngl: (lt?.ngl || []).map(t => playoffChampion && t.id === playoffChampion.id ? { ...t, leagueRank: 1 } : t),
+    }; // Bugfix: the post-playoff flow now uses the settled playoff snapshot instead of stale pre-bracket state.
     const result = {
-      leagueTeams: lt,
-      franchises: fr,
+      leagueTeams: playoffLeagueTeams,
+      franchises: playoffFranchises,
       standings: {
-        ngl: [...(lt?.ngl || [])].sort((a, b) => b.wins - a.wins),
-        abl: [...(lt?.abl || [])].sort((a, b) => b.wins - a.wins),
+        ngl: [...(playoffLeagueTeams?.ngl || [])].sort((a, b) => b.wins - a.wins),
+        abl: [...(playoffLeagueTeams?.abl || [])].sort((a, b) => b.wins - a.wins),
       },
+      playoffResult,
     };
+    const afNow = playoffFranchises[activeIdx];
     await runEndOfSeasonFlow(result, afNow, afNow);
     await doSave();
   }
@@ -417,7 +426,7 @@ export default function App() {
     let newLeagueHistory = leagueHistory;
     if (af && result.leagueTeams) {
       const nglStandings = [...(result.leagueTeams.ngl || [])].sort((a, b) => b.wins - a.wins);
-      const champion = nglStandings[0];
+      const champion = result.playoffResult?.champion || nglStandings[0]; // Bugfix: league history now records the actual playoff champion instead of the regular-season leader.
       if (champion) {
         const isPlayer = result.franchises.some(pf => pf.id === champion.id);
         newLeagueHistory = addChampion(newLeagueHistory, {
