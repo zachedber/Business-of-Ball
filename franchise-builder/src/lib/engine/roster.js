@@ -475,16 +475,20 @@ export function calcSlotQuality(franchise) {
   if (franchise.star2) { weighted += franchise.star2.rating * 30; denom += 30; }
   if (franchise.corePiece) { weighted += franchise.corePiece.rating * 20; denom += 20; }
   weighted += (franchise.depthQuality || 50) * 10; denom += 10;
-  return denom > 0 ? Math.round(weighted / denom) : 50;
+  const raw = denom > 0 ? Math.round(weighted / denom) : 50;
+  // If no star players are present, cap quality — depth alone can't carry a team
+  const hasStars = franchise.star1 || franchise.star2 || franchise.corePiece;
+  return hasStars ? raw : Math.min(raw, 35);
 }
 
 /** Depth quality 1–100: remaining slot budget after star salaries */
 export function calcDepthQuality(franchise) {
   const budget = SLOT_BUDGET[franchise.league] || 80;
-  const used = [franchise.star1, franchise.star2, franchise.corePiece]
-    .filter(Boolean)
-    .reduce((s, p) => s + (p.salary || 0), 0);
+  const stars = [franchise.star1, franchise.star2, franchise.corePiece].filter(Boolean);
+  const used = stars.reduce((s, p) => s + (p.salary || 0), 0);
   const remaining = Math.max(0, budget - used);
+  // If no star players at all, depth quality is minimal — no roster backbone
+  if (stars.length === 0) return 1;
   return Math.round(clamp(remaining / budget * 100, 1, 100));
 }
 

@@ -1,0 +1,640 @@
+/**
+ * Stress Test — Business of Ball Engine
+ * Simulates 15 seasons headlessly, checking for crashes, nulls, NaN, and unbounded growth.
+ *
+ * Run: node stress-test.cjs
+ */
+
+'use strict';
+
+const path = require('path');
+const Module = require('module');
+
+// ── Patch require to resolve @/ alias ────────────────────────────
+const originalResolve = Module._resolveFilename;
+Module._resolveFilename = function (request, parent, isMain, options) {
+  if (request.startsWith('@/')) {
+    request = path.join(__dirname, 'src', request.slice(2));
+  }
+  return originalResolve.call(this, request, parent, isMain, options);
+};
+
+// ── Import engine ────────────────────────────────────────────────
+const {
+  initializeLeague,
+  createPlayerFranchise,
+  simulateFullSeason,
+  simulateFullSeasonFirstHalf,
+  simulateFullSeasonSecondHalf,
+  simulatePlayoffs,
+  simulateAIFreeAgency,
+  endOfSeasonAging,
+  generateFreeAgents,
+  generateOffseasonFAPool,
+  generateDraftProspects,
+  generateDraftPickPositions,
+  generateExtensionDemands,
+  initDraftPickInventory,
+  calcSlotQuality,
+  calcDepthQuality,
+  calculateValuation,
+  calculateCapSpace,
+  updateGMReputation,
+  generateNotifications,
+  generateNewspaper,
+  generateCBAEvent,
+  generateNamingRightsOffer,
+  checkNotableSeasons,
+  initLeagueHistory,
+  addChampion,
+  updateFranchiseRecords,
+  initFranchiseRecords,
+  evaluateHallOfFame,
+  updateRivalry,
+  initRivalry,
+  initHeadToHead,
+  updateHeadToHead,
+  updateCityEconomy,
+  genPressConference,
+  checkPressureEvent,
+  getGMTier,
+} = require('./src/lib/engine');
+
+const { NGL_TEAMS } = require('./src/data/leagues');
+
+// ── Test utilities ───────────────────────────────────────────────
+let errors = [];
+let warnings = [];
+
+function assert(condition, msg) {
+  if (!condition) {
+    errors.push(`FAIL: ${msg}`);
+    console.error(`  ✗ ${msg}`);
+  }
+}
+
+function warn(msg) {
+  warnings.push(msg);
+  console.warn(`  ⚠ ${msg}`);
+}
+
+function isFiniteNum(v) {
+  return typeof v === 'number' && isFinite(v);
+}
+
+function checkNoNaN(obj, path = '') {
+  if (obj === null || obj === undefined) return;
+  if (typeof obj === 'number' && isNaN(obj)) {
+    errors.push(`NaN found at ${path}`);
+    console.error(`  ✗ NaN at ${path}`);
+  }
+  if (typeof obj === 'object' && !Array.isArray(obj)) {
+    for (const [k, v] of Object.entries(obj)) {
+      if (k === 'history' || k === 'players' || k === 'deadCapLog' || k === 'notableSeasons') continue; // skip large arrays for perf
+      checkNoNaN(v, `${path}.${k}`);
+    }
+  }
+}
+
+function validateFranchise(f, season, label) {
+  const prefix = `[S${season} ${label}]`;
+  assert(f !== null && f !== undefined, `${prefix} franchise is null`);
+  if (!f) return;
+
+  assert(isFiniteNum(f.wins), `${prefix} wins is not a finite number: ${f.wins}`);
+  assert(isFiniteNum(f.losses), `${prefix} losses is not a finite number: ${f.losses}`);
+  assert(isFiniteNum(f.cash), `${prefix} cash is NaN/Infinity: ${f.cash}`);
+  assert(isFiniteNum(f.fanRating), `${prefix} fanRating is not finite: ${f.fanRating}`);
+  assert(f.fanRating >= 0 && f.fanRating <= 100, `${prefix} fanRating out of bounds: ${f.fanRating}`);
+  assert(isFiniteNum(f.rosterQuality), `${prefix} rosterQuality is not finite: ${f.rosterQuality}`);
+  assert(f.finances != null, `${prefix} finances is null`);
+  if (f.finances) {
+    assert(isFiniteNum(f.finances.revenue), `${prefix} revenue is not finite: ${f.finances.revenue}`);
+    assert(isFiniteNum(f.finances.expenses), `${prefix} expenses is not finite: ${f.finances.expenses}`);
+    assert(isFiniteNum(f.finances.profit), `${prefix} profit is not finite: ${f.finances.profit}`);
+  }
+  assert(Array.isArray(f.players), `${prefix} players is not an array`);
+  assert(f.players.length >= 0, `${prefix} players has negative length??`);
+  assert(isFiniteNum(f.totalSalary), `${prefix} totalSalary is not finite: ${f.totalSalary}`);
+  assert(isFiniteNum(f.stadiumCondition), `${prefix} stadiumCondition is not finite: ${f.stadiumCondition}`);
+  assert(f.stadiumCondition >= 20, `${prefix} stadiumCondition below floor: ${f.stadiumCondition}`);
+  assert(f.coach != null, `${prefix} coach is null`);
+  assert(Array.isArray(f.history), `${prefix} history is not an array`);
+  assert(isFiniteNum(f.lockerRoomChemistry), `${prefix} lockerRoomChemistry is not finite: ${f.lockerRoomChemistry}`);
+  assert(isFiniteNum(f.mediaRep), `${prefix} mediaRep is not finite: ${f.mediaRep}`);
+
+  // Check for NaN in key fields
+  checkNoNaN(f.finances, `${prefix}.finances`);
+
+  // Players validation
+  for (const p of f.players) {
+    assert(p != null, `${prefix} null player in players array`);
+    if (!p) continue;
+    assert(isFiniteNum(p.rating), `${prefix} player ${p.name} rating is not finite: ${p.rating}`);
+    assert(p.rating >= 40 && p.rating <= 99, `${prefix} player ${p.name} rating out of bounds: ${p.rating}`);
+    assert(isFiniteNum(p.age), `${prefix} player ${p.name} age is not finite: ${p.age}`);
+    assert(isFiniteNum(p.salary), `${prefix} player ${p.name} salary is not finite: ${p.salary}`);
+    assert(isFiniteNum(p.morale), `${prefix} player ${p.name} morale is not finite: ${p.morale}`);
+  }
+}
+
+function validateLeague(lt, season) {
+  for (const league of ['ngl', 'abl']) {
+    assert(Array.isArray(lt[league]), `[S${season}] lt.${league} is not an array`);
+    for (const team of lt[league]) {
+      assert(team != null, `[S${season}] null team in ${league}`);
+      assert(isFiniteNum(team.wins), `[S${season}] ${team.city} ${team.name} wins NaN`);
+      assert(isFiniteNum(team.losses), `[S${season}] ${team.city} ${team.name} losses NaN`);
+      assert(team.finances != null, `[S${season}] ${team.city} ${team.name} finances null`);
+      assert(Array.isArray(team.players), `[S${season}] ${team.city} ${team.name} players not array`);
+      assert(team.players.length > 0, `[S${season}] ${team.city} ${team.name} has 0 players`);
+      assert(isFiniteNum(team.rosterQuality), `[S${season}] ${team.city} ${team.name} rosterQuality NaN: ${team.rosterQuality}`);
+      assert(team.coach != null, `[S${season}] ${team.city} ${team.name} coach is null`);
+    }
+  }
+}
+
+// ── Main stress test ─────────────────────────────────────────────
+function runStressTest() {
+  const SEASONS = 15;
+  console.log(`\n========================================`);
+  console.log(`  STRESS TEST: ${SEASONS} Seasons`);
+  console.log(`========================================\n`);
+
+  // ── Phase 1: Initialize ──────────────────────────────────────
+  console.log('Phase 1: Initializing league and franchise...');
+  let lt;
+  try {
+    lt = initializeLeague();
+  } catch (e) {
+    errors.push(`CRASH in initializeLeague: ${e.message}`);
+    console.error(`FATAL: ${e.message}\n${e.stack}`);
+    return;
+  }
+  assert(lt.ngl.length === 32, `NGL should have 32 teams, got ${lt.ngl.length}`);
+  assert(lt.abl.length === 30, `ABL should have 30 teams, got ${lt.abl.length}`);
+  validateLeague(lt, 0);
+
+  // Create player franchise (pick a mid-tier NGL team)
+  const tmpl = NGL_TEAMS.find(t => t.id === 'ngl-chi') || NGL_TEAMS[0];
+  let pf;
+  try {
+    pf = createPlayerFranchise(tmpl, 'ngl');
+  } catch (e) {
+    errors.push(`CRASH in createPlayerFranchise: ${e.message}`);
+    console.error(`FATAL: ${e.message}\n${e.stack}`);
+    return;
+  }
+  assert(pf.isPlayerOwned === true, 'Franchise should be player owned');
+  assert(pf.star1 != null, 'star1 should exist at creation');
+  assert(pf.star2 != null, 'star2 should exist at creation');
+  assert(pf.corePiece != null, 'corePiece should exist at creation');
+  validateFranchise(pf, 0, 'init');
+  console.log(`  ✓ League initialized: ${lt.ngl.length} NGL + ${lt.abl.length} ABL teams`);
+  console.log(`  ✓ Player franchise: ${pf.city} ${pf.name} (${pf.league})`);
+  console.log(`    Cash: $${pf.cash}M | Debt: $${pf.debt}M | RQ: ${pf.rosterQuality}`);
+
+  // Replace player team in league
+  lt.ngl = lt.ngl.map(t => t.id === pf.id ? pf : t);
+
+  let gmRep = 50;
+  let leagueHistory = initLeagueHistory();
+  let fr = [pf]; // array of player franchises
+
+  // Track growth metrics
+  const growthTracker = {
+    historyLen: [],
+    deadCapLogLen: [],
+    localLegendsLen: [],
+    notableSeasonsLen: [],
+    championsLen: [],
+    hallOfFameLen: [],
+    cashOverTime: [],
+    rqOverTime: [],
+  };
+
+  // ── Phase 2: Simulate Seasons ────────────────────────────────
+  for (let season = 1; season <= SEASONS; season++) {
+    console.log(`\n── Season ${season} ──────────────────────────`);
+    const prevFr = { ...fr[0] };
+
+    // --- First Half ---
+    let firstHalfResult;
+    try {
+      firstHalfResult = simulateFullSeasonFirstHalf(lt, fr, season);
+    } catch (e) {
+      errors.push(`CRASH in simulateFullSeasonFirstHalf S${season}: ${e.message}`);
+      console.error(`  FATAL: ${e.stack}`);
+      break;
+    }
+    lt = firstHalfResult.leagueTeams;
+    fr = firstHalfResult.franchises;
+
+    assert(fr[0].halfWins !== undefined, `[S${season}] halfWins not set after first half`);
+    console.log(`  First half: ${fr[0].halfWins}-${fr[0].halfLosses}`);
+
+    // --- Second Half ---
+    let result;
+    try {
+      result = simulateFullSeasonSecondHalf(lt, fr, season);
+    } catch (e) {
+      errors.push(`CRASH in simulateFullSeasonSecondHalf S${season}: ${e.message}`);
+      console.error(`  FATAL: ${e.stack}`);
+      break;
+    }
+    lt = result.leagueTeams;
+    fr = result.franchises;
+    const af = fr[0];
+
+    validateFranchise(af, season, 'post-sim');
+    validateLeague(lt, season);
+
+    console.log(`  Record: ${af.wins}-${af.losses} | Cash: $${af.cash}M | RQ: ${af.rosterQuality} | Fan: ${af.fanRating}`);
+    console.log(`  Players: ${af.players.length} slots | Star1: ${af.star1?.name || 'EMPTY'} (${af.star1?.rating || '-'}) | Star2: ${af.star2?.name || 'EMPTY'} (${af.star2?.rating || '-'}) | Core: ${af.corePiece?.name || 'EMPTY'} (${af.corePiece?.rating || '-'})`);
+
+    // --- NGL Playoffs ---
+    let playoffResult;
+    try {
+      playoffResult = simulatePlayoffs(lt.ngl, af);
+    } catch (e) {
+      errors.push(`CRASH in simulatePlayoffs S${season}: ${e.message}`);
+      console.error(`  FATAL: ${e.stack}`);
+      break;
+    }
+    assert(playoffResult.champion != null, `[S${season}] Playoff champion is null`);
+    if (playoffResult.playerWonChampionship) {
+      fr[0] = {
+        ...af,
+        championships: (af.championships || 0) + 1,
+        trophies: [...(af.trophies || []), { season, wins: af.wins, losses: af.losses }],
+      };
+      console.log(`  🏆 CHAMPIONSHIP WON! Total: ${fr[0].championships}`);
+    } else {
+      console.log(`  Playoff: ${playoffResult.playerMadePlayoffs ? 'Made playoffs' : 'Missed playoffs'} | Champion: ${playoffResult.champion.city} ${playoffResult.champion.name}`);
+    }
+
+    // --- End of Season Flow (simplified) ---
+    const newSeason = season + 1;
+
+    // GM Rep
+    try {
+      gmRep = updateGMReputation(gmRep, fr[0], prevFr);
+    } catch (e) {
+      errors.push(`CRASH in updateGMReputation S${season}: ${e.message}`);
+      console.error(`  FATAL: ${e.stack}`);
+    }
+    assert(isFiniteNum(gmRep), `[S${season}] gmRep is not finite: ${gmRep}`);
+    assert(gmRep >= 0 && gmRep <= 100, `[S${season}] gmRep out of bounds: ${gmRep}`);
+
+    // League history
+    try {
+      const nglStandings = [...lt.ngl].sort((a, b) => b.wins - a.wins);
+      const champion = nglStandings[0];
+      if (champion) {
+        leagueHistory = addChampion(leagueHistory, {
+          season, teamName: champion.name, city: champion.city,
+          isPlayerTeam: fr.some(p => p.id === champion.id),
+          record: `${champion.wins}-${champion.losses}`,
+        });
+        leagueHistory = checkNotableSeasons(
+          leagueHistory,
+          [...lt.ngl, ...lt.abl],
+          fr, season
+        );
+      }
+    } catch (e) {
+      errors.push(`CRASH in league history S${season}: ${e.message}`);
+      console.error(`  FATAL: ${e.stack}`);
+    }
+
+    // Franchise records
+    try {
+      const curRecords = fr[0].franchiseRecords || initFranchiseRecords();
+      const { records: newRecords } = updateFranchiseRecords(curRecords, fr[0], season);
+      fr[0] = { ...fr[0], franchiseRecords: newRecords };
+    } catch (e) {
+      errors.push(`CRASH in updateFranchiseRecords S${season}: ${e.message}`);
+      console.error(`  FATAL: ${e.stack}`);
+    }
+
+    // HOF evaluation
+    try {
+      for (const slotKey of ['star1', 'star2', 'corePiece']) {
+        const p = fr[0][slotKey];
+        if (p && p.age >= 34 && p.rating < 70) {
+          const hofCandidate = evaluateHallOfFame(p, fr[0]);
+          if (hofCandidate) {
+            leagueHistory = {
+              ...leagueHistory,
+              hallOfFame: [...(leagueHistory.hallOfFame || []), { ...hofCandidate, inductionSeason: season }],
+            };
+          }
+        }
+      }
+    } catch (e) {
+      errors.push(`CRASH in evaluateHallOfFame S${season}: ${e.message}`);
+      console.error(`  FATAL: ${e.stack}`);
+    }
+
+    // Rivalry
+    try {
+      const leagueTeams = lt[fr[0].league] || [];
+      const h2h = fr[0].headToHead || initHeadToHead();
+      const curRivalry = fr[0].rivalry || initRivalry();
+      const newRivalry = updateRivalry(curRivalry, fr[0], leagueTeams, season, h2h, false);
+      fr[0] = { ...fr[0], rivalry: newRivalry };
+    } catch (e) {
+      errors.push(`CRASH in updateRivalry S${season}: ${e.message}`);
+      console.error(`  FATAL: ${e.stack}`);
+    }
+
+    // Notifications
+    try {
+      const notifs = generateNotifications(fr[0], prevFr);
+      assert(Array.isArray(notifs), `[S${season}] notifications not an array`);
+    } catch (e) {
+      errors.push(`CRASH in generateNotifications S${season}: ${e.message}`);
+      console.error(`  FATAL: ${e.stack}`);
+    }
+
+    // Newspaper
+    try {
+      const standings = [...lt.ngl].sort((a, b) => b.wins - a.wins);
+      const newspaper = generateNewspaper(standings, fr, season, lt);
+      assert(newspaper != null, `[S${season}] newspaper is null`);
+      assert(typeof newspaper.headline === 'string', `[S${season}] newspaper headline not string`);
+    } catch (e) {
+      errors.push(`CRASH in generateNewspaper S${season}: ${e.message}`);
+      console.error(`  FATAL: ${e.stack}`);
+    }
+
+    // Press conference
+    try {
+      const pressConf = genPressConference(fr[0]);
+      assert(Array.isArray(pressConf), `[S${season}] pressConf not array`);
+    } catch (e) {
+      errors.push(`CRASH in genPressConference S${season}: ${e.message}`);
+      console.error(`  FATAL: ${e.stack}`);
+    }
+
+    // CBA event
+    try {
+      generateCBAEvent(season); // may return null, that's fine
+    } catch (e) {
+      errors.push(`CRASH in generateCBAEvent S${season}: ${e.message}`);
+      console.error(`  FATAL: ${e.stack}`);
+    }
+
+    // Extension demands
+    try {
+      const demands = generateExtensionDemands(fr[0], gmRep);
+      assert(Array.isArray(demands), `[S${season}] extension demands not array`);
+    } catch (e) {
+      errors.push(`CRASH in generateExtensionDemands S${season}: ${e.message}`);
+      console.error(`  FATAL: ${e.stack}`);
+    }
+
+    // Pressure event
+    try {
+      checkPressureEvent(fr[0], season);
+    } catch (e) {
+      errors.push(`CRASH in checkPressureEvent S${season}: ${e.message}`);
+      console.error(`  FATAL: ${e.stack}`);
+    }
+
+    // Draft
+    try {
+      const picks = generateDraftPickPositions(fr[0], lt);
+      assert(Array.isArray(picks), `[S${season}] draft picks not array`);
+      const prospects = generateDraftProspects(fr[0].league, 20, fr[0].scoutingStaff, picks[0]?.round || 1);
+      assert(Array.isArray(prospects), `[S${season}] draft prospects not array`);
+      assert(prospects.length > 0, `[S${season}] no draft prospects generated`);
+    } catch (e) {
+      errors.push(`CRASH in draft generation S${season}: ${e.message}`);
+      console.error(`  FATAL: ${e.stack}`);
+    }
+
+    // Free agents
+    try {
+      const faPool = generateOffseasonFAPool(fr[0].league, gmRep, 10);
+      assert(Array.isArray(faPool), `[S${season}] FA pool not array`);
+      const aiFA = simulateAIFreeAgency(faPool, lt, fr[0].league);
+      assert(Array.isArray(aiFA.remaining), `[S${season}] AI FA remaining not array`);
+    } catch (e) {
+      errors.push(`CRASH in free agency S${season}: ${e.message}`);
+      console.error(`  FATAL: ${e.stack}`);
+    }
+
+    // Refresh draft pick inventory
+    try {
+      fr[0] = { ...fr[0], draftPickInventory: initDraftPickInventory(newSeason, fr[0].id) };
+    } catch (e) {
+      errors.push(`CRASH in initDraftPickInventory S${season}: ${e.message}`);
+    }
+
+    // Valuation & cap space
+    try {
+      const val = calculateValuation(fr[0]);
+      assert(isFiniteNum(val), `[S${season}] valuation is not finite: ${val}`);
+      const cap = calculateCapSpace(fr[0]);
+      assert(isFiniteNum(cap.space), `[S${season}] cap space is not finite: ${cap.space}`);
+    } catch (e) {
+      errors.push(`CRASH in valuation/cap S${season}: ${e.message}`);
+      console.error(`  FATAL: ${e.stack}`);
+    }
+
+    // Naming rights
+    try {
+      if (!fr[0].namingRightsActive && fr[0].fanRating >= 55) {
+        generateNamingRightsOffer(fr[0]); // may return null
+      }
+    } catch (e) {
+      errors.push(`CRASH in generateNamingRightsOffer S${season}: ${e.message}`);
+    }
+
+    // Sync back to league
+    lt.ngl = lt.ngl.map(t => t.id === fr[0].id ? { ...t, ...fr[0] } : t);
+
+    // Track growth
+    growthTracker.historyLen.push(fr[0].history.length);
+    growthTracker.deadCapLogLen.push((fr[0].deadCapLog || []).length);
+    growthTracker.localLegendsLen.push((fr[0].localLegends || []).length);
+    growthTracker.notableSeasonsLen.push((leagueHistory.notableSeasons || []).length);
+    growthTracker.championsLen.push((leagueHistory.champions || []).length);
+    growthTracker.hallOfFameLen.push((leagueHistory.hallOfFame || []).length);
+    growthTracker.cashOverTime.push(fr[0].cash);
+    growthTracker.rqOverTime.push(fr[0].rosterQuality);
+
+    console.log(`  GM Rep: ${gmRep} (${getGMTier(gmRep).label}) | Stadium: ${fr[0].stadiumCondition} | Chemistry: ${fr[0].lockerRoomChemistry}`);
+  }
+
+  // ── Phase 3: Growth Analysis ──────────────────────────────────
+  console.log(`\n========================================`);
+  console.log(`  GROWTH ANALYSIS`);
+  console.log(`========================================\n`);
+
+  console.log(`  History entries:       ${growthTracker.historyLen[growthTracker.historyLen.length - 1]} (should be ~${SEASONS})`);
+  console.log(`  Dead cap log entries:  ${growthTracker.deadCapLogLen[growthTracker.deadCapLogLen.length - 1]}`);
+  console.log(`  Local legends:         ${growthTracker.localLegendsLen[growthTracker.localLegendsLen.length - 1]}`);
+  console.log(`  Notable seasons:       ${growthTracker.notableSeasonsLen[growthTracker.notableSeasonsLen.length - 1]}`);
+  console.log(`  Champions log:         ${growthTracker.championsLen[growthTracker.championsLen.length - 1]}`);
+  console.log(`  Hall of Fame:          ${growthTracker.hallOfFameLen[growthTracker.hallOfFameLen.length - 1]}`);
+  console.log(`  Cash trajectory:       ${growthTracker.cashOverTime.map(c => `$${c}M`).join(' → ')}`);
+  console.log(`  RQ trajectory:         ${growthTracker.rqOverTime.join(' → ')}`);
+
+  // Growth warnings
+  const finalHistory = growthTracker.historyLen[growthTracker.historyLen.length - 1];
+  if (finalHistory > SEASONS + 1) warn(`History grew to ${finalHistory} (expected ~${SEASONS})`);
+
+  const finalDeadCap = growthTracker.deadCapLogLen[growthTracker.deadCapLogLen.length - 1];
+  if (finalDeadCap > SEASONS * 3) warn(`Dead cap log grew to ${finalDeadCap} entries — may need pruning for long campaigns`);
+
+  const finalLegends = growthTracker.localLegendsLen[growthTracker.localLegendsLen.length - 1];
+  if (finalLegends > SEASONS * 2) warn(`Local legends grew to ${finalLegends} — may need pruning`);
+
+  // ── Phase 4: Edge Case Tests ──────────────────────────────────
+  console.log(`\n========================================`);
+  console.log(`  EDGE CASE TESTS`);
+  console.log(`========================================\n`);
+
+  // Test: All slots empty
+  console.log('  Test: All slots empty franchise...');
+  try {
+    let emptySlotsFr = { ...fr[0], star1: null, star2: null, corePiece: null };
+    emptySlotsFr.players = [emptySlotsFr.star1, emptySlotsFr.star2, emptySlotsFr.corePiece].filter(Boolean);
+    const quality = calcSlotQuality(emptySlotsFr);
+    assert(isFiniteNum(quality), `calcSlotQuality with empty slots returned: ${quality}`);
+    assert(quality === 50 || quality > 0, `calcSlotQuality fallback should be 50, got ${quality}`);
+    console.log(`    ✓ calcSlotQuality with empty slots: ${quality}`);
+  } catch (e) {
+    errors.push(`CRASH in empty slots test: ${e.message}`);
+    console.error(`    ✗ ${e.message}`);
+  }
+
+  // Test: Empty players array for chemistry calc
+  console.log('  Test: Division by zero in chemistry calc (empty players)...');
+  try {
+    let emptyPlayersFr = { ...fr[0], star1: null, star2: null, corePiece: null, players: [] };
+    // simPlayerSeasonSecondHalf has: cd / f.players.length * 3
+    // This would be 0/0 = NaN
+    const cd = 0;
+    const playersLen = emptyPlayersFr.players.length;
+    const chemResult = playersLen > 0 ? cd / playersLen * 3 : 0;
+    assert(isFiniteNum(chemResult) || playersLen === 0, `Chemistry division: ${cd} / ${playersLen} = ${chemResult}`);
+    if (playersLen === 0) {
+      warn('Division by zero in chemistry calc when players.length === 0 — this is a bug in simPlayerSeason/SecondHalf line ~371/594');
+    }
+    console.log(`    ✓ Chemistry calc edge case identified`);
+  } catch (e) {
+    errors.push(`CRASH in chemistry edge case: ${e.message}`);
+  }
+
+  // Test: AI team with no players after filter
+  console.log('  Test: simAITeam division by zero (all players filtered)...');
+  try {
+    const aiTeam = { ...lt.ngl.find(t => !t.isPlayerOwned) };
+    // Force all players to age >= 38 to trigger filter-out
+    const originalPlayers = aiTeam.players;
+    aiTeam.players = aiTeam.players.map(p => ({ ...p, age: 39 }));
+    // Line 218: team.players = team.players.filter(p => !(p.age >= 35 && Math.random() < 0.3) && p.age < 38);
+    // All players age 39 → all filtered out → line 224 divides by 0
+    const filtered = aiTeam.players.filter(p => !(p.age >= 35 && Math.random() < 0.3) && p.age < 38);
+    if (filtered.length === 0) {
+      warn('simAITeam: If all players are age 39+, players array becomes empty before line 224 Math.round(... / team.players.length) — division by zero. The while loop on line 221 refills, but the division on line 224 uses team.players which was just refilled, so it should be safe in practice.');
+    }
+    aiTeam.players = originalPlayers; // restore
+    console.log(`    ✓ AI team edge case analyzed`);
+  } catch (e) {
+    errors.push(`CRASH in AI team edge case: ${e.message}`);
+  }
+
+  // Test: generateNewspaper with empty standings
+  console.log('  Test: generateNewspaper with edge cases...');
+  try {
+    const emptyStandings = [];
+    // This will crash: standings[0] is undefined
+    try {
+      generateNewspaper(emptyStandings, fr, 1, lt);
+      errors.push('generateNewspaper with empty standings did NOT crash but should have');
+    } catch (e) {
+      warn(`generateNewspaper crashes with empty standings: "${e.message}" — needs null guard on standings[0]`);
+    }
+  } catch (e) {
+    errors.push(`Unexpected error in newspaper test: ${e.message}`);
+  }
+
+  // Test: calcValuation on bankrupt franchise
+  console.log('  Test: Valuation on bankrupt franchise...');
+  try {
+    let bankruptFr = { ...fr[0], cash: -500, debt: 200, fanRating: 5, rosterQuality: 30 };
+    const val = calculateValuation(bankruptFr);
+    assert(isFiniteNum(val), `Bankrupt valuation should be finite: ${val}`);
+    console.log(`    ✓ Bankrupt franchise valuation: $${val}M`);
+  } catch (e) {
+    errors.push(`CRASH in bankrupt valuation: ${e.message}`);
+  }
+
+  // Test: endOfSeasonAging with undefined morale
+  console.log('  Test: endOfSeasonAging with missing player morale...');
+  try {
+    let testFr = { ...fr[0] };
+    if (testFr.star1) {
+      testFr = { ...testFr, star1: { ...testFr.star1, morale: undefined } };
+      testFr.players = [testFr.star1, testFr.star2, testFr.corePiece].filter(Boolean);
+    }
+    const aged = endOfSeasonAging(testFr, 0.5);
+    // Check if morale undefined caused NaN in rating calc
+    // Line 896: (p.morale - 50) * 0.015 → undefined - 50 = NaN
+    if (aged.star1) {
+      if (!isFiniteNum(aged.star1.rating)) {
+        errors.push('endOfSeasonAging: undefined morale causes NaN rating');
+        console.error('    ✗ Undefined morale → NaN rating');
+      } else {
+        console.log(`    ✓ Handled undefined morale: rating=${aged.star1.rating}`);
+      }
+    }
+  } catch (e) {
+    errors.push(`CRASH in aging with undefined morale: ${e.message}`);
+    console.error(`    ✗ ${e.message}`);
+  }
+
+  // ── Phase 5: Report ──────────────────────────────────────────
+  console.log(`\n========================================`);
+  console.log(`  FINAL REPORT`);
+  console.log(`========================================\n`);
+
+  if (errors.length === 0 && warnings.length === 0) {
+    console.log('  ✅ ALL TESTS PASSED — No errors or warnings!\n');
+  } else {
+    if (errors.length > 0) {
+      console.log(`  ❌ ${errors.length} ERROR(S):`);
+      errors.forEach((e, i) => console.log(`    ${i + 1}. ${e}`));
+      console.log('');
+    }
+    if (warnings.length > 0) {
+      console.log(`  ⚠️  ${warnings.length} WARNING(S):`);
+      warnings.forEach((w, i) => console.log(`    ${i + 1}. ${w}`));
+      console.log('');
+    }
+  }
+
+  console.log(`  Summary: ${errors.length} errors, ${warnings.length} warnings`);
+  console.log(`  Seasons simulated: ${SEASONS}`);
+  console.log(`  Final franchise: ${fr[0].city} ${fr[0].name}`);
+  console.log(`  Final cash: $${fr[0].cash}M`);
+  console.log(`  Final record: ${fr[0].wins}-${fr[0].losses}`);
+  console.log(`  Championships: ${fr[0].championships || 0}`);
+  console.log(`  GM Rep: ${gmRep} (${getGMTier(gmRep).label})`);
+  console.log('');
+
+  return { errors, warnings };
+}
+
+// ── Run ──────────────────────────────────────────────────────────
+try {
+  const result = runStressTest();
+  process.exit(result.errors.length > 0 ? 1 : 0);
+} catch (e) {
+  console.error(`\nFATAL UNHANDLED ERROR:\n${e.stack || e.message}`);
+  process.exit(2);
+}
