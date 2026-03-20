@@ -1,20 +1,49 @@
+import { initFranchiseRecords, initHeadToHead, initRivalry } from '@/lib/engine';
+
 const SAVE_KEY = 'bob_v3_save';
 
 const FRANCHISE_DEFAULTS = {
+  cash: 0,
+  debt: 0,
+  debtInterestRate: 0,
+  askingPrice: 0,
+  mediaRep: 50,
+  communityRating: 65,
+  lockerRoomChemistry: 65,
   staffChemistry: 65,
   staffChemistryStreakYears: 0,
   dynastyCohesionBonus: false,
+  fanDemographics: { casual: 70, dieHard: 30 },
+  retiredNumbers: [],
+  dynastyEra: null,
+  deadCapLog: [],
+  scoutingStaff: 1,
+  developmentStaff: 1,
+  medicalStaff: 1,
+  marketingStaff: 1,
+  schemeFit: 50,
+  franchiseRecords: initFranchiseRecords(),
+  headToHead: initHeadToHead(),
+  rivalry: initRivalry(),
+  draftPickInventory: [],
+  gmInvestments: {},
   stadiumCondition: 80,
   stadiumAge: 0,
   stadiumCapacity: 50000,
   stadiumTier: 'small',
+  stadiumProject: null,
   stadiumUnderConstruction: false,
+  pendingStadiumEvent: null,
   newStadiumHoneymoon: 0,
+  publicFundingCommitment: null,
   luxuryBoxes: 0,
   clubSeatSections: 0,
   namingRightsActive: false,
-  namingRightsDeal: 0,
+  namingRightsDeal: null,
+  namingRightsName: null,
+  namingRightsYears: 0,
   capDeadMoney: 0,
+  deferredDeadCap: 0,
   accentColor: '#888888',
   consecutiveLosingSeason: 0,
   localLegends: [],
@@ -42,9 +71,13 @@ const TOP_LEVEL_DEFAULTS = {
 
 function ls() { return typeof window !== 'undefined' ? window.localStorage : null; }
 
+function cloneDefault(defaultValue) {
+  return Array.isArray(defaultValue) ? [...defaultValue] : (defaultValue && typeof defaultValue === 'object' ? { ...defaultValue } : defaultValue);
+}
+
 function withDefault(obj, field, defaultValue) {
   if (obj[field] == null) {
-    obj[field] = defaultValue;
+    obj[field] = cloneDefault(defaultValue); // Bugfix: migrations now clone array/object defaults so older saves never share mutable fallback state.
   }
 
   return obj;

@@ -572,7 +572,8 @@ export default function App() {
 
       // B4: Refresh draft pick inventory for next season
       newFr = newFr.map((x, i) => i === activeIdx ? {
-        ...x, draftPickInventory: initDraftPickInventory(newSeason, x.id),
+        ...x, gmInvestments: {}, stadiumUnderConstruction: false, pendingStadiumEvent: null, // Bugfix: per-season stadium/investment flags now reset before the next season begins.
+        draftPickInventory: initDraftPickInventory(newSeason, x.id),
       } : x);
 
       // Draft flow setup
