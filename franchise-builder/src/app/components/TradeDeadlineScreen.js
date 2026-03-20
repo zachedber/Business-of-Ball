@@ -1,6 +1,6 @@
 'use client';
 import { useState, useMemo } from 'react';
-import { calculateCapSpace, generateDeadlineFreeAgents } from '@/lib/engine';
+import { calculateCapSpace, generateDeadlineFreeAgents, r1 } from '@/lib/engine';
 
 // ============================================================
 // TRADE DEADLINE SCREEN
@@ -34,17 +34,17 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
       setError(`Insufficient cap space — need $${fa.salary}M, have $${cap.space}M.`);
       return;
     }
-    const contractCost = fa.salary * 0.1; // signing bonus costs liquid cash
+    const contractCost = r1(fa.salary * 0.1); // Round the signing bonus so cash stays aligned with franchise state.
     if ((fr.cash || 0) < contractCost) {
       setError(`Insufficient cash for signing bonus ($${contractCost.toFixed(1)}M needed).`);
       return;
     }
     const newPlayer = { ...fa, yearsLeft: fa.yearsLeft || 2 };
-    const newCash = Math.round(((fr.cash || 0) - contractCost) * 10) / 10;
+    const newCash = r1((fr.cash || 0) - contractCost);
     setFr(prev => ({
       ...prev,
       players: [...prev.players, newPlayer],
-      totalSalary: Math.round((prev.totalSalary + fa.salary) * 10) / 10,
+      totalSalary: r1((prev.totalSalary || 0) + fa.salary),
       rosterQuality: Math.round([...prev.players, newPlayer].reduce((s, p) => s + p.rating, 0) / (prev.players.length + 1)),
       cash: newCash,
     }));
@@ -59,13 +59,13 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
     if (player.trait === 'hometown') {
       setError(`Warning: Releasing ${player.name} (Hometown) will hurt fan and reputation.`);
     }
-    const deadMoney = Math.round((player.salary * 0.25) * 10) / 10;
+    const deadMoney = r1(player.salary * 0.25); // Round release dead money before it flows into cap state.
     setReleased(prev => [...prev, player.name]);
     setFr(prev => ({
       ...prev,
       players: prev.players.filter(p => p.id !== playerId),
-      totalSalary: Math.round((prev.totalSalary - player.salary) * 10) / 10,
-      capDeadMoney: Math.round(((prev.capDeadMoney || 0) + deadMoney) * 10) / 10,
+      totalSalary: r1((prev.totalSalary || 0) - player.salary),
+      capDeadMoney: r1((prev.capDeadMoney || 0) + deadMoney),
       rosterQuality: Math.round(prev.players.filter(p => p.id !== playerId).reduce((s, p) => s + p.rating, 0) / Math.max(1, prev.players.length - 1)),
     }));
   }

@@ -22,7 +22,7 @@ import {
   initFranchiseRecords, updateFranchiseRecords, evaluateHallOfFame,
   initHeadToHead, updateHeadToHead, initRivalry, updateRivalry,
   initDraftPickInventory,
-  formatMoney, generateTVDealEvent, formatLabel,
+  formatMoney, generateTVDealEvent, formatLabel, r1,
 } from '@/lib/engine';
 import {
   NGL_TEAMS, ABL_TEAMS, MARKET_TIERS, getMarketTier, getMarketTierInfo,
@@ -163,7 +163,7 @@ export default function App() {
           } else if (choice.action === 'release') {
             const updated = { ...f, [event.slotKey]: null };
             updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
-            updated.totalSalary = Math.round(updated.players.reduce((s, p) => s + p.salary, 0) * 10) / 10;
+            updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
             return updated;
           }
           // play_out: no change
@@ -175,22 +175,22 @@ export default function App() {
           let updated = { ...f };
           if (event.fanRatingDelta) updated.fanRating = clamp(updated.fanRating + event.fanRatingDelta, 0, 100);
           if (event.sponsorPenalty) updated.sponsorLevel = Math.max(0, (updated.sponsorLevel || 1) * event.sponsorPenalty);
-          if (choice.action === 'fine') updated.cash = Math.round(((updated.cash || 0) - (choice.cost || 10)) * 10) / 10;
+          if (choice.action === 'fine') updated.cash = r1((updated.cash || 0) - (choice.cost || 10)); // Round event cash updates before they hit shared state.
           if (choice.action === 'audit') {
             const slots = ['corePiece'];
             for (const slot of slots) {
               if (updated[slot]) { updated = { ...updated, [slot]: null }; break; }
             }
             updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
-            updated.totalSalary = Math.round(updated.players.reduce((s, p) => s + p.salary, 0) * 10) / 10;
+            updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
           }
           return updated;
         }
 
         // Default: standard event handling
         const updated = { ...f };
-        if (choice.cost) updated.cash = Math.round(((updated.cash || 0) - choice.cost) * 10) / 10;
-        if (choice.revenue) updated.cash = Math.round(((updated.cash || 0) + choice.revenue) * 10) / 10;
+        if (choice.cost) updated.cash = r1((updated.cash || 0) - choice.cost); // Round event cash updates before they hit shared state.
+        if (choice.revenue) updated.cash = r1((updated.cash || 0) + choice.revenue); // Round event cash updates before they hit shared state.
         if (choice.communityBonus) updated.communityRating = clamp((updated.communityRating || 50) + choice.communityBonus, 0, 100);
         if (choice.mediaBonus) updated.mediaRep = clamp((updated.mediaRep || 50) + choice.mediaBonus, 0, 100);
         if (choice.stadiumBonus) updated.stadiumCondition = clamp(updated.stadiumCondition + choice.stadiumBonus, 0, 100);
@@ -242,7 +242,7 @@ export default function App() {
         if (i !== activeIdx) return f;
         const updated = { ...f };
         if (choice.moraleBonus) updated.players = (updated.players || []).map(p => ({ ...p, morale: clamp(p.morale + choice.moraleBonus, 0, 100) }));
-        if (choice.revenuePenalty) updated.cash = Math.round((updated.cash + (choice.revenuePenalty || 0)) * 10) / 10;
+        if (choice.revenuePenalty) updated.cash = r1((updated.cash || 0) + (choice.revenuePenalty || 0)); // Round event cash updates before they hit shared state.
         return updated;
       }),
     });
@@ -405,7 +405,7 @@ export default function App() {
 
     // Stake income — add to active franchise cash
     const stakeIncome = calcStakeIncome(stakes, result.leagueTeams);
-    let newCash = af ? Math.round(((af.cash || 0) + stakeIncome) * 10) / 10 : cash;
+    let newCash = af ? r1((af.cash || 0) + stakeIncome) : r1(cash || 0); // Round stake cash before syncing both franchise and top-level cash.
     if (af && stakeIncome !== 0) {
       newFr = newFr.map((f, i) => i === activeIdx ? { ...f, cash: newCash } : f);
     }

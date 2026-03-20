@@ -262,11 +262,12 @@ export function generateCoachCandidates(n = 3) {
  * @returns {Object} Updated franchise with interim coach and cap dead money
  */
 export function fireCoach(f) {
-  const deadAmount = f.coach.level * 2;
+  const deadAmount = r1((f.coach?.level || 0) * 2);
   return {
     ...f,
     coach: { name: 'Interim Coach', level: 1, personality: 'Tactician', seasonsWithTeam: 0, age: 50 },
-    capDeadMoney: (f.capDeadMoney || 0) + deadAmount,
+    // Round dead cap into franchise state immediately so coach buyouts stay in sync with cap math.
+    capDeadMoney: r1((f.capDeadMoney || 0) + deadAmount),
     deadCapLog: [
       ...(f.deadCapLog || []),
       { name: f.coach.name, reason: 'Coach Fired', amount: deadAmount, season: f.season || 1 },
@@ -556,15 +557,15 @@ export function signToSlot(franchise, slotName, player) {
 /** Release a player from a slot (Phase 3: 60/40 dead cap split across 2 seasons) */
 export function releaseSlot(franchise, slotName) {
   const p = franchise[slotName];
-  // Dead cap: remaining salary × years left — 60% this season, 40% deferred to next
-  const remainingValue = p && p.yearsLeft > 0 ? r1(p.salary * p.yearsLeft) : 0;
+  // Dead cap: derive the deferred slice from the rounded current-year slice so both pieces always sum to the full remaining value.
+  const remainingValue = p && p.yearsLeft > 0 ? r1((p.salary || 0) * p.yearsLeft) : 0;
   const dead60 = r1(remainingValue * 0.6);
-  const dead40 = r1(remainingValue * 0.4);
+  const dead40 = r1(remainingValue - dead60);
   const updated = {
     ...franchise,
     [slotName]: null,
-    capDeadMoney: r1((franchise.capDeadMoney || 0) + dead60),
-    deferredDeadCap: r1((franchise.deferredDeadCap || 0) + dead40),
+    capDeadMoney: r1(Math.max(0, (franchise.capDeadMoney || 0) + dead60)),
+    deferredDeadCap: r1(Math.max(0, (franchise.deferredDeadCap || 0) + dead40)),
     deadCapLog: [
       ...(franchise.deadCapLog || []),
       ...(p ? [{ name: p.name, reason: 'Released', amount: r1(dead60 + dead40), season: franchise.season || 1 }] : []),

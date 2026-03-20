@@ -85,13 +85,17 @@ export function projectRevenue(f) {
  * @returns {number} Valuation in millions
  */
 export function calculateValuation(f) {
+  const wins = Number(f?.wins) || 0;
+  const losses = Number(f?.losses) || 0;
+  const totalGames = Math.max(1, wins + losses);
+  // Clamp undefined inputs to safe numeric defaults so valuation math cannot emit NaN or divide by zero.
   return Math.round(
-    f.market * 3 +
-    (f.wins / (f.wins + f.losses + 0.01)) * 50 +
-    f.fanRating * 0.5 +
-    (f.stadiumCondition || 70) * 0.2 +
-    (f.championships || 0) * 15 +
-    (CITY_ECONOMY[f.city] || 65) * 0.3
+    (Number(f?.market) || 0) * 3 +
+    (wins / totalGames) * 50 +
+    (Number(f?.fanRating) || 0) * 0.5 +
+    (Number(f?.stadiumCondition) || 70) * 0.2 +
+    (Number(f?.championships) || 0) * 15 +
+    (CITY_ECONOMY[f?.city] || 65) * 0.3
   );
 }
 
@@ -124,12 +128,14 @@ export function getFranchiseFlavor(team, askingPrice) {
  * @returns {{ cap: number, used: number, space: number, deadMoney: number }}
  */
 export function calculateCapSpace(f) {
-  const cap = f.league === 'ngl' ? NGL_SALARY_CAP : ABL_SALARY_CAP;
-  const inf = Math.pow(1 + CAP_INFLATION_RATE, f.season || 0);
+  const cap = f?.league === 'ngl' ? NGL_SALARY_CAP : ABL_SALARY_CAP;
+  const season = Math.max(0, Number(f?.season) || 0);
+  const inf = Math.pow(1 + CAP_INFLATION_RATE, season);
   const adj = r1(cap * inf);
-  const ts = f.players.reduce((s, p) => s + p.salary, 0);
-  const dm = f.capDeadMoney || 0;
-  return { cap: adj, used: r1(ts + dm), space: r1(adj - ts - dm), deadMoney: dm };
+  const ts = r1((f?.players || []).reduce((s, p) => s + (Number(p?.salary) || 0), 0));
+  // Include both current and deferred dead money with clamps so cap space cannot drift negative from bad state.
+  const dm = r1(Math.max(0, Number(f?.capDeadMoney) || 0) + Math.max(0, Number(f?.deferredDeadCap) || 0));
+  return { cap: adj, used: r1(ts + dm), space: r1(adj - (ts + dm)), deadMoney: dm };
 }
 
 /**
@@ -140,9 +146,11 @@ export function calculateCapSpace(f) {
  * @returns {number} Adjusted cap
  */
 export function calculateAdjustedCap(f, capModifier = 0) {
-  const baseCap = f.league === 'ngl' ? NGL_SALARY_CAP : ABL_SALARY_CAP;
-  const inf = Math.pow(1 + CAP_INFLATION_RATE, f.season || 0);
-  return r1(baseCap * inf + (capModifier || 0));
+  const baseCap = f?.league === 'ngl' ? NGL_SALARY_CAP : ABL_SALARY_CAP;
+  const season = Math.max(0, Number(f?.season) || 0);
+  const inf = Math.pow(1 + CAP_INFLATION_RATE, season);
+  // Normalize cap modifiers to numbers so undefined event payloads cannot poison cap calculations.
+  return r1(baseCap * inf + (Number(capModifier) || 0));
 }
 
 /**
@@ -161,9 +169,9 @@ export function maxLoan(f) {
  * @returns {Object} Updated franchise state
  */
 export function takeLoan(f, amt) {
-  const mx = maxLoan(f) - (f.debt || 0);
-  const a = Math.min(amt, mx);
-  return { ...f, cash: r1((f.cash || 0) + a), debt: r1((f.debt || 0) + a) };
+  const mx = Math.max(0, maxLoan(f) - (Number(f?.debt) || 0));
+  const a = Math.max(0, Math.min(Number(amt) || 0, mx));
+  return { ...f, cash: r1((Number(f?.cash) || 0) + a), debt: r1((Number(f?.debt) || 0) + a) };
 }
 
 /**
@@ -173,8 +181,11 @@ export function takeLoan(f, amt) {
  * @returns {Object} Updated franchise state
  */
 export function repayDebt(f, amt) {
-  const a = Math.min(amt, f.debt || 0, f.cash || 0);
-  return { ...f, cash: r1(f.cash - a), debt: r1((f.debt || 0) - a) };
+  const cashOnHand = Math.max(0, Number(f?.cash) || 0);
+  const outstandingDebt = Math.max(0, Number(f?.debt) || 0);
+  // Clamp the repayment to positive available cash and debt so one click cannot overdraw cash or overpay debt.
+  const a = Math.max(0, Math.min(Number(amt) || 0, outstandingDebt, cashOnHand));
+  return { ...f, cash: r1(Math.max(0, cashOnHand - a)), debt: r1(Math.max(0, outstandingDebt - a)) };
 }
 
 /**

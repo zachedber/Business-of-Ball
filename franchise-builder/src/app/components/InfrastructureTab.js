@@ -6,7 +6,7 @@ import {
 } from '@/data/leagues';
 import {
   applyStadiumUpgrade, startStadiumProject, calculatePublicFundingApproval,
-  purchasePremiumSeating, generateNewStadiumNamingRightsOffer, canAfford, clamp,
+  purchasePremiumSeating, generateNewStadiumNamingRightsOffer, canAfford, clamp, r1,
 } from '@/lib/engine';
 
 // ============================================================
@@ -306,7 +306,7 @@ function FacilitiesSection({ fr, setFr, onCashChange }) {
     if (current >= 3) return;
     const cost = UPGRADE_COSTS[current] || 15;
     if (!canAfford(fr.cash, cost)) return;
-    const newCash = Math.round(((fr.cash || 0) - cost) * 10) / 10;
+    const newCash = r1((fr.cash || 0) - cost); // Round facility spend before syncing both cash stores.
     setFr(prev => ({ ...prev, [field]: current + 1, cash: newCash }));
     if (onCashChange) onCashChange(newCash);
   }
