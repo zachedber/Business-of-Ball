@@ -140,14 +140,14 @@ export default function SlotDecisionScreen({ fr, setFr, onDone }) {
         };
       }
 
-      // Depth roster release: apply dead cap 60/40
+      // Depth roster release: derive the deferred split from the rounded current-year hit so the full dead value is preserved.
       const remainingValue = player.yearsLeft > 0 ? r1((player.salary || 0) * player.yearsLeft) : 0;
       const dead60 = r1(remainingValue * 0.6);
-      const dead40 = r1(remainingValue * 0.4);
+      const dead40 = r1(remainingValue - dead60);
       return {
         ...prev,
-        capDeadMoney: r1((prev.capDeadMoney || 0) + dead60),
-        deferredDeadCap: r1((prev.deferredDeadCap || 0) + dead40),
+        capDeadMoney: r1(Math.max(0, (prev.capDeadMoney || 0) + dead60)),
+        deferredDeadCap: r1(Math.max(0, (prev.deferredDeadCap || 0) + dead40)),
         rookieSlots: (prev.rookieSlots || []).filter(p => p.id !== player.id),
         players: (prev.players || []).filter(p => p.id !== player.id),
         deadCapLog: [
