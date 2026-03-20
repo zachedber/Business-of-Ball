@@ -12,23 +12,56 @@ import {
 } from '@/lib/engine';
 import { DEBT_INTEREST, STAFF_SALARIES } from '@/data/leagues';
 import { UPGRADE_COSTS } from '@/data/leagues';
+import { getContrastText } from '@/data/teamColors';
 import NotificationsPanel from '@/app/components/NotificationsPanel';
 import { Sparkline } from '@/app/components/AnalyticsScreen';
 import InfrastructureTab from '@/app/components/InfrastructureTab';
 import StaffTab from '@/app/components/StaffTab';
 import { MiniChart } from '@/app/components/SharedComponents';
+import TutorialOverlay from '@/app/components/TutorialOverlay';
+import { Home, Users, Brain, Briefcase, Building2, CreditCard, Trophy, BookOpen } from 'lucide-react';
+
+function hexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
 
 // ============================================================
 // DASHBOARD
 // ============================================================
 export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve, pressConf, onPressConf, newspaper, newspaperDismissed, onDismissNewspaper, cbaEvent, onCBA, namingOffer, onNaming, gmRep, notifications, onDismissNotif, onCashChange, leagueHistory, offseasonFAPool }) {
   const [tab, setTab] = useState('home');
+  const [showTutorial, setShowTutorial] = useState(false);
   const cap = useMemo(() => calculateCapSpace(fr), [fr]);
   const val = useMemo(() => calculateValuation(fr), [fr]);
   const gmTier = getGMTier(gmRep);
+
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem('bob_tutorial_seen')) {
+        setShowTutorial(true);
+      }
+    } catch {}
+  }, []);
+
+  function closeTutorial() {
+    setShowTutorial(false);
+    try { localStorage.setItem('bob_tutorial_seen', '1'); } catch {}
+  }
+
   return (
-    <div style={{ maxWidth: 980, margin: '0 auto', padding: '12px 12px' }}>
-      <div className="card-elevated scoreboard scoreboard-hero" style={{ marginBottom: 14, '--team-color': fr.league === 'abl' ? 'var(--blue)' : 'var(--red)' }}>
+    <div style={{
+      maxWidth: 980, margin: '0 auto', padding: '12px 12px',
+      '--team-primary': fr.primaryColor || '#2563EB',
+      '--team-secondary': fr.secondaryColor || '#FFFFFF',
+      '--team-accent': fr.accentColor || fr.secondaryColor || '#2563EB',
+      '--team-tint': hexToRgba(fr.primaryColor || '#2563EB', 0.11),
+      '--team-text': getContrastText(fr.primaryColor || '#2563EB'),
+    }}>
+      {showTutorial && <TutorialOverlay onClose={closeTutorial} />}
+      <div className="card-elevated scoreboard scoreboard-hero" style={{ marginBottom: 14 }}>
         <div>
           <h2 className="font-display" style={{ fontSize: 'clamp(1.4rem, 5vw, 2rem)', fontWeight: 700, textTransform: 'uppercase', color: fr.primaryColor || 'var(--ink)', position: 'relative' }}>
             {fr.city} {fr.name}
@@ -36,7 +69,7 @@ export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, eve
           <div className="font-mono" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', position: 'relative' }}>
             {fr.league === 'ngl' ? 'NGL' : 'ABL'} · S{fr.season || 1} · {fr.coach?.name || 'No Coach'}
             {fr.economyCycle !== 'stable' ? ` · ${formatLabel(fr.economyCycle)}` : ''}
-            {' · '}<span style={{ color: 'var(--ink-muted)' }}>{gmTier.badge} {gmTier.label}</span>
+            {' · '}<span style={{ color: 'var(--ink-muted)' }}>{gmTier.label}</span>
           </div>
         </div>
         <div className="scoreboard-stats">
@@ -53,9 +86,12 @@ export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, eve
           ))}
         </div>
       </div>
-      <div className="tab-nav" style={{ marginBottom: 12, '--team-color': fr.primaryColor || 'var(--red)' }}>
-        {[['home', '🏠 Home'], ['slots', '🧩 Slots'], ['staff', '🧠 Coach'], ['biz', '💼 Biz'], ['infra', '🏗 Facilities'], ['finance', '💳 Finance'], ['legacy', '🏆 Legacy'], ['history', '📚 History']].map(([key, label]) => (
-          <button key={key} className={`tab-btn ${tab === key ? 'active' : ''}`} onClick={() => setTab(key)}>{label}</button>
+      <div className="tab-nav" style={{ marginBottom: 12 }}>
+        {[['home', 'Home', Home], ['slots', 'Slots', Users], ['staff', 'Coach', Brain], ['biz', 'Biz', Briefcase], ['infra', 'Facilities', Building2], ['finance', 'Finance', CreditCard], ['legacy', 'Legacy', Trophy], ['history', 'History', BookOpen]].map(([key, label, Icon]) => (
+          <button key={key} className={`tab-btn ${tab === key ? 'active' : ''}`} onClick={() => setTab(key)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <Icon size={14} />
+            {label}
+          </button>
         ))}
       </div>
       {tab === 'home' && <HomeTab fr={fr} onSim={onSim} simming={simming} recap={recap} grade={grade} events={events} onResolve={onResolve} pressConf={pressConf} onPressConf={onPressConf} newspaper={newspaper} newspaperDismissed={newspaperDismissed} onDismissNewspaper={onDismissNewspaper} cbaEvent={cbaEvent} onCBA={onCBA} namingOffer={namingOffer} onNaming={onNaming} notifications={notifications} onDismissNotif={onDismissNotif} />}

@@ -16,7 +16,7 @@ export default function PortfolioScreen({ af, fr, stakes, lt, gmRep, dynasty, se
     <div style={{ maxWidth: 700, margin: '0 auto', padding: '20px 12px' }}>
       <h2 className="font-display section-header" style={{ fontSize: '1.2rem' }}>Empire Overview</h2>
       <div className="card" style={{ padding: '12px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, borderLeft: '4px solid var(--gold)' }}>
-        <span style={{ fontSize: '1.4rem' }}>{gmTier.badge}</span>
+        <span className="font-display" style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--gold)' }}>GM</span>
         <div>
           <div className="font-display" style={{ fontSize: '1rem', fontWeight: 700 }}>{gmTier.label}</div>
           <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>GM Reputation: {gmRep}/100</div>

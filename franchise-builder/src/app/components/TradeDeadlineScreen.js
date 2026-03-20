@@ -98,7 +98,7 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
           textTransform: 'uppercase',
           color: fr.primaryColor || 'var(--red)',
         }}>
-          ⏸ TRADE DEADLINE
+          TRADE DEADLINE
         </div>
         <div className="font-mono" style={{ fontSize: '0.8rem', marginTop: 6, color: '#ccc' }}>
           The season pauses. Make your moves before the second half begins.
@@ -198,7 +198,7 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
                 }}>
                   <td className="font-body" style={{ padding: '10px 12px', fontWeight: 500, whiteSpace: 'nowrap' }}>
                     {player.name}
-                    {player.isLocalLegend && <span style={{ color: 'var(--gold)', marginLeft: 3 }}>★</span>}
+                    {player.isLocalLegend && <span className="badge" style={{ background: 'var(--gold)', color: 'var(--ink)', marginLeft: 4, fontSize: '0.6rem' }}>Legend</span>}
                     {player.injured && <span style={{ color: 'var(--red)', marginLeft: 4, fontSize: '0.7rem' }}>INJ</span>}
                   </td>
                   <td className="font-mono" style={{ padding: '10px 12px' }}>{player.position}</td>
