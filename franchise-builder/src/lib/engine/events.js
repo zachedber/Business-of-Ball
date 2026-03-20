@@ -220,13 +220,15 @@ export function genRivalryEvent(f, lt) {
  * @returns {Object} Newspaper object with headline, stories, and GM of Year
  */
 export function generateNewspaper(standings, playerFr, season, lt) {
-  const top = standings[0];
-  const pf = playerFr[0];
-  const allTeams = [...(lt.ngl || []), ...(lt.abl || [])];
-  const mvpTeam = allTeams.sort((a, b) => b.rosterQuality - a.rosterQuality)[0];
+  const top = standings?.[0];
+  const pf = playerFr?.[0];
+  const allTeams = [...(lt?.ngl || []), ...(lt?.abl || [])];
+  const mvpTeam = allTeams.sort((a, b) => (b.rosterQuality || 0) - (a.rosterQuality || 0))[0];
   return {
     season,
-    headline: `${top.city} ${top.name} Claim Top Spot with ${top.wins}-${top.losses} Record`,
+    headline: top
+      ? `${top.city} ${top.name} Claim Top Spot with ${top.wins}-${top.losses} Record`
+      : `Season ${season} Concludes`,
     stories: [
       pf ? `The ${pf.city} ${pf.name} finished the season at ${pf.wins}-${pf.losses}${pf.playoffTeam ? ' and earned a playoff berth' : '. The offseason will be critical'}.` : '',
       `Around the league, ${mvpTeam?.city || 'several'} ${mvpTeam?.name || 'franchises'} boasted the highest roster quality at ${mvpTeam?.rosterQuality || '—'}.`,

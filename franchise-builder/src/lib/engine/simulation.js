@@ -368,7 +368,7 @@ export function simPlayerSeason(f, season) {
     if (p.trait === 'volatile') cd -= rand(2, 5);
     if (p.trait === 'showman') cd += winPct > 0.5 ? 2 : -3;
   });
-  f.lockerRoomChemistry = clamp(Math.round(f.lockerRoomChemistry + cd / f.players.length * 3), 0, 100);
+  f.lockerRoomChemistry = clamp(Math.round(f.lockerRoomChemistry + cd / Math.max(1, f.players.length) * 3), 0, 100);
 
   // Unified end-of-season aging — 1.1
   f = endOfSeasonAging(f, winPct);
@@ -591,7 +591,7 @@ export function simPlayerSeasonSecondHalf(f, season) {
     if (p.trait === 'volatile') cd -= rand(2, 5);
     if (p.trait === 'showman') cd += winPct > 0.5 ? 2 : -3;
   });
-  f.lockerRoomChemistry = clamp(Math.round(f.lockerRoomChemistry + cd / f.players.length * 3), 0, 100);
+  f.lockerRoomChemistry = clamp(Math.round(f.lockerRoomChemistry + cd / Math.max(1, f.players.length) * 3), 0, 100);
 
   // Unified end-of-season aging — 1.1
   f = endOfSeasonAging(f, winPct);
