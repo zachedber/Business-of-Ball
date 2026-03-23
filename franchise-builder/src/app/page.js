@@ -105,7 +105,7 @@ export default function App() {
   useEffect(() => {
     if (!lt || fr.length === 0) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(doSave, 2000);
+    saveTimer.current = setTimeout(doSave, 500);
     return () => clearTimeout(saveTimer.current);
   }, [fr, lt, cash, season, doSave]);
 
@@ -138,9 +138,6 @@ export default function App() {
     const newLt = { ...lt, [league]: lt[league].map(t => t.id === template.id ? { ...t, isPlayerOwned: true } : t) };
     dispatch({ type: 'SET_FRANCHISE', payload: newFrArray });
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: newLt });
-    generateOffseasonEvents(newFr).then(evts =>
-      dispatch({ type: 'SET_EVENTS', payload: evts.map(e => ({ ...e, resolved: false })) })
-    );
     dispatch({ type: 'SET_SCREEN', payload: 'dashboard' });
   }
 

@@ -7,21 +7,58 @@ import { Building2, ClipboardList, Trophy, TrendingUp, DollarSign, BarChart2, Se
 // ============================================================
 // TICKER
 // ============================================================
+function TickerSegment({ label, labelClass, items }) {
+  if (!items.length) return null;
+  return (
+    <>
+      <span className={`ticker-label ${labelClass || ''}`}>{label}</span>
+      {items.map((item, i) => (
+        <span key={i} className="ticker-segment">
+          <span className="ticker-team">{item.team}</span>
+          <span className="ticker-score">{item.score}</span>
+          {item.note && <span className="ticker-team" style={{color:'#666'}}>{item.note}</span>}
+        </span>
+      ))}
+    </>
+  );
+}
+
 export function Ticker({ lt, fr, season }) {
-  const items = useMemo(() => {
-    if (!lt) return ['BUSINESS OF BALL — MORE FEATURES COMING SOON'];
-    const msgs = [`SEASON ${season || 1}`];
-    [...(lt.ngl || [])].sort((a, b) => b.wins - a.wins).slice(0, 2)
-      .forEach(t => msgs.push(`NGL: ${t.city} ${t.name} ${t.wins}-${t.losses}`));
-    [...(lt.abl || [])].sort((a, b) => b.wins - a.wins).slice(0, 2)
-      .forEach(t => msgs.push(`ABL: ${t.city} ${t.name} ${t.wins}-${t.losses}`));
-    fr?.forEach(f => msgs.push(`YOUR TEAM: ${f.city} ${f.name} ${f.wins}-${f.losses}`));
-    return msgs;
+  const segments = useMemo(() => {
+    if (!lt) return null;
+
+    const nglItems = [...(lt.ngl || [])].sort((a, b) => b.wins - a.wins).slice(0, 5).map(t => ({
+      team: `${t.city} ${t.name}`,
+      score: `${t.wins}-${t.losses}`,
+    }));
+    const ablItems = [...(lt.abl || [])].sort((a, b) => b.wins - a.wins).slice(0, 5).map(t => ({
+      team: `${t.city} ${t.name}`,
+      score: `${t.wins}-${t.losses}`,
+    }));
+    const yourItems = (fr || []).map(f => ({
+      team: `${f.city} ${f.name}`,
+      score: `${f.wins}-${f.losses}`,
+      note: `S${season || 1}`,
+    }));
+
+    return { nglItems, ablItems, yourItems };
   }, [lt, fr, season]);
-  const txt = items.join('   ///   ');
+
+  const innerContent = segments ? (
+    <>
+      <TickerSegment label="NGL" labelClass="ngl" items={segments.nglItems} />
+      <TickerSegment label="ABL" labelClass="abl" items={segments.ablItems} />
+      {segments.yourItems.length > 0 && <TickerSegment label="YOUR TEAM" labelClass="your" items={segments.yourItems} />}
+    </>
+  ) : (
+    <span className="ticker-segment" style={{color:'#888'}}>BUSINESS OF BALL · MORE FEATURES COMING SOON</span>
+  );
+
   return (
     <div className="ticker-bar">
-      <div className="ticker-scroll"><span>{txt}   ///   {txt}</span></div>
+      <div className="ticker-scroll">
+        <span style={{display:'inline-flex',alignItems:'center'}}>{innerContent}{innerContent}</span>
+      </div>
     </div>
   );
 }
@@ -54,7 +91,7 @@ export function Nav({ screen, setScreen, fr, gmRep, cash, notifCount }) {
               <div className="stat-value" style={{ fontSize: '0.8rem', color: '#fff' }}>{gmRep}</div>
             </div>
           </>}
-          <button className={`tab-btn ${screen === 'settings' ? 'active' : ''}`} onClick={() => setScreen('settings')} style={{ minWidth: 44, paddingInline: 12, fontSize: '0.9rem', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: 4 }} aria-label="Settings"><Settings size={14} /></button>
+          <button className={`tab-btn ${screen === 'settings' ? 'active' : ''}`} onClick={() => setScreen('settings')} style={{ minWidth: 44, paddingInline: 12, fontSize: '0.9rem', color: screen === 'settings' ? undefined : '#fff', display: 'inline-flex', alignItems: 'center', gap: 4 }} aria-label="Settings"><Settings size={14} /></button>
         </div>
       </div>
       {fr.length > 0 && (
@@ -64,7 +101,7 @@ export function Nav({ screen, setScreen, fr, gmRep, cash, notifCount }) {
               key={s}
               className={`tab-btn ${screen === s ? 'active' : ''}`}
               onClick={() => setScreen(s)}
-              style={{ color: screen === s ? '#fff' : 'rgba(255,255,255,0.6)', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+              style={{ color: screen === s ? undefined : 'rgba(255,255,255,0.6)', display: 'inline-flex', alignItems: 'center', gap: 5 }}
             >
               <Icon size={14} />
               {label}

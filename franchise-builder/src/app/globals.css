@@ -59,9 +59,18 @@ html,body{height:100%;background:var(--surface);color:var(--ink);font-family:var
 .stat-value{font-family:var(--font-mono);font-weight:600;color:var(--ink);}
 
 /* Ticker */
-.ticker-bar{background:var(--ink);color:var(--surface);font-family:var(--font-mono);font-size:0.78rem;overflow:hidden;white-space:nowrap;padding:8px 0;box-shadow:inset 0 -1px 0 rgba(255,255,255,0.08);}
-.ticker-scroll{display:inline-block;animation:tickerScroll 60s linear infinite;}
+.ticker-bar{background:#0d0d0d;color:#e8e8e8;font-family:var(--font-mono);font-size:0.7rem;overflow:hidden;white-space:nowrap;padding:0;display:flex;align-items:stretch;border-bottom:2px solid #C8202A;line-height:1;}
+.ticker-scroll{display:inline-flex;align-items:center;animation:tickerScroll 55s linear infinite;gap:0;}
 @keyframes tickerScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+.ticker-label{background:#C8202A;color:#fff;font-family:var(--font-display);text-transform:uppercase;font-size:0.65rem;font-weight:700;letter-spacing:0.1em;padding:0 10px;display:flex;align-items:center;white-space:nowrap;flex-shrink:0;min-height:28px;}
+.ticker-label.abl{background:#2A5FA0;}
+.ticker-label.ngl{background:#C8202A;}
+.ticker-label.your{background:#D4A843;color:var(--ink);}
+.ticker-label.sys{background:#333;color:#aaa;}
+.ticker-segment{padding:0 16px;border-right:1px solid #2a2a2a;display:inline-flex;align-items:center;gap:6px;min-height:28px;}
+.ticker-score{color:#fff;font-weight:600;}
+.ticker-team{color:#aaa;font-size:0.66rem;}
+.ticker-record{color:#888;font-size:0.63rem;}
 
 /* Buttons */
 .btn-primary,.btn-secondary,.btn-gold{min-height:36px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;transition:all 0.15s ease;}
@@ -76,7 +85,7 @@ html,body{height:100%;background:var(--surface);color:var(--ink);font-family:var
 .tab-nav{display:flex;gap:0;border-bottom:1px solid var(--border);overflow-x:auto;-webkit-overflow-scrolling:touch;background:var(--surface);}
 .tab-btn{font-family:var(--font-display);text-transform:uppercase;letter-spacing:0.04em;font-weight:500;font-size:0.76rem;color:var(--ink-soft);padding:10px 14px;min-height:44px;border:none;background:transparent;cursor:pointer;position:relative;white-space:nowrap;transition:all 0.15s ease;border-radius:0;}
 .tab-btn:hover{color:var(--ink);background:rgba(0,0,0,0.03);}
-.tab-btn.active{color:var(--ink);font-weight:600;background:var(--card);border-left:3px solid var(--team-primary);box-shadow:none;}
+.tab-btn.active{color:var(--team-color,var(--red));font-weight:700;background:transparent;border-bottom:2.5px solid var(--team-color,var(--red));border-radius:0;}
 .tab-btn.active::after{display:none;}
 
 /* Badges */
