@@ -5,7 +5,7 @@ import { draftPlayer, generateDraftProspects } from '@/lib/engine';
 // ============================================================
 // DRAFT FLOW SCREEN
 // ============================================================
-export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, onPickMade, onAutoPick, onDone, gmRep }) {
+export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, onPickMade, onAutoPick, onDone, gmRep, rosterFullAlert, onDismissRosterAlert }) {
   const [pickedPlayers, setPickedPlayers] = useState([]);
   const [remainingPicks, setRemainingPicks] = useState(draftPicks || []);
   const [availableProspects, setAvailableProspects] = useState(draftProspects || []);
@@ -71,6 +71,21 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Roster full alert */}
+      {rosterFullAlert && (
+        <div className="card" style={{ padding: 14, marginBottom: 12, border: '2px solid var(--red)', background: 'var(--cream-dark)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <h4 className="font-display" style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--red)', marginBottom: 4 }}>Roster Full</h4>
+              <p className="font-body" style={{ fontSize: '0.78rem', color: 'var(--ink)', margin: 0 }}>
+                Roster is full. Release a player from your roster to make room for {rosterFullAlert.name}.
+              </p>
+            </div>
+            <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '4px 10px', flexShrink: 0, marginLeft: 12 }} onClick={onDismissRosterAlert}>Dismiss</button>
           </div>
         </div>
       )}

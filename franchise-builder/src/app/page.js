@@ -69,6 +69,7 @@ export default function App() {
     notifications, recap, grade, events, pressConf,
     newspaper, newspaperDismissed,
     cbaEvent, namingOffer, saveStatus, helpOpen, leagueHistory,
+    rosterFullAlert,
   } = state;
 
   // Load API key from localStorage
@@ -108,6 +109,23 @@ export default function App() {
     saveTimer.current = setTimeout(doSave, 500);
     return () => clearTimeout(saveTimer.current);
   }, [fr, lt, cash, season, doSave]);
+
+  // Emergency save on tab close — synchronous localStorage write
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (!lt || fr.length === 0) return;
+      try {
+        localStorage.setItem('bob_v3_save', JSON.stringify({
+          cash, gmReputation: gmRep, dynastyHistory: dynasty,
+          leagueTeams: lt, franchises: fr, stakes, season,
+          freeAgents: freeAg, notifications, leagueHistory,
+          updatedAt: new Date().toISOString(), version: '3.0.0',
+        }));
+      } catch (e) { console.error('Emergency save failed:', e); }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [cash, gmRep, dynasty, lt, fr, stakes, season, freeAg, notifications, leagueHistory]);
 
   // ── Helpers ──────────────────────────────────────────────────
   const setActiveFr = (updater) =>
@@ -263,28 +281,44 @@ export default function App() {
 
   // ── Draft handlers ───────────────────────────────────────────
   function handleDraftPickMade(player, usedPick) {
-    if (player) {
-      dispatch({
-        type: 'SET_FRANCHISE',
-        payload: prev => prev.map((f, i) => {
-          if (i !== activeIdx) return f;
-          const taxi = [...(f.taxiSquad || [])];
-          const draftedPlayer = { ...player, isRookie: true, draftRound: usedPick?.round, draftPick: usedPick?.pick, seasonsOnTaxi: 0 };
-          if (taxi.length < 4) {
-            // Route to taxi squad (max 4)
-            taxi.push(draftedPlayer);
-            return { ...f, taxiSquad: taxi };
-          }
-          // Overflow: taxi squad full, route to players/rookieSlots
-          const rookies = [...(f.rookieSlots || [])];
-          if (rookies.length < 3) {
-            rookies.push(draftedPlayer);
-            return { ...f, rookieSlots: rookies };
-          }
-          return f;
-        }),
-      });
-    }
+    if (!player) return;
+    dispatch({
+      type: 'SET_FRANCHISE',
+      payload: prev => {
+        try {
+          return prev.map((f, i) => {
+            if (i !== activeIdx) return f;
+            // Null guard: ensure franchise has required fields
+            if (!f || typeof f !== 'object') return f;
+            const updated = {
+              ...f,
+              rookieSlots: f.rookieSlots || [],
+              taxiSquad: f.taxiSquad || [],
+              players: f.players || [],
+            };
+            const draftedPlayer = { ...player, isRookie: true, draftRound: usedPick?.round, draftPick: usedPick?.pick, seasonsOnTaxi: 0 };
+            const taxi = [...updated.taxiSquad];
+            if (taxi.length < 4) {
+              // Route to taxi squad (max 4)
+              taxi.push(draftedPlayer);
+              return { ...updated, taxiSquad: taxi };
+            }
+            // Overflow: taxi squad full, route to rookieSlots
+            const rookies = [...updated.rookieSlots];
+            if (rookies.length < 3) {
+              rookies.push(draftedPlayer);
+              return { ...updated, rookieSlots: rookies };
+            }
+            // All slots full — signal roster full alert instead of silently discarding
+            setTimeout(() => dispatch({ type: 'SET_ROSTER_FULL_ALERT', payload: draftedPlayer }), 0);
+            return updated;
+          });
+        } catch (e) {
+          console.error('handleDraftPickMade error:', e);
+          return prev;
+        }
+      },
+    });
   }
 
   function handleDraftDone() {
@@ -349,24 +383,15 @@ export default function App() {
     dispatch({ type: 'SET_FRANCHISE', payload: result.franchises });
 
     // NGL Playoffs — run bracket, show bracket UI before offseason
+    // Championship trophy is NOT written here — it is applied once in runEndOfSeasonFlow
+    // to avoid double-counting between this block and handlePlayoffFinished.
     if (af && af.league === 'ngl') {
       const pResult = simulatePlayoffs(result.leagueTeams.ngl, af);
-      if (pResult.playerWonChampionship) {
-        dispatch({
-          type: 'SET_FRANCHISE',
-          payload: prev => prev.map((f, i) => i === activeIdx ? {
-            ...f,
-            championships: (f.championships || 0) + 1,
-            trophies: [...(f.trophies || []), { season, wins: af.wins, losses: af.losses }],
-            leagueRank: 1,
-          } : f),
-        });
-      }
       dispatch({
         type: 'PLAYOFF_OPEN',
         payload: { playoffResult: pResult, tradeDeadlineLeague: result.leagueTeams },
       });
-      return; // Bugfix: the trade-deadline pause now exits cleanly into the playoff flow without auto-running the offseason.
+      return;
     }
 
     // ABL / fallback path
@@ -379,24 +404,22 @@ export default function App() {
   async function handlePlayoffFinished() {
     dispatch({ type: 'PLAYOFF_CLOSE' });
     const playoffChampion = playoffResult?.champion;
-    const playoffFranchises = fr.map(f => playoffChampion && f.id === playoffChampion.id && !playoffResult?.playerWonChampionship
-      ? { ...f, championships: (f.championships || 0) + 1, trophies: [...(f.trophies || []), { season, wins: playoffChampion.wins, losses: playoffChampion.losses }], leagueRank: 1 }
-      : f
-    ); // Bugfix: playoff champions now get their title credited even when the user is not the team that won the bracket.
+    // Championship credits (both player and AI) are now applied in runEndOfSeasonFlow,
+    // not here, to keep trophy logic in one place.
     const playoffLeagueTeams = {
       ...lt,
       ngl: (lt?.ngl || []).map(t => playoffChampion && t.id === playoffChampion.id ? { ...t, leagueRank: 1 } : t),
-    }; // Bugfix: the post-playoff flow now uses the settled playoff snapshot instead of stale pre-bracket state.
+    };
     const result = {
       leagueTeams: playoffLeagueTeams,
-      franchises: playoffFranchises,
+      franchises: fr,
       standings: {
         ngl: [...(playoffLeagueTeams?.ngl || [])].sort((a, b) => b.wins - a.wins),
         abl: [...(playoffLeagueTeams?.abl || [])].sort((a, b) => b.wins - a.wins),
       },
       playoffResult,
     };
-    const afNow = playoffFranchises[activeIdx];
+    const afNow = fr[activeIdx];
     await runEndOfSeasonFlow(result, afNow, afNow);
     await doSave();
   }
@@ -462,13 +485,68 @@ export default function App() {
       }
     }
 
-    // B3: Rivalry update
+    // B3: Rivalry update — update head-to-head record every season
     if (af && result.leagueTeams) {
       const leagueTeams = result.leagueTeams[af.league] || [];
-      const h2h = af.headToHead || initHeadToHead();
+      let h2h = af.headToHead || initHeadToHead();
       const curRivalry = af.rivalry || initRivalry();
-      const newRivalry = updateRivalry(curRivalry, af, leagueTeams, season, h2h, false);
-      newFr = newFr.map((x, i) => i === activeIdx ? { ...x, rivalry: newRivalry } : x);
+
+      // Determine the designated rival
+      const rivalId = curRivalry.teamId || (af.rivalIds && af.rivalIds[0]) || null;
+      if (rivalId) {
+        const rivalTeam = leagueTeams.find(t => t.id === rivalId);
+        if (rivalTeam) {
+          // Derive regular-season head-to-head from win probabilities
+          // Each team plays their rival 2 games per season (home and away)
+          const playerWP = af.wins / Math.max(1, af.wins + af.losses);
+          const rivalWP = rivalTeam.wins / Math.max(1, rivalTeam.wins + rivalTeam.losses);
+          const h2hWP = 0.5 + (playerWP - rivalWP) * 0.5; // relative strength
+          let winsVsRival = 0;
+          let lossesVsRival = 0;
+          for (let g = 0; g < 2; g++) {
+            if (Math.random() < h2hWP) winsVsRival++;
+            else lossesVsRival++;
+          }
+
+          // Update the head-to-head record for regular season
+          const prev = h2h[rivalId] || { teamName: `${rivalTeam.city} ${rivalTeam.name}`, wins: 0, losses: 0, playoffMeetings: 0, lastMeeting: null };
+          h2h = {
+            ...h2h,
+            [rivalId]: {
+              ...prev,
+              teamName: `${rivalTeam.city} ${rivalTeam.name}`,
+              wins: prev.wins + winsVsRival,
+              losses: prev.losses + lossesVsRival,
+              lastMeeting: { season, result: winsVsRival > lossesVsRival ? 'W' : 'L', round: 'regular_season' },
+            },
+          };
+        }
+      }
+
+      // Check if rival was met in playoffs this season
+      const metInPlayoffs = result.playoffResult?.rounds?.some(round =>
+        round.games.some(g =>
+          (g.teamA?.id === af.id && g.teamB?.id === rivalId) ||
+          (g.teamB?.id === af.id && g.teamA?.id === rivalId)
+        )
+      ) || false;
+
+      // If met in playoffs, also update H2H via the playoff-focused function
+      if (metInPlayoffs && rivalId) {
+        const rivalTeam = leagueTeams.find(t => t.id === rivalId);
+        if (rivalTeam) {
+          const playerWonPlayoff = result.playoffResult?.rounds?.some(round =>
+            round.games.some(g =>
+              (g.winner?.id === af.id) &&
+              (g.teamA?.id === rivalId || g.teamB?.id === rivalId)
+            )
+          ) || false;
+          h2h = updateHeadToHead(h2h, rivalTeam, playerWonPlayoff, season, 'playoff');
+        }
+      }
+
+      const newRivalry = updateRivalry(curRivalry, af, leagueTeams, season, h2h, metInPlayoffs);
+      newFr = newFr.map((x, i) => i === activeIdx ? { ...x, headToHead: h2h, rivalry: newRivalry } : x);
     }
 
     // ── Notifications (accumulate all at once) ────────────────
@@ -567,6 +645,30 @@ export default function App() {
         ...(pressureEvt ? [{ ...pressureEvt, resolved: false }] : []),
       ];
 
+      // ── Championship logic (unified — NGL and ABL) ──────────────
+      // All trophy/championship credits are applied here, once, consistently.
+      if (result.playoffResult?.playerWonChampionship) {
+        // Player won the NGL championship
+        newFr = newFr.map((x, i) => i === activeIdx ? {
+          ...x,
+          championships: (x.championships || 0) + 1,
+          trophies: [...(x.trophies || []), { season, wins: x.wins, losses: x.losses }],
+          leagueRank: 1,
+        } : x);
+      }
+      if (result.playoffResult?.champion) {
+        const champId = result.playoffResult.champion.id;
+        // Credit AI team championship (if the champion is not the player)
+        if (!result.playoffResult.playerWonChampionship) {
+          newFr = newFr.map(x => x.id === champId ? {
+            ...x,
+            championships: (x.championships || 0) + 1,
+            trophies: [...(x.trophies || []), { season, wins: result.playoffResult.champion.wins, losses: result.playoffResult.champion.losses }],
+            leagueRank: 1,
+          } : x);
+        }
+      }
+
       // B4: Refresh draft pick inventory for next season
       newFr = newFr.map((x, i) => i === activeIdx ? {
         ...x, gmInvestments: {}, stadiumUnderConstruction: false, pendingStadiumEvent: null, // Bugfix: per-season stadium/investment flags now reset before the next season begins.
@@ -648,6 +750,8 @@ export default function App() {
             onAutoPick={() => {}}
             onDone={handleDraftDone}
             gmRep={gmRep}
+            rosterFullAlert={rosterFullAlert}
+            onDismissRosterAlert={() => dispatch({ type: 'SET_ROSTER_FULL_ALERT', payload: null })}
           />
         )}
 

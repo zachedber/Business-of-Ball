@@ -792,6 +792,8 @@ export function generateExtensionDemands(f, gmRep) {
   ];
   for (const { key, label } of slots) {
     const p = f[key];
+    // yearsLeft === 1 check: this runs BEFORE endOfSeasonAging decrements yearsLeft,
+    // so yearsLeft === 1 here means the player is entering their final contract year.
     if (!p || p.yearsLeft !== 1) continue;
 
     // Extension cost: 10-25% salary increase
@@ -1033,6 +1035,46 @@ export function endOfSeasonAging(franchise, winPct) {
   if (taxiNotifications.length > 0) {
     fr.taxiNotifications = taxiNotifications;
   }
+
+  // ── Step 6: Rookie slots aging ───────────────────────────────────────
+  const rookieSlots = (fr.rookieSlots || []).map(p => {
+    if (!p) return null;
+    const aged = { ...p };
+    aged.age = (p.age || 22) + 1;
+    aged.yearsLeft = Math.max(0, (p.yearsLeft || 1) - 1);
+    aged.seasonsPlayed = (p.seasonsPlayed || 0) + 1;
+    aged.seasonsWithTeam = (p.seasonsWithTeam || 0) + 1;
+
+    // Development: same formula as slot and taxi players
+    if (!p.injured || p.injurySeverity !== 'severe') {
+      const ageFactor = aged.age < ps
+        ? (ps - aged.age) * 0.6
+        : aged.age <= pe ? 0.3 : -(aged.age - pe) * 0.8;
+      let traitBonus = 0;
+      if (p.trait === 'hometown') traitBonus = 0.3;
+      else if (p.trait === 'volatile') traitBonus = randFloat(-1, 1.5);
+      else if (p.trait === 'leader') traitBonus = 0.2;
+      const ceilingPenalty = (p.rating || 50) > 85 ? -((p.rating || 50) - 85) * 0.15 : 0;
+      const delta = Math.round(clamp(
+        ageFactor + devStaff * 0.5 + ((p.morale || 60) - 50) * 0.015 + traitBonus + ceilingPenalty + randFloat(-1.5, 1.5),
+        -5, 8
+      ));
+      aged.rating = clamp((p.rating || 50) + delta, 40, 99);
+      aged.careerStats = {
+        ...aged.careerStats,
+        seasons: ((aged.careerStats?.seasons || 0) + 1),
+        bestRating: Math.max(aged.rating, aged.careerStats?.bestRating || 0),
+      };
+    }
+
+    // Morale shift
+    if (winPct > 0.6) aged.morale = clamp((aged.morale || 60) + rand(1, 3), 0, 100);
+    else if (winPct < 0.35) aged.morale = clamp((aged.morale || 60) - rand(1, 3), 0, 100);
+
+    return aged;
+  }).filter(Boolean);
+
+  fr = { ...fr, rookieSlots };
 
   return fr;
 }
