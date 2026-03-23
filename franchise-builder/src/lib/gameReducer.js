@@ -54,6 +54,7 @@ export const initialState = {
   saveStatus: 'saved',
   helpOpen: false,
   leagueHistory: initLeagueHistory(),
+  rosterFullAlert: null,
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -461,6 +462,11 @@ export function gameReducer(state, action) {
     /** Sets helpOpen flag. */
     case 'SET_HELP': {
       return { ...state, helpOpen: action.payload };
+    }
+
+    /** Sets or clears the roster full alert (drafted player with no room). */
+    case 'SET_ROSTER_FULL_ALERT': {
+      return { ...state, rosterFullAlert: action.payload };
     }
 
     /**
