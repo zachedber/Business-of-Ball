@@ -3,6 +3,7 @@ import { useReducer, useEffect, useCallback, useRef } from 'react';
 import {
   initializeLeague, createPlayerFranchise,
   simulateFullSeasonFirstHalf, simulateFullSeasonSecondHalf,
+  simulateLeagueQuarter,
   generateDraftProspects, generateFreeAgents,
   calculateValuation, clamp, generateId,
   genPressConference, calcStakeIncome,
@@ -24,6 +25,8 @@ import {
   initDraftPickInventory,
   formatMoney, generateTVDealEvent, formatLabel, r1,
 } from '@/lib/engine';
+import { rollPlayerEvents } from '@/lib/events';
+import { generateTradeOffers, generateWaiverWire, generateDraftTradeUpOffers } from '@/lib/tradeAI';
 import {
   NGL_TEAMS, ABL_TEAMS, MARKET_TIERS, getMarketTier, getMarketTierInfo,
   UPGRADE_COSTS, STARTING_CASH,
@@ -35,6 +38,10 @@ import {
 } from '@/lib/narrative';
 import { gameReducer, initialState } from '@/lib/gameReducer';
 import TradeDeadlineScreen from '@/app/components/TradeDeadlineScreen';
+import TrainingCampScreen from '@/app/components/TrainingCampScreen';
+import EventNotificationCard from '@/app/components/EventNotificationCard';
+import WaiverWireScreen from '@/app/components/WaiverWireScreen';
+import MathTooltip from '@/app/components/MathTooltip';
 import AnalyticsScreen from '@/app/components/AnalyticsScreen';
 import HelpPanel from '@/app/components/HelpPanel';
 import { Ticker, Nav } from '@/app/components/SharedComponents';
@@ -70,6 +77,8 @@ export default function App() {
     newspaper, newspaperDismissed,
     cbaEvent, namingOffer, saveStatus, helpOpen, leagueHistory,
     rosterFullAlert,
+    trainingCampActive, quarterPhase, playerEvents,
+    waiverWireActive, waiverPool, tradeOffers,
   } = state;
 
   // Load API key from localStorage
@@ -357,34 +366,91 @@ export default function App() {
     dispatch({ type: 'SET_SCREEN', payload: 'dashboard' });
   }
 
-  // ── Simulation handlers ───────────────────────────────────────
+  // ── Simulation handlers (V4 quarterly flow) ─────────────────────
   async function handleSim() {
     if (simming) return;
-    dispatch({ type: 'BEGIN_SIM' });
     dispatch({ type: 'SET_RECAP', payload: { recap: null, grade: null } });
     dispatch({ type: 'SET_NEWSPAPER', payload: { newspaper: null, newspaperDismissed: true } });
-    await new Promise(r => setTimeout(r, 400));
-    const result = simulateFullSeasonFirstHalf(lt, fr, season);
-    dispatch({ type: 'SET_FRANCHISE', payload: result.franchises });
-    dispatch({ type: 'TRADE_DEADLINE_OPEN', payload: result.leagueTeams });
+    dispatch({ type: 'SET_PLAYER_EVENTS', payload: [] });
+    dispatch({ type: 'SET_QUARTER_PHASE', payload: 0 });
+    // Show training camp before Q1
+    dispatch({ type: 'TRAINING_CAMP_OPEN' });
+  }
+
+  /** Called when player picks a training camp focus area */
+  async function handleTrainingCampDone(focus) {
+    dispatch({ type: 'TRAINING_CAMP_CLOSE' });
+    dispatch({ type: 'BEGIN_SIM' });
+
+    // Set training camp focus on franchise
+    const updatedFr = fr.map((f, i) =>
+      i === activeIdx ? { ...f, trainingCampFocus: focus } : f
+    );
+    dispatch({ type: 'SET_FRANCHISE', payload: updatedFr });
+
+    await new Promise(r => setTimeout(r, 300));
+
+    // Q1
+    const r1Result = simulateLeagueQuarter(lt, updatedFr, season, 1);
+    dispatch({ type: 'SET_LEAGUE_TEAMS', payload: r1Result.leagueTeams });
+    dispatch({ type: 'SET_FRANCHISE', payload: r1Result.franchises });
+    dispatch({ type: 'SET_QUARTER_PHASE', payload: 1 });
+
+    // Roll player events after Q1
+    const af1 = r1Result.franchises[activeIdx];
+    const events1 = rollPlayerEvents({ ...af1 }, season, 1);
+    if (events1.length > 0) {
+      dispatch({ type: 'SET_PLAYER_EVENTS', payload: events1 });
+    }
+
+    await new Promise(r => setTimeout(r, 200));
+
+    // Q2
+    const r2Result = simulateLeagueQuarter(r1Result.leagueTeams, r1Result.franchises, season, 2);
+    dispatch({ type: 'SET_LEAGUE_TEAMS', payload: r2Result.leagueTeams });
+    dispatch({ type: 'SET_FRANCHISE', payload: r2Result.franchises });
+    dispatch({ type: 'SET_QUARTER_PHASE', payload: 2 });
+
+    // After Q2: generate trade offers & waiver wire, then show trade deadline
+    const af2 = r2Result.franchises[activeIdx];
+    const offers = generateTradeOffers(af2, r2Result.leagueTeams, season);
+    const waiver = generateWaiverWire(af2.league);
+    dispatch({ type: 'SET_TRADE_OFFERS', payload: offers });
+    dispatch({ type: 'WAIVER_WIRE_OPEN', payload: waiver });
+    dispatch({ type: 'TRADE_DEADLINE_OPEN', payload: r2Result.leagueTeams });
   }
 
   async function handleContinueSeason() {
     dispatch({ type: 'BEGIN_SIM' });
     dispatch({ type: 'TRADE_DEADLINE_CLOSE' });
+    dispatch({ type: 'WAIVER_WIRE_CLOSE' });
     const prevFranchise = fr[activeIdx];
     await new Promise(r => setTimeout(r, 300));
 
-    const result = simulateFullSeasonSecondHalf(tradeDeadlineLeague, fr, season);
-    const af = result.franchises[activeIdx];
+    // Q3
+    const r3Result = simulateLeagueQuarter(tradeDeadlineLeague || lt, fr, season, 3);
+    dispatch({ type: 'SET_LEAGUE_TEAMS', payload: r3Result.leagueTeams });
+    dispatch({ type: 'SET_FRANCHISE', payload: r3Result.franchises });
+    dispatch({ type: 'SET_QUARTER_PHASE', payload: 3 });
 
-    // Dispatch simulation results so state reflects simulated season
+    // Roll player events after Q3
+    const af3 = r3Result.franchises[activeIdx];
+    const events3 = rollPlayerEvents({ ...af3 }, season, 3);
+    if (events3.length > 0) {
+      dispatch({ type: 'SET_PLAYER_EVENTS', payload: [...(playerEvents || []), ...events3] });
+    }
+
+    await new Promise(r => setTimeout(r, 200));
+
+    // Q4 (end of season)
+    const r4Result = simulateLeagueQuarter(r3Result.leagueTeams, r3Result.franchises, season, 4);
+    const result = r4Result;
+    const af = result.franchises[activeIdx];
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: result.leagueTeams });
     dispatch({ type: 'SET_FRANCHISE', payload: result.franchises });
+    dispatch({ type: 'SET_QUARTER_PHASE', payload: 4 });
 
-    // NGL Playoffs — run bracket, show bracket UI before offseason
-    // Championship trophy is NOT written here — it is applied once in runEndOfSeasonFlow
-    // to avoid double-counting between this block and handlePlayoffFinished.
+    // NGL Playoffs
     if (af && af.league === 'ngl') {
       const pResult = simulatePlayoffs(result.leagueTeams.ngl, af);
       dispatch({
@@ -677,7 +743,8 @@ export default function App() {
 
       // Draft flow setup
       const picks = generateDraftPickPositions(f, result.leagueTeams);
-      const prospects = generateDraftProspects(f.league, 20, f.scoutingStaff, picks[0]?.round || 1);
+      const rawProspects = generateDraftProspects(f.league, 20, f.scoutingStaff, picks[0]?.round || 1);
+      const prospects = rawProspects.map(({ trueRating, ...rest }) => rest); // strip trueRating — never reaches UI
 
       // ── Dispatch all accumulated changes ─────────────────────
       dispatch({ type: 'SET_GM_REP', payload: newRep });
@@ -695,6 +762,8 @@ export default function App() {
       }
       dispatch({ type: 'SET_EVENTS', payload: allEvents });
       dispatch({ type: 'SET_FREE_AG', payload: { ngl: generateFreeAgents('ngl'), abl: generateFreeAgents('abl') } });
+      const draftTradeUpOffers = generateDraftTradeUpOffers(f, result.leagueTeams, prospects, picks[0]);
+      dispatch({ type: 'SET_TRADE_OFFERS', payload: draftTradeUpOffers });
       dispatch({ type: 'DRAFT_OPEN', payload: { draftPicks: picks, draftProspects: prospects } });
     } else {
       // No franchises — still dispatch the basic updates
@@ -739,6 +808,31 @@ export default function App() {
         {screen === 'intro' && <Intro onNew={handleNew} onLoad={handleLoad} hasSv={fr.length > 0} />}
         {screen === 'setup' && <FranchiseSelectionScreen onCreate={handleCreate} />}
 
+        {/* Training camp — shown before Q1 */}
+        {trainingCampActive && af && (
+          <TrainingCampScreen
+            franchise={af}
+            onSelectFocus={(focus) => handleTrainingCampDone(focus)}
+          />
+        )}
+
+        {/* Player events — shown after Q1 and Q3 */}
+        {playerEvents && playerEvents.length > 0 && !trainingCampActive && !tradeDeadlineActive && !waiverWireActive && (
+          <div style={{ maxWidth: 600, margin: '0 auto', padding: '16px 12px' }}>
+            <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Player Events</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {playerEvents.map((evt, i) => (
+                <EventNotificationCard
+                  key={i}
+                  type={evt.type === 'social_media_drama' ? 'drama' : evt.type}
+                  playerName={evt.playerName}
+                  description={evt.description}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Draft flow — shown after each completed season */}
         {draftActive && !tradeDeadlineActive && af && (
           <DraftFlowScreen
@@ -752,6 +846,12 @@ export default function App() {
             gmRep={gmRep}
             rosterFullAlert={rosterFullAlert}
             onDismissRosterAlert={() => dispatch({ type: 'SET_ROSTER_FULL_ALERT', payload: null })}
+            tradeUpOffers={tradeOffers}
+            onAcceptTradeUp={(offer) => {
+              const newCash = cash + (offer.cashComponent || 0);
+              dispatch({ type: 'SET_CASH', payload: newCash });
+              dispatch({ type: 'SET_TRADE_OFFERS', payload: tradeOffers.filter(o => o.id !== offer.id) });
+            }}
           />
         )}
 
@@ -795,6 +895,28 @@ export default function App() {
             onContinue={handleContinueSeason}
             cash={af.cash ?? cash}
             setCash={newCash => dispatch({ type: 'SET_CASH', payload: newCash })}
+            tradeOffers={tradeOffers}
+            onAcceptTrade={(offer) => {
+              // Accept trade: add cash, handle player swap
+              if (offer.cashComponent > 0) {
+                const newCash = r1((af.cash || 0) + offer.cashComponent);
+                dispatch({ type: 'SET_CASH', payload: newCash });
+              }
+              dispatch({ type: 'SET_TRADE_OFFERS', payload: tradeOffers.filter(o => o.id !== offer.id) });
+            }}
+            waiverPool={waiverPool}
+            onSignWaiver={(player) => {
+              // Sign waiver player to first empty slot
+              const slotKey = !af.star1 ? 'star1' : !af.star2 ? 'star2' : !af.corePiece ? 'corePiece' : null;
+              if (!slotKey) return;
+              setActiveFr(prev => {
+                const updated = { ...prev, [slotKey]: player };
+                updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
+                updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
+                return updated;
+              });
+              dispatch({ type: 'WAIVER_WIRE_OPEN', payload: waiverPool.filter(p => p.id !== player.id) });
+            }}
           />
         )}
 

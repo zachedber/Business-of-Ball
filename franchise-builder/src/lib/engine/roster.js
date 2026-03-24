@@ -607,17 +607,24 @@ export function generateDraftProspects(lg, count, scoutLvl = 1, round = 1) {
     const p = pick(pos);
     const br = rand(roundProfile.ratingMin, roundProfile.ratingMax);
     const acc = scoutLvl * 5;
+    const projMid = clamp(br + rand(-acc, acc), 45, 85);
+    const spread = Math.max(3, 12 - scoutLvl * 2);
     return {
       id: generateId(),
       name: generatePlayerName(),
       position: p,
       age: rand(21, 23),
-      projectedRating: clamp(br + rand(-acc, acc), 45, 85),
+      projectedRange: { low: clamp(projMid - spread, 40, 85), high: clamp(projMid + spread, 45, 95) },
       trueRating: clamp(br, 45, 85),
       upside: pick(roundProfile.upsideWeights),
       trait: generateTrait(),
+      scoutReport: scoutLvl >= 3 ? 'Detailed' : scoutLvl >= 2 ? 'Standard' : 'Basic',
     };
-  }).sort((a, b) => b.projectedRating - a.projectedRating);
+  }).sort((a, b) => {
+    const aMid = (a.projectedRange.high + a.projectedRange.low) / 2;
+    const bMid = (b.projectedRange.high + b.projectedRange.low) / 2;
+    return bMid - aMid;
+  });
 }
 
 /**
@@ -630,8 +637,14 @@ export function draftPlayer(p, lg) {
   if (!p) return null; // Bugfix: empty draft clicks now resolve safely instead of crashing player creation.
   const cap = lg === 'ngl' ? NGL_SALARY_CAP : ABL_SALARY_CAP;
   const rs = lg === 'ngl' ? NGL_ROSTER_SIZE : ABL_ROSTER_SIZE;
+  // trueRating available internally; from UI (stripped) use projectedRange reveal
+  const rating = p.trueRating != null
+    ? p.trueRating
+    : p.projectedRange
+      ? rand(p.projectedRange.low, p.projectedRange.high)
+      : 65;
   return {
-    ...generatePlayer(p.position, lg, { age: p.age, rating: p.trueRating, trait: p.trait, yearsLeft: 4, seasonsPlayed: 0, seasonsWithTeam: 0 }),
+    ...generatePlayer(p.position, lg, { age: p.age, rating, trait: p.trait, yearsLeft: 4, seasonsPlayed: 0, seasonsWithTeam: 0 }),
     name: p.name,
     salary: r1(cap / rs * 0.4),
     isDrafted: true,

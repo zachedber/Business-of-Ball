@@ -5,7 +5,7 @@ import { draftPlayer, generateDraftProspects } from '@/lib/engine';
 // ============================================================
 // DRAFT FLOW SCREEN
 // ============================================================
-export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, onPickMade, onAutoPick, onDone, gmRep, rosterFullAlert, onDismissRosterAlert }) {
+export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, onPickMade, onAutoPick, onDone, gmRep, rosterFullAlert, onDismissRosterAlert, tradeUpOffers, onAcceptTradeUp }) {
   const [pickedPlayers, setPickedPlayers] = useState([]);
   const [remainingPicks, setRemainingPicks] = useState(draftPicks || []);
   const [availableProspects, setAvailableProspects] = useState(draftProspects || []);
@@ -19,11 +19,18 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
 
   useEffect(() => {
     if (remainingPicks.length === 0 || availableProspects.length > 0) return;
-    setAvailableProspects(generateDraftProspects(fr.league, 20, fr.scoutingStaff, currentRound));
+    setAvailableProspects(
+      generateDraftProspects(fr.league, 20, fr.scoutingStaff, currentRound)
+        .map(({ trueRating, ...rest }) => rest) // strip trueRating — never reaches UI
+    );
   }, [availableProspects.length, currentRound, fr.league, fr.scoutingStaff, remainingPicks.length]);
 
   const prospects = useMemo(
-    () => [...availableProspects].sort((a, b) => b.projectedRating - a.projectedRating).slice(0, 15),
+    () => [...availableProspects].sort((a, b) => {
+      const aMid = a.projectedRange ? (a.projectedRange.high + a.projectedRange.low) / 2 : (a.projectedRating || 0);
+      const bMid = b.projectedRange ? (b.projectedRange.high + b.projectedRange.low) / 2 : (b.projectedRating || 0);
+      return bMid - aMid;
+    }).slice(0, 15),
     [availableProspects],
   );
 
@@ -90,6 +97,25 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
         </div>
       )}
 
+      {/* Trade-up offers */}
+      {!allPicksDone && tradeUpOffers && tradeUpOffers.length > 0 && (
+        <div className="card" style={{ padding: 14, marginBottom: 12, border: '1px solid var(--amber)' }}>
+          <h3 className="font-display" style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 8, color: 'var(--amber)' }}>Trade-Up Offers</h3>
+          {tradeUpOffers.map(offer => (
+            <div key={offer.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--cream-dark)' }}>
+              <div>
+                <span className="font-body" style={{ fontSize: '0.78rem', fontWeight: 500 }}>{offer.aiTeam.city} {offer.aiTeam.name}</span>
+                <span className="font-mono" style={{ fontSize: '0.72rem', marginLeft: 8, color: 'var(--ink-muted)' }}>
+                  {offer.draftCompensation.map(d => `R${d.round} '${String(d.season).slice(-2)}`).join(' + ')}
+                  {offer.cashComponent > 0 && ` + $${offer.cashComponent}M`}
+                </span>
+              </div>
+              <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '4px 10px' }} onClick={() => onAcceptTradeUp && onAcceptTradeUp(offer)}>Accept</button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Draft board */}
       {!allPicksDone && (
         <div className="card" style={{ padding: 16, marginBottom: 12 }}>
@@ -114,7 +140,9 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
                       <td className="font-mono" style={{ padding: '6px 8px', fontWeight: 600 }}>{i + 1}</td>
                       <td className="font-body" style={{ padding: '6px 8px', fontWeight: 500 }}>{p.name}</td>
                       <td className="font-mono" style={{ padding: '6px 8px' }}>{p.position}</td>
-                      <td className="font-mono" style={{ padding: '6px 8px', fontWeight: 600, color: p.projectedRating >= 75 ? 'var(--green)' : 'var(--ink)' }}>{p.projectedRating}</td>
+                      <td className="font-mono" style={{ padding: '6px 8px', fontWeight: 600, color: (p.projectedRange ? p.projectedRange.high : p.projectedRating) >= 75 ? 'var(--green)' : 'var(--ink)' }}>
+                        {p.projectedRange ? `${p.projectedRange.low}–${p.projectedRange.high}` : p.projectedRating}
+                      </td>
                       <td><span className={`badge ${p.upside === 'high' ? 'badge-green' : p.upside === 'mid' ? 'badge-amber' : 'badge-ink'}`}>{p.upside}</span></td>
                       <td>{p.trait && <span className="badge badge-ink">{p.trait}</span>}</td>
                       <td>
