@@ -3,7 +3,7 @@
 // All names fictional — no real athlete or coach names
 // ============================================================
 
-function pick(arr: string[]): string {
+function pick(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
@@ -78,10 +78,10 @@ export const injuryTypes = [
   'Torn ACL',
 ];
 
-export function generatePlayerName(): string {
+export function generatePlayerName() {
   return `${pick(FIRST_NAMES)} ${pick(LAST_NAMES)}`;
 }
 
-export function generateCoachName(): string {
+export function generateCoachName() {
   return `${pick(COACH_FIRST)} ${pick(COACH_LAST)}`;
 }

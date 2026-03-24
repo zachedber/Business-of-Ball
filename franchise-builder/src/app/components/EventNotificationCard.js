@@ -1,20 +1,12 @@
 import React from 'react';
 
-type EventType = 'charity' | 'drama' | 'criminal';
-
-interface EventNotificationCardProps {
-  type: EventType;
-  playerName: string;
-  description: string;
-}
-
-const accentClasses: Record<EventType, string> = {
+const accentClasses = {
   charity: 'border-l-4 border-green-500 bg-green-50/60',
   drama: 'border-l-4 border-amber-500 bg-amber-50/60',
   criminal: 'border-l-4 border-red-500 bg-red-50/60',
 };
 
-const typeLabelClasses: Record<EventType, string> = {
+const typeLabelClasses = {
   charity: 'text-green-700 bg-green-100',
   drama: 'text-amber-800 bg-amber-100',
   criminal: 'text-red-700 bg-red-100',
@@ -24,7 +16,7 @@ export default function EventNotificationCard({
   type,
   playerName,
   description,
-}: EventNotificationCardProps) {
+}) {
   return (
     <article
       className={`rounded-lg border border-slate-200 p-4 shadow-sm ${accentClasses[type]}`}
