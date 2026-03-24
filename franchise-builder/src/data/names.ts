@@ -3,7 +3,9 @@
 // All names fictional — no real athlete or coach names
 // ============================================================
 
-function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function pick(arr: string[]): string {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 
 const FIRST_NAMES = [
   'Kaelan','Javonte','Tyrese','Marquell','Deshon','Braylon','Kendrik','Alonzo','Terrell','Jaleel',
@@ -16,6 +18,11 @@ const FIRST_NAMES = [
   'Zarian','Adler','Beckett','Caelum','Dashiel','Elio','Fenn','Griffon','Hadrian','Idris',
   'Jorvik','Kade','Lucero','Magnus','Nestor','Orin','Pike','Quillan','Ryland','Soren',
   'Tavio','Udo','Vesper','Wystan','Xerxes','Yannick','Zenith','Amaro','Bowen','Calloway',
+  'Abram','Bennett','Cassian','Dorian','Ephraim','Ford','Gideon','Hector','Isaiah','Jensen',
+  'Keon','Lennox','Marlon','Nolan','Omari','Pierce','Quincy','Reggie','Silas','Tristan',
+  'Usher','Vincent','Wesley','Xeno','Yael','Zayne','Andre','Blake','Cyrus','Derek',
+  'Emmanuel','Felix','Gunnar','Holden','Imani','Jules','Kieran','Luca','Micah','Naveen',
+  'Orlando','Paxton','Rico','Samir','Trevor','Uriel','Valen','Wyatt','Xzavier','Yuri',
 ];
 
 const LAST_NAMES = [
@@ -29,6 +36,11 @@ const LAST_NAMES = [
   'Uribe','Valentin','Weston','Ximenez','Yanez','Zavala','Ankov','Borislav','Chernov','Demidov',
   'Fedorov','Grigoriev','Haruki','Ishikawa','Johansson','Kruger','Lindgren','Matsuda','Nishimura','Ostrowski',
   'Petrova','Richter','Svensson','Takahashi','Volkov','Werner','Yamashita','Afolabi','Mensah','Okonkwo',
+  'Abbott','Bennings','Carraway','Delaney','Ellison','Farrow','Galloway','Hensley','Iverson','Jamison',
+  'Keller','Langston','Merriweather','Nolan','Owens','Pritchard','Qualls','Rowland','Sinclair','Tennyson',
+  'Underwood','Vasquez','Wickham','Xanders','Yorke','Zamora','Arledge','Bishop','Connelly','Dawson',
+  'Edwards','Fletcher','Grimes','Holland','Ingram','Jefferson','Knox','Lowry','Monroe','Norris',
+  'Osborne','Preston','Riley','Sheppard','Turner','Vaughn','Waller','Xu','Youngblood','Zimmer',
 ];
 
 const COACH_FIRST = [
@@ -43,10 +55,33 @@ const COACH_LAST = [
   'Yarborough','Zimmerman','Castellano','DeLuca','Espinoza','Fujimoto','Gustafson','Heidecker','Johanssen','Kowalczyk',
 ];
 
-export function generatePlayerName() {
+export const injuryTypes = [
+  'Minor Bruise',
+  'Sprained Wrist',
+  'Sprained Ankle',
+  'Jammed Finger',
+  'Mild Hamstring Strain',
+  'Calf Tightness',
+  'Shoulder Soreness',
+  'Lower Back Spasms',
+  'Patellar Tendinitis',
+  'Groin Strain',
+  'Moderate Concussion',
+  'High Ankle Sprain',
+  'Separated Shoulder',
+  'Meniscus Tear',
+  'Dislocated Kneecap',
+  'Stress Fracture',
+  'Fractured Hand',
+  'Achilles Tendon Rupture',
+  'Torn MCL',
+  'Torn ACL',
+];
+
+export function generatePlayerName(): string {
   return `${pick(FIRST_NAMES)} ${pick(LAST_NAMES)}`;
 }
 
-export function generateCoachName() {
+export function generateCoachName(): string {
   return `${pick(COACH_FIRST)} ${pick(COACH_LAST)}`;
 }
