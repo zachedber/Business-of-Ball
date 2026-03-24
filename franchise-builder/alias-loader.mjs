@@ -38,6 +38,10 @@ export function resolve(specifier, context, nextResolve) {
       if (fs.existsSync(fullPath + '.js')) {
         return { shortCircuit: true, url: pathToFileURL(fullPath + '.js').href };
       }
+      // Try .ts extension
+      if (fs.existsSync(fullPath + '.ts')) {
+        return { shortCircuit: true, url: pathToFileURL(fullPath + '.ts').href };
+      }
     }
 
     if (path.isAbsolute(resolved)) {
@@ -56,6 +60,10 @@ export function resolve(specifier, context, nextResolve) {
       }
       if (fs.existsSync(resolved + '.js')) {
         return { shortCircuit: true, url: pathToFileURL(resolved + '.js').href };
+      }
+      // Try .ts extension
+      if (fs.existsSync(resolved + '.ts')) {
+        return { shortCircuit: true, url: pathToFileURL(resolved + '.ts').href };
       }
     }
     return { shortCircuit: true, url: pathToFileURL(resolved).href };

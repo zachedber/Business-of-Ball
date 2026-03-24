@@ -55,6 +55,14 @@ export const initialState = {
   helpOpen: false,
   leagueHistory: initLeagueHistory(),
   rosterFullAlert: null,
+
+  // V4 quarterly flow
+  trainingCampActive: false,
+  quarterPhase: 0, // 0 = not simming, 1-4 = quarter completed
+  playerEvents: [],
+  waiverWireActive: false,
+  waiverPool: [],
+  tradeOffers: [],
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -467,6 +475,43 @@ export function gameReducer(state, action) {
     /** Sets or clears the roster full alert (drafted player with no room). */
     case 'SET_ROSTER_FULL_ALERT': {
       return { ...state, rosterFullAlert: action.payload };
+    }
+
+    // ── V4 Quarterly Flow Actions ─────────────────────────────────
+
+    /** Opens training camp screen before Q1. */
+    case 'TRAINING_CAMP_OPEN': {
+      return { ...state, trainingCampActive: true, simming: false };
+    }
+
+    /** Closes training camp screen after focus is selected. */
+    case 'TRAINING_CAMP_CLOSE': {
+      return { ...state, trainingCampActive: false };
+    }
+
+    /** Sets the current quarter phase (0-4). */
+    case 'SET_QUARTER_PHASE': {
+      return { ...state, quarterPhase: action.payload };
+    }
+
+    /** Sets player events from rollPlayerEvents(). */
+    case 'SET_PLAYER_EVENTS': {
+      return { ...state, playerEvents: action.payload };
+    }
+
+    /** Opens waiver wire screen. */
+    case 'WAIVER_WIRE_OPEN': {
+      return { ...state, waiverWireActive: true, waiverPool: action.payload || [], simming: false };
+    }
+
+    /** Closes waiver wire screen. */
+    case 'WAIVER_WIRE_CLOSE': {
+      return { ...state, waiverWireActive: false, waiverPool: [] };
+    }
+
+    /** Sets trade offers for the trade deadline. */
+    case 'SET_TRADE_OFFERS': {
+      return { ...state, tradeOffers: action.payload || [] };
     }
 
     /**

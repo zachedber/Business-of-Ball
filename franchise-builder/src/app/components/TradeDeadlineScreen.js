@@ -17,14 +17,14 @@ import { calculateCapSpace, generateDeadlineFreeAgents, r1 } from '@/lib/engine'
  * @param {number}   cash            - Global liquid cash
  * @param {function} setCash         - Global cash setter
  */
-export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCash }) {
+export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCash, tradeOffers, onAcceptTrade, waiverPool, onSignWaiver }) {
   const [deadlineFAs] = useState(() => generateDeadlineFreeAgents(fr.league, 6));
   const [error, setError] = useState(null);
   const [released, setReleased] = useState([]);
 
   const cap = useMemo(() => calculateCapSpace(fr), [fr]);
-  const halfWins = fr.halfWins ?? 0;
-  const halfLosses = fr.halfLosses ?? 0;
+  const halfWins = fr.quarterWins ?? fr.halfWins ?? 0;
+  const halfLosses = fr.quarterLosses ?? fr.halfLosses ?? 0;
   const totalHalfGames = halfWins + halfLosses;
 
   /** Sign a free agent if cap space and cash allow */
@@ -239,6 +239,66 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
           </table>
         </div>
       </div>
+
+      {/* ── TRADE OFFERS ── */}
+      {tradeOffers && tradeOffers.length > 0 && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Trade Offers</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {tradeOffers.map(offer => (
+              <div key={offer.id} className="card" style={{ padding: '10px 14px', border: '1px solid var(--cream-darker)' }}>
+                <div className="font-display" style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: 4 }}>
+                  {offer.aiTeam.city} {offer.aiTeam.name} ({offer.aiTeam.wins}-{offer.aiTeam.losses})
+                </div>
+                <div className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
+                  {offer.type === 'buy' ? 'Wants' : 'Offers'}: {offer.playerWanted?.name || offer.playerOffered?.name || 'Draft pick swap'}
+                  {offer.draftCompensation?.length > 0 && ` + Round ${offer.draftCompensation[0].round} pick`}
+                  {offer.cashComponent > 0 && ` + $${offer.cashComponent}M cash`}
+                </div>
+                <div style={{ marginTop: 6 }}>
+                  <button
+                    className="btn-primary"
+                    style={{ fontSize: '0.72rem', marginRight: 6 }}
+                    onClick={() => onAcceptTrade && onAcceptTrade(offer)}
+                  >
+                    Accept
+                  </button>
+                  <span className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>
+                    or ignore
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── WAIVER WIRE ── */}
+      {waiverPool && waiverPool.length > 0 && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Waiver Wire</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {waiverPool.map(p => {
+              const hasSlot = !fr.star1 || !fr.star2 || !fr.corePiece;
+              return (
+                <div key={p.id} className="card" style={{ padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <div className="font-mono" style={{ fontSize: '0.78rem' }}>
+                    {p.name} · {p.position} · Age {p.age} · Rtg {p.rating} · ${p.salary}M
+                  </div>
+                  <button
+                    className={hasSlot ? 'btn-primary' : 'btn-secondary'}
+                    style={{ fontSize: '0.72rem', opacity: hasSlot ? 1 : 0.5 }}
+                    disabled={!hasSlot}
+                    onClick={() => onSignWaiver && onSignWaiver(p)}
+                  >
+                    {hasSlot ? 'Claim' : 'No Slot'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── FREE AGENT POOL ── */}
       <div className="card" style={{ marginBottom: 16 }}>
