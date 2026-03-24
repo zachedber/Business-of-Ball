@@ -77,7 +77,7 @@ export default function App() {
     newspaper, newspaperDismissed,
     cbaEvent, namingOffer, saveStatus, helpOpen, leagueHistory,
     rosterFullAlert,
-    trainingCampActive, quarterPhase, playerEvents,
+    trainingCampActive, quarterPhase, q1PauseActive, q3PauseActive, playerEvents,
     waiverWireActive, waiverPool, tradeOffers,
   } = state;
 
@@ -377,7 +377,7 @@ export default function App() {
     dispatch({ type: 'TRAINING_CAMP_OPEN' });
   }
 
-  /** Called when player picks a training camp focus area */
+  /** Called when player picks a training camp focus area — runs Q1 only, then pauses */
   async function handleTrainingCampDone(focus) {
     dispatch({ type: 'TRAINING_CAMP_CLOSE' });
     dispatch({ type: 'BEGIN_SIM' });
@@ -390,7 +390,7 @@ export default function App() {
 
     await new Promise(r => setTimeout(r, 300));
 
-    // Q1
+    // Q1 only
     const r1Result = simulateLeagueQuarter(lt, updatedFr, season, 1);
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: r1Result.leagueTeams });
     dispatch({ type: 'SET_FRANCHISE', payload: r1Result.franchises });
@@ -403,10 +403,19 @@ export default function App() {
       dispatch({ type: 'SET_PLAYER_EVENTS', payload: events1 });
     }
 
+    // Pause after Q1 — yield control back to React render cycle
+    dispatch({ type: 'Q1_PAUSE_OPEN' });
+  }
+
+  /** Called when player clicks "Start Q2" — runs Q2 and opens trade deadline */
+  async function handleStartQ2() {
+    dispatch({ type: 'Q1_PAUSE_CLOSE' });
+    dispatch({ type: 'BEGIN_SIM' });
+
     await new Promise(r => setTimeout(r, 200));
 
     // Q2
-    const r2Result = simulateLeagueQuarter(r1Result.leagueTeams, r1Result.franchises, season, 2);
+    const r2Result = simulateLeagueQuarter(lt, fr, season, 2);
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: r2Result.leagueTeams });
     dispatch({ type: 'SET_FRANCHISE', payload: r2Result.franchises });
     dispatch({ type: 'SET_QUARTER_PHASE', payload: 2 });
@@ -424,10 +433,9 @@ export default function App() {
     dispatch({ type: 'BEGIN_SIM' });
     dispatch({ type: 'TRADE_DEADLINE_CLOSE' });
     dispatch({ type: 'WAIVER_WIRE_CLOSE' });
-    const prevFranchise = fr[activeIdx];
     await new Promise(r => setTimeout(r, 300));
 
-    // Q3
+    // Q3 only
     const r3Result = simulateLeagueQuarter(tradeDeadlineLeague || lt, fr, season, 3);
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: r3Result.leagueTeams });
     dispatch({ type: 'SET_FRANCHISE', payload: r3Result.franchises });
@@ -440,10 +448,20 @@ export default function App() {
       dispatch({ type: 'SET_PLAYER_EVENTS', payload: [...(playerEvents || []), ...events3] });
     }
 
+    // Pause after Q3 for mid-quarter waiver/roster adjustments
+    dispatch({ type: 'Q3_PAUSE_OPEN' });
+  }
+
+  /** Called when player clicks "Start Q4" — runs Q4 and finishes season */
+  async function handleStartQ4() {
+    dispatch({ type: 'Q3_PAUSE_CLOSE' });
+    dispatch({ type: 'BEGIN_SIM' });
+    const prevFranchise = fr[activeIdx];
+
     await new Promise(r => setTimeout(r, 200));
 
     // Q4 (end of season)
-    const r4Result = simulateLeagueQuarter(r3Result.leagueTeams, r3Result.franchises, season, 4);
+    const r4Result = simulateLeagueQuarter(lt, fr, season, 4);
     const result = r4Result;
     const af = result.franchises[activeIdx];
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: result.leagueTeams });
@@ -887,6 +905,42 @@ export default function App() {
           />
         )}
 
+        {/* Q1 Pause — shown after Q1 simulation, before Q2 */}
+        {q1PauseActive && af && !trainingCampActive && (
+          <div style={{ maxWidth: 600, margin: '0 auto', padding: '16px 12px' }} className="fade-in">
+            <div className="card" style={{ padding: '20px', textAlign: 'center' }}>
+              <h3 className="font-display section-header" style={{ fontSize: '1rem', marginBottom: 8 }}>End of Q1</h3>
+              <div className="font-mono" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)', marginBottom: 4 }}>
+                Record: {af.wins ?? 0}–{af.losses ?? 0}
+              </div>
+              <p className="font-body" style={{ fontSize: '0.85rem', color: 'var(--ink-soft)', marginBottom: 16 }}>
+                Review your roster and player events before continuing to Q2.
+              </p>
+              <button className="btn-gold" style={{ padding: '12px 32px' }} onClick={handleStartQ2}>
+                Start Q2
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Q3 Pause — shown after Q3 simulation, before Q4 */}
+        {q3PauseActive && af && !tradeDeadlineActive && (
+          <div style={{ maxWidth: 600, margin: '0 auto', padding: '16px 12px' }} className="fade-in">
+            <div className="card" style={{ padding: '20px', textAlign: 'center' }}>
+              <h3 className="font-display section-header" style={{ fontSize: '1rem', marginBottom: 8 }}>End of Q3</h3>
+              <div className="font-mono" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)', marginBottom: 4 }}>
+                Record: {af.wins ?? 0}–{af.losses ?? 0}
+              </div>
+              <p className="font-body" style={{ fontSize: '0.85rem', color: 'var(--ink-soft)', marginBottom: 16 }}>
+                Final stretch — review your roster before the season finale.
+              </p>
+              <button className="btn-gold" style={{ padding: '12px 32px' }} onClick={handleStartQ4}>
+                Start Q4
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Trade deadline overrides the dashboard screen */}
         {tradeDeadlineActive && !playoffActive && af && (
           <TradeDeadlineScreen
@@ -897,10 +951,42 @@ export default function App() {
             setCash={newCash => dispatch({ type: 'SET_CASH', payload: newCash })}
             tradeOffers={tradeOffers}
             onAcceptTrade={(offer) => {
-              // Accept trade: add cash, handle player swap
-              if (offer.cashComponent > 0) {
-                const newCash = r1((af.cash || 0) + offer.cashComponent);
-                dispatch({ type: 'SET_CASH', payload: newCash });
+              setActiveFr(prev => {
+                let updated = { ...prev };
+
+                // Handle Buy Offers (AI wants your player)
+                if (offer.type === 'buy' && offer.playerWanted) {
+                  if (updated.star1?.id === offer.playerWanted.id) updated.star1 = null;
+                  else if (updated.star2?.id === offer.playerWanted.id) updated.star2 = null;
+                  else if (updated.corePiece?.id === offer.playerWanted.id) updated.corePiece = null;
+
+                  // Handle salary retention dead cap
+                  if (offer.salaryRetention > 0) {
+                    const retainedAmount = r1(offer.playerWanted.salary * 0.5);
+                    updated.deferredDeadCap = (updated.deferredDeadCap || 0) + retainedAmount;
+                  }
+                }
+
+                // Handle Sell Offers (AI offers you a player)
+                if (offer.type === 'sell' && offer.playerOffered) {
+                  const emptySlot = !updated.star1 ? 'star1' : !updated.star2 ? 'star2' : !updated.corePiece ? 'corePiece' : null;
+                  if (emptySlot) updated[emptySlot] = offer.playerOffered;
+                }
+
+                // Add draft picks to inventory
+                if (offer.draftCompensation?.length > 0) {
+                  updated.draftPickInventory = [...(updated.draftPickInventory || []), ...offer.draftCompensation];
+                }
+
+                // Update derived roster stats
+                updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
+                updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
+                return updated;
+              });
+
+              // Handle Cash Component
+              if (offer.cashComponent !== 0) {
+                dispatch({ type: 'SET_CASH', payload: r1((af.cash || 0) + offer.cashComponent) });
               }
               dispatch({ type: 'SET_TRADE_OFFERS', payload: tradeOffers.filter(o => o.id !== offer.id) });
             }}

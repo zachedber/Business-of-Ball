@@ -13,6 +13,7 @@ import {
 import { DEBT_INTEREST, STAFF_SALARIES } from '@/data/leagues';
 import { UPGRADE_COSTS } from '@/data/leagues';
 import { getContrastText } from '@/data/teamColors';
+import MathTooltip from '@/app/components/MathTooltip';
 import NotificationsPanel from '@/app/components/NotificationsPanel';
 import { Sparkline } from '@/app/components/AnalyticsScreen';
 import InfrastructureTab from '@/app/components/InfrastructureTab';
@@ -235,7 +236,12 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
         ].map(([label, value, color]) => (
           <div key={label} className="card" style={{ padding: '10px 12px', textAlign: 'center' }}>
             <div className="stat-label">{label}</div>
-            <div className="stat-value" style={{ fontSize: '1rem', color: color || 'var(--ink)' }}>{value}</div>
+            <div className="stat-value" style={{ fontSize: '1rem', color: color || 'var(--ink)' }}>
+              <MathTooltip
+                breakdown={fr.mathBreakdowns?.[label === 'Fan' ? 'fanRating' : label.toLowerCase()]}
+                label={label}
+              /> {!fr.mathBreakdowns?.[label === 'Fan' ? 'fanRating' : label.toLowerCase()] && value}
+            </div>
           </div>
         ))}
       </div>

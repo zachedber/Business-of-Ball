@@ -59,6 +59,8 @@ export const initialState = {
   // V4 quarterly flow
   trainingCampActive: false,
   quarterPhase: 0, // 0 = not simming, 1-4 = quarter completed
+  q1PauseActive: false, // Pause after Q1 for mid-quarter review
+  q3PauseActive: false, // Pause after Q3 for waiver/roster adjustments
   playerEvents: [],
   waiverWireActive: false,
   waiverPool: [],
@@ -512,6 +514,22 @@ export function gameReducer(state, action) {
     /** Sets trade offers for the trade deadline. */
     case 'SET_TRADE_OFFERS': {
       return { ...state, tradeOffers: action.payload || [] };
+    }
+
+    /** Pauses after Q1 simulation for mid-quarter review. */
+    case 'Q1_PAUSE_OPEN': {
+      return { ...state, q1PauseActive: true, simming: false };
+    }
+    case 'Q1_PAUSE_CLOSE': {
+      return { ...state, q1PauseActive: false };
+    }
+
+    /** Pauses after Q3 simulation for waiver/roster adjustments. */
+    case 'Q3_PAUSE_OPEN': {
+      return { ...state, q3PauseActive: true, simming: false };
+    }
+    case 'Q3_PAUSE_CLOSE': {
+      return { ...state, q3PauseActive: false };
     }
 
     /**
