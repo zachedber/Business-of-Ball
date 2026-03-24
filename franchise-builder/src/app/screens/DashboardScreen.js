@@ -11,6 +11,7 @@ import {
   r1,
 } from '@/lib/engine';
 import { DEBT_INTEREST, STAFF_SALARIES } from '@/data/leagues';
+import MathTooltip from '@/app/components/MathTooltip';
 import { UPGRADE_COSTS } from '@/data/leagues';
 import { getContrastText } from '@/data/teamColors';
 import NotificationsPanel from '@/app/components/NotificationsPanel';
@@ -226,16 +227,19 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
       )}
       <div className="stat-grid">
         {[
-          ['Fan', fr.fanRating, fr.fanRating > 65 ? 'var(--green)' : null],
-          ['Chem', fr.lockerRoomChemistry, fr.lockerRoomChemistry > 60 ? 'var(--green)' : 'var(--amber)'],
-          ['Media', fr.mediaRep],
-          ['Community', fr.communityRating],
-          ['Revenue', `$${fr.finances.revenue}M`, 'var(--green)'],
-          ['Profit', `$${fr.finances.profit}M`, fr.finances.profit > 0 ? 'var(--green)' : 'var(--red)'],
-        ].map(([label, value, color]) => (
+          ['Fan', fr.fanRating, fr.fanRating > 65 ? 'var(--green)' : null, 'fanRating'],
+          ['Chem', fr.lockerRoomChemistry, fr.lockerRoomChemistry > 60 ? 'var(--green)' : 'var(--amber)', 'lockerRoomChemistry'],
+          ['Media', fr.mediaRep, null, 'mediaRep'],
+          ['Community', fr.communityRating, null, 'communityRating'],
+          ['Revenue', `$${fr.finances.revenue}M`, 'var(--green)', 'revenue'],
+          ['Profit', `$${fr.finances.profit}M`, fr.finances.profit > 0 ? 'var(--green)' : 'var(--red)', null],
+        ].map(([label, value, color, breakdownKey]) => (
           <div key={label} className="card" style={{ padding: '10px 12px', textAlign: 'center' }}>
             <div className="stat-label">{label}</div>
             <div className="stat-value" style={{ fontSize: '1rem', color: color || 'var(--ink)' }}>{value}</div>
+            {breakdownKey && fr.mathBreakdowns?.[breakdownKey] && (
+              <MathTooltip breakdown={fr.mathBreakdowns[breakdownKey]} label={label} />
+            )}
           </div>
         ))}
       </div>

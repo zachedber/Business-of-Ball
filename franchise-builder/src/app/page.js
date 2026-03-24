@@ -401,12 +401,28 @@ export default function App() {
     const events1 = rollPlayerEvents({ ...af1 }, season, 1);
     if (events1.length > 0) {
       dispatch({ type: 'SET_PLAYER_EVENTS', payload: events1 });
+      // STOP here — events screen shown, user clicks "Continue" → handleAfterQ1Events
+      dispatch({ type: 'END_SIM' });
+      return;
     }
 
+    // No events → proceed directly to Q2
+    handleRunQ2(r1Result);
+  }
+
+  /** Called after user dismisses Q1 events */
+  function handleAfterQ1Events() {
+    dispatch({ type: 'SET_PLAYER_EVENTS', payload: [] });
+    dispatch({ type: 'BEGIN_SIM' });
+    handleRunQ2({ leagueTeams: lt, franchises: fr });
+  }
+
+  /** Run Q2 and open trade deadline */
+  async function handleRunQ2(prev) {
     await new Promise(r => setTimeout(r, 200));
 
     // Q2
-    const r2Result = simulateLeagueQuarter(r1Result.leagueTeams, r1Result.franchises, season, 2);
+    const r2Result = simulateLeagueQuarter(prev.leagueTeams, prev.franchises, season, 2);
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: r2Result.leagueTeams });
     dispatch({ type: 'SET_FRANCHISE', payload: r2Result.franchises });
     dispatch({ type: 'SET_QUARTER_PHASE', payload: 2 });
@@ -424,6 +440,7 @@ export default function App() {
     dispatch({ type: 'BEGIN_SIM' });
     dispatch({ type: 'TRADE_DEADLINE_CLOSE' });
     dispatch({ type: 'WAIVER_WIRE_CLOSE' });
+    dispatch({ type: 'SET_TRADE_OFFERS', payload: [] });
     const prevFranchise = fr[activeIdx];
     await new Promise(r => setTimeout(r, 300));
 
@@ -437,13 +454,30 @@ export default function App() {
     const af3 = r3Result.franchises[activeIdx];
     const events3 = rollPlayerEvents({ ...af3 }, season, 3);
     if (events3.length > 0) {
-      dispatch({ type: 'SET_PLAYER_EVENTS', payload: [...(playerEvents || []), ...events3] });
+      dispatch({ type: 'SET_PLAYER_EVENTS', payload: events3 });
+      // STOP here — events screen shown, user clicks "Continue" → handleAfterQ3Events
+      dispatch({ type: 'END_SIM' });
+      return;
     }
 
+    // No events → proceed directly to Q4
+    await handleRunQ4(r3Result, prevFranchise);
+  }
+
+  /** Called after user dismisses Q3 events */
+  function handleAfterQ3Events() {
+    dispatch({ type: 'SET_PLAYER_EVENTS', payload: [] });
+    dispatch({ type: 'BEGIN_SIM' });
+    const prevFranchise = fr[activeIdx];
+    handleRunQ4({ leagueTeams: lt, franchises: fr }, prevFranchise);
+  }
+
+  /** Run Q4 and trigger end-of-season */
+  async function handleRunQ4(prev, prevFranchise) {
     await new Promise(r => setTimeout(r, 200));
 
     // Q4 (end of season)
-    const r4Result = simulateLeagueQuarter(r3Result.leagueTeams, r3Result.franchises, season, 4);
+    const r4Result = simulateLeagueQuarter(prev.leagueTeams, prev.franchises, season, 4);
     const result = r4Result;
     const af = result.franchises[activeIdx];
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: result.leagueTeams });
@@ -816,10 +850,12 @@ export default function App() {
           />
         )}
 
-        {/* Player events — shown after Q1 and Q3 */}
-        {playerEvents && playerEvents.length > 0 && !trainingCampActive && !tradeDeadlineActive && !waiverWireActive && (
+        {/* Player events — shown after Q1 and Q3 with continue button */}
+        {playerEvents && playerEvents.length > 0 && !trainingCampActive && !tradeDeadlineActive && !waiverWireActive && !simming && !draftActive && !playoffActive && !freeAgencyActive && !slotDecisionActive && (
           <div style={{ maxWidth: 600, margin: '0 auto', padding: '16px 12px' }}>
-            <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Player Events</h3>
+            <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>
+              {quarterPhase === 1 ? 'Q1 Events' : quarterPhase === 3 ? 'Q3 Events' : 'Player Events'}
+            </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {playerEvents.map((evt, i) => (
                 <EventNotificationCard
@@ -829,6 +865,15 @@ export default function App() {
                   description={evt.description}
                 />
               ))}
+            </div>
+            <div style={{ textAlign: 'center', marginTop: 16 }}>
+              <button
+                className="btn-gold"
+                style={{ padding: '12px 32px', fontSize: '0.9rem' }}
+                onClick={quarterPhase === 1 ? handleAfterQ1Events : handleAfterQ3Events}
+              >
+                {quarterPhase === 1 ? 'Continue to Mid-Season' : 'Continue to Season Finale'}
+              </button>
             </div>
           </div>
         )}
@@ -897,7 +942,33 @@ export default function App() {
             setCash={newCash => dispatch({ type: 'SET_CASH', payload: newCash })}
             tradeOffers={tradeOffers}
             onAcceptTrade={(offer) => {
-              // Accept trade: add cash, handle player swap
+              // Accept trade: swap players, add cash, handle salary
+              setActiveFr(prev => {
+                let updated = { ...prev, players: [...prev.players] };
+
+                // "buy" offer: AI wants our player, gives us theirs + cash/picks
+                if (offer.type === 'buy' && offer.playerWanted) {
+                  updated.players = updated.players.filter(p => p.id !== offer.playerWanted.id);
+                  if (offer.playerOffered) {
+                    const incoming = { ...offer.playerOffered, seasonsWithTeam: 0 };
+                    updated.players.push(incoming);
+                  }
+                }
+                // "sell" offer: AI offers us a player, wants cash/picks
+                if (offer.type === 'sell' && offer.playerOffered) {
+                  const incoming = { ...offer.playerOffered, seasonsWithTeam: 0 };
+                  updated.players.push(incoming);
+                }
+
+                updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
+                updated.rosterQuality = Math.round(updated.players.reduce((s, p) => s + p.rating, 0) / Math.max(1, updated.players.length));
+
+                // Apply cash component
+                const cashDelta = (offer.cashComponent || 0) - (offer.type === 'sell' ? (offer.playerOffered?.salary || 0) * 0.1 : 0);
+                updated.cash = r1((updated.cash || 0) + cashDelta);
+                return updated;
+              });
+
               if (offer.cashComponent > 0) {
                 const newCash = r1((af.cash || 0) + offer.cashComponent);
                 dispatch({ type: 'SET_CASH', payload: newCash });

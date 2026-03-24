@@ -334,7 +334,7 @@ export function gameReducer(state, action) {
 
     /** Closes trade deadline UI. */
     case 'TRADE_DEADLINE_CLOSE': {
-      return { ...state, tradeDeadlineActive: false };
+      return { ...state, tradeDeadlineActive: false, tradeOffers: [] };
     }
 
     /** Opens playoff bracket UI, clears simming. */
