@@ -514,9 +514,9 @@ export function gameReducer(state, action) {
       return { ...state, waiverWireActive: false, waiverPool: [] };
     }
 
-    /** Replaces the draftProspects array. */
+    /** Replaces the draftProspects array (safety net — not called during active draft flow). */
     case 'SET_DRAFT_PROSPECTS': {
-      return { ...state, draftProspects: action.payload };
+      return { ...state, draftProspects: Array.isArray(action.payload) ? action.payload : state.draftProspects };
     }
 
     /** Sets trade offers for the trade deadline. */

@@ -291,8 +291,10 @@ export default function App() {
   // ── Draft handlers ───────────────────────────────────────────
   function handleDraftPickMade(player, usedPick) {
     if (!player) return;
-    // Remove the picked prospect from the draft pool
-    dispatch({ type: 'SET_DRAFT_PROSPECTS', payload: draftProspects.filter(p => p.id !== player.id) });
+    // NOTE: Do NOT dispatch SET_DRAFT_PROSPECTS here — DraftFlowScreen already
+    // removes the prospect locally in handlePick via setAvailableProspects.
+    // Dispatching here would update the draftProspects prop, triggering the
+    // useEffect in DraftFlowScreen that resets all local state (reset loop).
     dispatch({
       type: 'SET_FRANCHISE',
       payload: prev => {
@@ -307,7 +309,7 @@ export default function App() {
               taxiSquad: f.taxiSquad || [],
               players: f.players || [],
             };
-            const draftedPlayer = { ...player, isRookie: true, draftRound: usedPick?.round, draftPick: usedPick?.pick, seasonsOnTaxi: 0 };
+            const draftedPlayer = { ...player, isRookie: true, draftRound: usedPick?.round, draftPick: usedPick?.pickPos ?? usedPick?.pick, seasonsOnTaxi: 0 };
             const taxi = [...updated.taxiSquad];
             if (taxi.length < 4) {
               // Route to taxi squad (max 4)
