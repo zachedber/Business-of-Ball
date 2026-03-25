@@ -68,15 +68,15 @@ export default function SlotDecisionScreen({ fr, setFr, onDone }) {
     ...depthCandidates.sort((a, b) => (b.rating || 0) - (a.rating || 0)),
   ];
 
-  // If nothing to decide, fire onDone immediately
+  // Track which slots have been resolved
+  const [resolved, setResolved] = useState({});
+
+  // If nothing to decide (on mount or after all promotions filled every slot), proceed
   useEffect(() => {
     if (vacantSlots.length === 0 || candidates.length === 0) {
       onDone();
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Track which slots have been resolved
-  const [resolved, setResolved] = useState({});
+  }, [vacantSlots.length, candidates.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (vacantSlots.length === 0 || candidates.length === 0) {
     return null;
