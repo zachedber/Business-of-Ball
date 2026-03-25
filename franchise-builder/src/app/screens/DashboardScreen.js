@@ -17,8 +17,10 @@ import MathTooltip from '@/app/components/MathTooltip';
 import NotificationsPanel from '@/app/components/NotificationsPanel';
 import { Sparkline } from '@/app/components/AnalyticsScreen';
 import InfrastructureTab from '@/app/components/InfrastructureTab';
+import { FacilitiesSection } from '@/app/components/InfrastructureTab';
+import StadiumManagementSection from '@/app/components/StadiumManagementSection';
 import StaffTab from '@/app/components/StaffTab';
-import { MiniChart } from '@/app/components/SharedComponents';
+import { MiniChart, RATING_TOOLTIP } from '@/app/components/SharedComponents';
 import TutorialOverlay from '@/app/components/TutorialOverlay';
 import { Home, Users, Brain, Briefcase, Building2, CreditCard, Trophy, BookOpen } from 'lucide-react';
 
@@ -32,7 +34,7 @@ function hexToRgba(hex, alpha) {
 // ============================================================
 // DASHBOARD
 // ============================================================
-export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve, pressConf, onPressConf, newspaper, newspaperDismissed, onDismissNewspaper, cbaEvent, onCBA, namingOffer, onNaming, gmRep, notifications, onDismissNotif, onCashChange, leagueHistory, offseasonFAPool }) {
+export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve, pressConf, onPressConf, newspaper, newspaperDismissed, onDismissNewspaper, cbaEvent, onCBA, namingOffer, onNaming, gmRep, notifications, onDismissNotif, onCashChange, leagueHistory, offseasonFAPool, quarterPhase }) {
   const [tab, setTab] = useState('home');
   const [showTutorial, setShowTutorial] = useState(false);
   const cap = useMemo(() => calculateCapSpace(fr), [fr]);
@@ -88,18 +90,19 @@ export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, eve
         </div>
       </div>
       <div className="tab-nav" style={{ marginBottom: 12 }}>
-        {[['home', 'Home', Home], ['slots', 'Slots', Users], ['staff', 'Coach', Brain], ['biz', 'Biz', Briefcase], ['infra', 'Facilities', Building2], ['finance', 'Finance', CreditCard], ['legacy', 'Legacy', Trophy], ['history', 'History', BookOpen]].map(([key, label, Icon]) => (
+        {[['home', 'Home', Home], ['slots', 'Slots', Users], ['staff', 'Coach', Brain], ['biz', 'Biz', Briefcase], ['stadium', 'Stadium', Building2], ['facilities', 'Facilities', Building2], ['finance', 'Finance', CreditCard], ['legacy', 'Legacy', Trophy], ['history', 'History', BookOpen]].map(([key, label, Icon]) => (
           <button key={key} className={`tab-btn ${tab === key ? 'active' : ''}`} onClick={() => setTab(key)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <Icon size={14} />
             {label}
           </button>
         ))}
       </div>
-      {tab === 'home' && <HomeTab fr={fr} onSim={onSim} simming={simming} recap={recap} grade={grade} events={events} onResolve={onResolve} pressConf={pressConf} onPressConf={onPressConf} newspaper={newspaper} newspaperDismissed={newspaperDismissed} onDismissNewspaper={onDismissNewspaper} cbaEvent={cbaEvent} onCBA={onCBA} namingOffer={namingOffer} onNaming={onNaming} notifications={notifications} onDismissNotif={onDismissNotif} />}
+      {tab === 'home' && <HomeTab fr={fr} onSim={onSim} simming={simming} recap={recap} grade={grade} events={events} onResolve={onResolve} pressConf={pressConf} onPressConf={onPressConf} newspaper={newspaper} newspaperDismissed={newspaperDismissed} onDismissNewspaper={onDismissNewspaper} cbaEvent={cbaEvent} onCBA={onCBA} namingOffer={namingOffer} onNaming={onNaming} notifications={notifications} onDismissNotif={onDismissNotif} quarterPhase={quarterPhase} />}
       {tab === 'slots' && <SlotsTab fr={fr} setFr={setFr} gmRep={gmRep} offseasonFAPool={offseasonFAPool} />}
       {tab === 'staff' && <StaffTab fr={fr} setFr={setFr} gmRep={gmRep} />}
       {tab === 'biz' && <BizTab fr={fr} setFr={setFr} />}
-      {tab === 'infra' && <InfrastructureTab fr={fr} setFr={setFr} season={fr.season || 1} onCashChange={onCashChange} />}
+      {tab === 'stadium' && <div className="fade-in"><StadiumManagementSection fr={fr} setFr={setFr} season={fr.season || 1} /></div>}
+      {tab === 'facilities' && <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}><FacilitiesSection fr={fr} setFr={setFr} onCashChange={onCashChange} /></div>}
       {tab === 'finance' && <DashFinanceTab fr={fr} />}
       {tab === 'legacy' && <LegacyTab fr={fr} leagueHistory={leagueHistory} />}
       {tab === 'history' && <HistTab fr={fr} />}
@@ -111,7 +114,7 @@ export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, eve
 // ============================================================
 // HOME TAB
 // ============================================================
-function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressConf, onPressConf, newspaper, newspaperDismissed, onDismissNewspaper, cbaEvent, onCBA, namingOffer, onNaming, notifications, onDismissNotif }) {
+function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressConf, onPressConf, newspaper, newspaperDismissed, onDismissNewspaper, cbaEvent, onCBA, namingOffer, onNaming, notifications, onDismissNotif, quarterPhase }) {
   const unresolvedEvents = events.filter(e => !e.resolved);
   const simBlocked = simming || unresolvedEvents.length > 0 || (pressConf && pressConf.length > 0) || cbaEvent || (newspaper && !newspaperDismissed);
   const simReady = !simBlocked && !simming;
@@ -270,15 +273,17 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
           {fr.economyCycle === 'boom' ? 'City Economy: BOOM — Revenue boosted' : 'City Economy: RECESSION — Revenue reduced'}
         </div>
       )}
-      <div style={{ textAlign: 'center', marginTop: 6 }}>
-        <button
-          className={`btn-gold simulate-cta ${simReady ? 'ready' : ''}`}
-          onClick={onSim}
-          disabled={simBlocked}
-        >
-          {simming ? 'Simulating...' : newspaper && !newspaperDismissed ? 'Read Newspaper First' : unresolvedEvents.length > 0 || pressConf?.length > 0 || cbaEvent ? 'Resolve All Events' : 'Simulate Season'}
-        </button>
-      </div>
+      {(quarterPhase || 0) === 0 && (
+        <div style={{ textAlign: 'center', marginTop: 6 }}>
+          <button
+            className={`btn-gold simulate-cta ${simReady ? 'ready' : ''}`}
+            onClick={onSim}
+            disabled={simBlocked}
+          >
+            {simming ? 'Simulating...' : newspaper && !newspaperDismissed ? 'Read Newspaper First' : unresolvedEvents.length > 0 || pressConf?.length > 0 || cbaEvent ? 'Resolve All Events' : 'Simulate Season'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -351,7 +356,7 @@ function SlotsTab({ fr, setFr, gmRep, offseasonFAPool: frozenPool }) {
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
                     <div>
                       <span className="stat-label" style={{ fontSize: '0.7rem' }}>Rating</span>
-                      <div className="font-display" style={{ fontSize: '1.2rem', fontWeight: 700, color: (player.rating || 0) >= 85 ? 'var(--green)' : (player.rating || 0) >= 70 ? 'var(--amber)' : 'var(--ink)' }}>{player.rating || 0}</div>
+                      <div className="font-display" title={RATING_TOOLTIP} style={{ fontSize: '1.2rem', fontWeight: 700, cursor: 'help', color: (player.rating || 0) >= 85 ? 'var(--green)' : (player.rating || 0) >= 70 ? 'var(--amber)' : 'var(--ink)' }}>{player.rating || 0}</div>
                     </div>
                     <div>
                       <span className="stat-label" style={{ fontSize: '0.7rem' }}>Salary</span>
@@ -427,7 +432,7 @@ function SlotsTab({ fr, setFr, gmRep, offseasonFAPool: frozenPool }) {
                       <td className="font-body" style={{ padding: '6px 8px', fontWeight: 500 }}>{p.name}</td>
                       <td className="font-mono" style={{ padding: '6px 8px' }}>{p.position}</td>
                       <td className="font-mono" style={{ padding: '6px 8px' }}>{p.age}</td>
-                      <td className="font-mono" style={{ padding: '6px 8px', fontWeight: 600, color: p.rating >= 85 ? 'var(--green)' : p.rating >= 70 ? 'var(--ink)' : 'var(--ink-muted)' }}>{p.rating}</td>
+                      <td className="font-mono" title={RATING_TOOLTIP} style={{ padding: '6px 8px', fontWeight: 600, cursor: 'help', color: p.rating >= 85 ? 'var(--green)' : p.rating >= 70 ? 'var(--ink)' : 'var(--ink-muted)' }}>{p.rating}</td>
                       <td className="font-mono" style={{ padding: '6px 8px' }}>${p.salary}M</td>
                       <td>{p.trait && <span className="badge badge-ink">{p.trait}</span>}</td>
                       <td style={{ padding: '6px 8px' }}>

@@ -555,12 +555,37 @@ export function simQuarter(f, season, quarter) {
   }
 
   // Injury WP impact
+  let injuryPenalty = 0;
   f.players.forEach(p => {
     if (!p.injured) return;
-    if (p.injurySeverity === 'minor') wp -= 0.02;
-    else if (p.injurySeverity === 'moderate') wp -= 0.04;
-    else if (p.injurySeverity === 'severe') wp -= 0.07;
+    if (p.injurySeverity === 'minor') injuryPenalty += 0.02;
+    else if (p.injurySeverity === 'moderate') injuryPenalty += 0.04;
+    else if (p.injurySeverity === 'severe') injuryPenalty += 0.07;
   });
+
+  // Taxi squad coverage: reduce injury penalty if taxi players can fill in
+  f.taxiCovering = [];
+  const taxi = f.taxiSquad || [];
+  if (taxi.length > 0 && injuryPenalty > 0) {
+    const slots = ['star1', 'star2', 'corePiece'];
+    for (const slotKey of slots) {
+      const slotPlayer = f[slotKey];
+      if (slotPlayer && slotPlayer.injured && (slotPlayer.injurySeverity === 'moderate' || slotPlayer.injurySeverity === 'severe')) {
+        // Find the best available taxi player
+        const bestTaxi = [...taxi]
+          .filter(tp => !f.taxiCovering.some(tc => tc.playerId === tp.id))
+          .sort((a, b) => (b.rating || 0) - (a.rating || 0))[0];
+        if (bestTaxi) {
+          // Reduce penalty by 50% for this slot
+          const slotPenalty = slotPlayer.injurySeverity === 'moderate' ? 0.04 : 0.07;
+          injuryPenalty -= slotPenalty * 0.5;
+          f.taxiCovering.push({ playerId: bestTaxi.id, playerName: bestTaxi.name, covering: slotKey, forPlayer: slotPlayer.name });
+        }
+      }
+    }
+  }
+
+  wp -= Math.max(0, injuryPenalty);
   wp = clamp(wp, 0.05, 0.80);
 
   // ── SIMULATE GAMES ───────────────────────────────────────────────

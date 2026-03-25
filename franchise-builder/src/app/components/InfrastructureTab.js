@@ -24,7 +24,7 @@ export default function InfrastructureTab({ fr, setFr, season, onCashChange }) {
 }
 
 // --- Facilities Section ---
-function FacilitiesSection({ fr, setFr, onCashChange }) {
+export function FacilitiesSection({ fr, setFr, onCashChange }) {
   function upgrade(field) {
     const current = fr[field];
     if (current >= 3) return;

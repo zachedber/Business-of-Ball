@@ -1,6 +1,7 @@
 'use client';
 import { useState, useMemo, useEffect } from 'react';
 import { draftPlayer, generateDraftProspects } from '@/lib/engine';
+import { RATING_TOOLTIP } from '@/app/components/SharedComponents';
 
 // ============================================================
 // DRAFT FLOW SCREEN
@@ -140,7 +141,7 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
                       <td className="font-mono" style={{ padding: '6px 8px', fontWeight: 600 }}>{i + 1}</td>
                       <td className="font-body" style={{ padding: '6px 8px', fontWeight: 500 }}>{p.name}</td>
                       <td className="font-mono" style={{ padding: '6px 8px' }}>{p.position}</td>
-                      <td className="font-mono" style={{ padding: '6px 8px', fontWeight: 600, color: (p.projectedRange ? p.projectedRange.high : p.projectedRating) >= 75 ? 'var(--green)' : 'var(--ink)' }}>
+                      <td className="font-mono" title={RATING_TOOLTIP} style={{ padding: '6px 8px', fontWeight: 600, cursor: 'help', color: (p.projectedRange ? p.projectedRange.high : p.projectedRating) >= 75 ? 'var(--green)' : 'var(--ink)' }}>
                         {p.projectedRange ? `${p.projectedRange.low}–${p.projectedRange.high}` : p.projectedRating}
                       </td>
                       <td><span className={`badge ${p.upside === 'high' ? 'badge-green' : p.upside === 'mid' ? 'badge-amber' : 'badge-ink'}`}>{p.upside}</span></td>
@@ -173,7 +174,7 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
               <span className="font-body" style={{ fontSize: '0.85rem' }}>
                 R{p.round} P{p.pick} — {p.name} ({p.position})
               </span>
-              <span className="font-mono" style={{ fontSize: '0.75rem', color: p.rating >= 75 ? 'var(--green)' : 'var(--ink-muted)' }}>
+              <span className="font-mono" title={RATING_TOOLTIP} style={{ fontSize: '0.75rem', color: p.rating >= 75 ? 'var(--green)' : 'var(--ink-muted)', cursor: 'help' }}>
                 {p.rating} rtg
               </span>
             </div>

@@ -17,15 +17,24 @@ export default function MarketScreen({ lt, cash, stakes, season, setStakes, setC
   function buyStake(offer) {
     if (cash < offer.price) return;
     if (stakes.length >= 3) return; // Phase 3: max 3 stakes
-    setCash(c => r1(c - offer.price)); // Round stake purchases before syncing top-level and franchise cash.
-    setStakes(prev => [...prev, { id: generateId(), teamId: offer.teamId, teamName: offer.teamName, league: offer.league, stakePct: offer.stakePct, purchasePrice: offer.price, purchaseSeason: season }]);
+    const newStake = {
+      id: generateId(),
+      teamId: offer.teamId,
+      teamName: offer.teamName,
+      league: offer.league,
+      stakePct: offer.stakePct,
+      purchasePrice: offer.price,
+      purchaseSeason: season,
+    };
+    setCash(r1(cash - offer.price));
+    setStakes([...stakes, newStake]);
     setOffers(prev => prev.filter(x => x.id !== offer.id));
   }
 
   function sellStake(stake) {
     const sellPrice = calcStakeValue(stake, lt || { ngl: [], abl: [] });
-    setCash(c => r1(c + sellPrice)); // Round stake sales before syncing top-level and franchise cash.
-    setStakes(prev => prev.filter(s => s.id !== stake.id));
+    setCash(r1(cash + sellPrice));
+    setStakes(stakes.filter(s => s.id !== stake.id));
   }
 
   return (

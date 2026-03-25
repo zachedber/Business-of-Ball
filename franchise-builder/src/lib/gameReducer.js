@@ -294,9 +294,12 @@ export function gameReducer(state, action) {
       return { ...state, season: action.payload };
     }
 
-    /** Replaces the stakes array. */
+    /** Replaces the stakes array. Safety net: resolves functional updaters. */
     case 'SET_STAKES': {
-      return { ...state, stakes: action.payload };
+      const next = typeof action.payload === 'function'
+        ? action.payload(state.stakes)
+        : action.payload;
+      return { ...state, stakes: Array.isArray(next) ? next : state.stakes };
     }
 
     /** Replaces the freeAg pool. */
@@ -509,6 +512,11 @@ export function gameReducer(state, action) {
     /** Closes waiver wire screen. */
     case 'WAIVER_WIRE_CLOSE': {
       return { ...state, waiverWireActive: false, waiverPool: [] };
+    }
+
+    /** Replaces the draftProspects array. */
+    case 'SET_DRAFT_PROSPECTS': {
+      return { ...state, draftProspects: action.payload };
     }
 
     /** Sets trade offers for the trade deadline. */

@@ -805,9 +805,10 @@ export function generateExtensionDemands(f, gmRep) {
   ];
   for (const { key, label } of slots) {
     const p = f[key];
-    // yearsLeft === 1 check: this runs BEFORE endOfSeasonAging decrements yearsLeft,
-    // so yearsLeft === 1 here means the player is entering their final contract year.
-    if (!p || p.yearsLeft !== 1) continue;
+    // Check yearsLeft <= 1: after endOfSeasonAging has decremented yearsLeft,
+    // yearsLeft === 1 means entering their final contract year, and
+    // yearsLeft === 0 means contract just expired (player may leave).
+    if (!p || p.yearsLeft > 1) continue;
 
     // Extension cost: 10-25% salary increase
     let extMult = 1.10 + (p.rating / 100) * 0.15; // 10-25% increase
