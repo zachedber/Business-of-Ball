@@ -2,46 +2,35 @@
 import { useReducer, useEffect, useCallback, useRef } from 'react';
 import {
   initializeLeague, createPlayerFranchise,
-  simulateFullSeasonFirstHalf, simulateFullSeasonSecondHalf,
   simulateLeagueQuarter,
   generateDraftProspects, generateFreeAgents,
-  calculateValuation, clamp, generateId,
+  clamp,
   genPressConference, calcStakeIncome,
-  maxLoan, takeLoan, repayDebt,
-  getGMTier,
   generateNamingRightsOffer, acceptNamingRights,
   generateCBAEvent, generateNewspaper,
   generateNotifications, updateGMReputation,
-  signToSlot, releaseSlot,
-  getFranchiseAskingPrice, getFranchiseFlavor,
   generateDraftPickPositions,
   generateOffseasonFAPool,
   simulatePlayoffs, simulateAIFreeAgency,
   generateExtensionDemands, applyExtension, checkPressureEvent,
   generateNewStadiumNamingRightsOffer,
-  initLeagueHistory, addChampion, checkNotableSeasons,
+  addChampion, checkNotableSeasons,
   initFranchiseRecords, updateFranchiseRecords, evaluateHallOfFame,
   initHeadToHead, updateHeadToHead, initRivalry, updateRivalry,
   initDraftPickInventory,
-  formatMoney, generateTVDealEvent, formatLabel, r1,
+  generateTVDealEvent, r1,
 } from '@/lib/engine';
 import { rollPlayerEvents } from '@/lib/events';
 import { generateTradeOffers, generateWaiverWire, generateDraftTradeUpOffers } from '@/lib/tradeAI';
-import {
-  NGL_TEAMS, ABL_TEAMS, MARKET_TIERS, getMarketTier, getMarketTierInfo,
-  UPGRADE_COSTS, STARTING_CASH,
-} from '@/data/leagues';
 import { saveGame, loadGame, deleteSave } from '@/lib/storage';
 import {
   generateSeasonRecap, generateGMGrade, generateDynastyNarrative,
-  generateOffseasonEvents, setNarrativeApiKey, hasNarrativeApi,
+  generateOffseasonEvents, setNarrativeApiKey,
 } from '@/lib/narrative';
 import { gameReducer, initialState } from '@/lib/gameReducer';
 import TradeDeadlineScreen from '@/app/components/TradeDeadlineScreen';
 import TrainingCampScreen from '@/app/components/TrainingCampScreen';
 import EventNotificationCard from '@/app/components/EventNotificationCard';
-import WaiverWireScreen from '@/app/components/WaiverWireScreen';
-import MathTooltip from '@/app/components/MathTooltip';
 import AnalyticsScreen from '@/app/components/AnalyticsScreen';
 import HelpPanel from '@/app/components/HelpPanel';
 import { Ticker, Nav } from '@/app/components/SharedComponents';
@@ -159,12 +148,21 @@ export default function App() {
     if (fr.length > 0 && lt) dispatch({ type: 'SET_SCREEN', payload: 'dashboard' });
   }
 
-  function handleCreate(template, league) {
+  async function handleCreate(template, league) {
     const newFr = createPlayerFranchise(template, league);
     const newFrArray = [...fr, newFr];
     const newLt = { ...lt, [league]: lt[league].map(t => t.id === template.id ? { ...t, isPlayerOwned: true } : t) };
-    dispatch({ type: 'SET_FRANCHISE', payload: newFrArray });
-    dispatch({ type: 'SET_LEAGUE_TEAMS', payload: newLt });
+    const initialEvents = await generateOffseasonEvents(newFr);
+    dispatch({
+      type: 'CREATE_FRANCHISE',
+      payload: {
+        lt: newLt,
+        frArray: newFrArray,
+        cash: newFr.cash || 0,
+        events: initialEvents.map(e => ({ ...e, resolved: false })),
+        freeAg: freeAg,
+      },
+    });
     dispatch({ type: 'SET_SCREEN', payload: 'dashboard' });
   }
 
