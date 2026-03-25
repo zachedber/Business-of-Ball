@@ -42,7 +42,7 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
     const usedPick = remainingPicks[0];
     const player = draftPlayer(prospect, fr.league);
     if (!player) return;
-    setPickedPlayers(prev => [...prev, { ...player, round: usedPick.round, pick: usedPick.pick }]);
+    setPickedPlayers(prev => [...prev, { ...player, round: usedPick.round, pick: usedPick.pickPos ?? usedPick.pick }]);
     setRemainingPicks(prev => prev.slice(1));
     setAvailableProspects(prev => prev.filter(p => p.id !== prospect.id)); // Bugfix: drafted prospects are now removed immediately so they cannot be selected twice.
     onPickMade(player, usedPick);
