@@ -310,21 +310,9 @@ export default function App() {
               players: f.players || [],
             };
             const draftedPlayer = { ...player, isRookie: true, draftRound: usedPick?.round, draftPick: usedPick?.pickPos ?? usedPick?.pick, seasonsOnTaxi: 0 };
-            const taxi = [...updated.taxiSquad];
-            if (taxi.length < 4) {
-              // Route to taxi squad (max 4)
-              taxi.push(draftedPlayer);
-              return { ...updated, taxiSquad: taxi };
-            }
-            // Overflow: taxi squad full, route to rookieSlots
-            const rookies = [...updated.rookieSlots];
-            if (rookies.length < 3) {
-              rookies.push(draftedPlayer);
-              return { ...updated, rookieSlots: rookies };
-            }
-            // All slots full — signal roster full alert instead of silently discarding
-            setTimeout(() => dispatch({ type: 'SET_ROSTER_FULL_ALERT', payload: draftedPlayer }), 0);
-            return updated;
+            // Always route draft picks to the taxi squad
+            const taxi = [...updated.taxiSquad, draftedPlayer];
+            return { ...updated, taxiSquad: taxi };
           });
         } catch (e) {
           console.error('handleDraftPickMade error:', e);

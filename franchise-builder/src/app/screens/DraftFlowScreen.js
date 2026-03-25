@@ -38,13 +38,20 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
   const allPicksDone = remainingPicks.length === 0;
 
   function handlePick(prospect) {
-    if (remainingPicks.length === 0 || !prospect) return; // Bugfix: the draft flow now stops cleanly when no picks remain on the board.
+    if (remainingPicks.length === 0 || !prospect) return;
     const usedPick = remainingPicks[0];
+    const nextPick = remainingPicks[1]; // the pick after this one (if any)
     const player = draftPlayer(prospect, fr.league);
     if (!player) return;
     setPickedPlayers(prev => [...prev, { ...player, round: usedPick.round, pick: usedPick.pickPos ?? usedPick.pick }]);
     setRemainingPicks(prev => prev.slice(1));
-    setAvailableProspects(prev => prev.filter(p => p.id !== prospect.id)); // Bugfix: drafted prospects are now removed immediately so they cannot be selected twice.
+    // If the next pick is a different round, clear prospects so the useEffect
+    // regenerates a fresh (lesser-caliber) board for the new round.
+    if (nextPick && nextPick.round !== usedPick.round) {
+      setAvailableProspects([]);
+    } else {
+      setAvailableProspects(prev => prev.filter(p => p.id !== prospect.id));
+    }
     onPickMade(player, usedPick);
   }
 
@@ -74,7 +81,7 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
               return (
                 <div key={i} style={{ padding: '8px 12px', borderRadius: 2, background: isNext ? 'var(--red)' : used ? 'var(--cream-darker)' : 'var(--cream-dark)', color: isNext ? '#fff' : 'var(--ink)', minWidth: 80, textAlign: 'center' }}>
                   <div className="font-mono" style={{ fontSize: '0.7rem', fontWeight: 700 }}>Round {p.round}</div>
-                  <div className="font-mono" style={{ fontSize: '0.75rem' }}>Pick #{p.pick}</div>
+                  <div className="font-mono" style={{ fontSize: '0.75rem' }}>Pick #{p.pickPos ?? p.pick}</div>
                   {p.aiPicksBefore > 0 && <div className="font-mono" style={{ fontSize: '0.7rem', marginTop: 2, opacity: 0.7 }}>{p.aiPicksBefore} before</div>}
                 </div>
               );
