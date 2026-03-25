@@ -336,6 +336,12 @@ export default function App() {
 
   function handleDraftDone() {
     const af = fr[activeIdx];
+    if (!af) {
+      console.error('handleDraftDone: no active franchise');
+      dispatch({ type: 'DRAFT_CLOSE' });
+      dispatch({ type: 'SET_SCREEN', payload: 'dashboard' });
+      return;
+    }
 
     // FA pool lock (1.2): only generate once per offseason; reuse if already populated
     let playerPool, aiSigned;
@@ -938,8 +944,22 @@ export default function App() {
             onDismissRosterAlert={() => dispatch({ type: 'SET_ROSTER_FULL_ALERT', payload: null })}
             tradeUpOffers={tradeOffers}
             onAcceptTradeUp={(offer) => {
-              const newCash = cash + (offer.cashComponent || 0);
-              dispatch({ type: 'SET_CASH', payload: newCash });
+              // Add cash component
+              if (offer.cashComponent) {
+                const newCash = cash + (offer.cashComponent || 0);
+                dispatch({ type: 'SET_CASH', payload: newCash });
+              }
+              // Add draft compensation picks to franchise inventory
+              if (offer.draftCompensation?.length > 0) {
+                dispatch({
+                  type: 'SET_FRANCHISE',
+                  payload: prev => prev.map((f, i) => i === activeIdx ? {
+                    ...f,
+                    draftPickInventory: [...(f.draftPickInventory || []), ...offer.draftCompensation],
+                  } : f),
+                });
+              }
+              // Remove offer from list
               dispatch({ type: 'SET_TRADE_OFFERS', payload: tradeOffers.filter(o => o.id !== offer.id) });
             }}
           />
