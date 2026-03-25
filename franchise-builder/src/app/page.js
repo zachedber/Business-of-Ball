@@ -291,6 +291,8 @@ export default function App() {
   // ── Draft handlers ───────────────────────────────────────────
   function handleDraftPickMade(player, usedPick) {
     if (!player) return;
+    // Remove the picked prospect from the draft pool
+    dispatch({ type: 'SET_DRAFT_PROSPECTS', payload: draftProspects.filter(p => p.id !== player.id) });
     dispatch({
       type: 'SET_FRANCHISE',
       payload: prev => {
@@ -363,6 +365,7 @@ export default function App() {
 
   function handleFreeAgencyDone() {
     dispatch({ type: 'FA_CLOSE' });
+    dispatch({ type: 'SET_QUARTER_PHASE', payload: 0 });
     dispatch({ type: 'SET_SCREEN', payload: 'dashboard' });
   }
 
@@ -382,11 +385,15 @@ export default function App() {
     dispatch({ type: 'TRAINING_CAMP_CLOSE' });
     dispatch({ type: 'BEGIN_SIM' });
 
-    // Set training camp focus on franchise
+    // Deduct training camp cost and set focus on franchise
+    const campCosts = { offense: 2, defense: 2, conditioning: 3 };
+    const campCost = campCosts[focus] || 2;
+    const newCampCash = r1((fr[activeIdx]?.cash || cash) - campCost);
     const updatedFr = fr.map((f, i) =>
-      i === activeIdx ? { ...f, trainingCampFocus: focus } : f
+      i === activeIdx ? { ...f, trainingCampFocus: focus, cash: newCampCash } : f
     );
     dispatch({ type: 'SET_FRANCHISE', payload: updatedFr });
+    dispatch({ type: 'SET_CASH', payload: newCampCash });
 
     await new Promise(r => setTimeout(r, 300));
 
@@ -468,8 +475,29 @@ export default function App() {
     dispatch({ type: 'SET_FRANCHISE', payload: result.franchises });
     dispatch({ type: 'SET_QUARTER_PHASE', payload: 4 });
 
-    // NGL Playoffs
+    // NGL Playoffs — ensure full-season record before seeding
     if (af && af.league === 'ngl') {
+      const seasonGames = af.league === 'ngl' ? 17 : 82;
+      const totalPlayed = (af.wins || 0) + (af.losses || 0);
+      if (totalPlayed < seasonGames) {
+        // Safety: use quarterWins/quarterLosses as the authoritative full-season record
+        console.warn(`Partial record detected (${totalPlayed}/${seasonGames}). Using quarter totals.`);
+        const correctedAf = { ...af, wins: af.quarterWins || af.wins, losses: af.quarterLosses || af.losses };
+        const correctedFr = result.franchises.map((f, i) => i === activeIdx ? correctedAf : f);
+        // Also sync into league teams for correct standings
+        const correctedLt = {
+          ...result.leagueTeams,
+          ngl: result.leagueTeams.ngl.map(t => t.id === correctedAf.id ? { ...t, wins: correctedAf.wins, losses: correctedAf.losses } : t),
+        };
+        dispatch({ type: 'SET_FRANCHISE', payload: correctedFr });
+        dispatch({ type: 'SET_LEAGUE_TEAMS', payload: correctedLt });
+        const pResult = simulatePlayoffs(correctedLt.ngl, correctedAf);
+        dispatch({
+          type: 'PLAYOFF_OPEN',
+          payload: { playoffResult: pResult, tradeDeadlineLeague: correctedLt },
+        });
+        return;
+      }
       const pResult = simulatePlayoffs(result.leagueTeams.ngl, af);
       dispatch({
         type: 'PLAYOFF_OPEN',
@@ -630,6 +658,34 @@ export default function App() {
       }
 
       const newRivalry = updateRivalry(curRivalry, af, leagueTeams, season, h2h, metInPlayoffs);
+
+      // If a rival was just assigned this season, simulate h2h games for the new rival
+      if (newRivalry.active && newRivalry.teamId && !rivalId) {
+        const newRivalTeam = leagueTeams.find(t => t.id === newRivalry.teamId);
+        if (newRivalTeam) {
+          const playerWP = af.wins / Math.max(1, af.wins + af.losses);
+          const rivalWP2 = newRivalTeam.wins / Math.max(1, newRivalTeam.wins + newRivalTeam.losses);
+          const h2hWP2 = 0.5 + (playerWP - rivalWP2) * 0.5;
+          let w2 = 0, l2 = 0;
+          for (let g = 0; g < 2; g++) {
+            if (Math.random() < h2hWP2) w2++; else l2++;
+          }
+          const prev2 = h2h[newRivalry.teamId] || { teamName: newRivalry.teamName, wins: 0, losses: 0, playoffMeetings: 0, lastMeeting: null };
+          h2h = {
+            ...h2h,
+            [newRivalry.teamId]: {
+              ...prev2,
+              teamName: newRivalry.teamName,
+              wins: prev2.wins + w2,
+              losses: prev2.losses + l2,
+              lastMeeting: { season, result: w2 > l2 ? 'W' : 'L', round: 'regular_season' },
+            },
+          };
+          // Update the rivalry h2h record to reflect the new games
+          newRivalry.h2hRecord = { wins: h2h[newRivalry.teamId].wins, losses: h2h[newRivalry.teamId].losses };
+        }
+      }
+
       newFr = newFr.map((x, i) => i === activeIdx ? { ...x, headToHead: h2h, rivalry: newRivalry } : x);
     }
 
@@ -712,8 +768,10 @@ export default function App() {
       }
 
       // Offseason events + extension demands + pressure
+      // Use post-aged franchise state for extension demands (yearsLeft already decremented)
       const offseasonEvents = await generateOffseasonEvents(f);
-      const extDemands = generateExtensionDemands(f, gmRep);
+      const postAgedFr = newFr[activeIdx] || f;
+      const extDemands = generateExtensionDemands(postAgedFr, gmRep);
 
       const games = f.league === 'ngl' ? 17 : 82;
       const winPct = f.wins / Math.max(1, games);
@@ -728,6 +786,18 @@ export default function App() {
         ...extDemands,
         ...(pressureEvt ? [{ ...pressureEvt, resolved: false }] : []),
       ];
+
+      // Surface extension demands as high-severity notifications
+      if (extDemands.length > 0) {
+        extDemands.forEach(ext => {
+          allNotifications.push({
+            id: 'ext_notif_' + ext.playerId,
+            severity: 'warning',
+            message: `Contract alert: ${ext.player.name} (${ext.slotKey}) wants an extension — $${ext.extSalary}M/yr for ${ext.extYears} years. Resolve before the draft.`,
+            type: 'contract',
+          });
+        });
+      }
 
       // ── Championship logic (unified — NGL and ABL) ──────────────
       // All trophy/championship credits are applied here, once, consistently.
@@ -984,9 +1054,10 @@ export default function App() {
                 return updated;
               });
 
-              // Handle Cash Component
-              if (offer.cashComponent !== 0) {
-                dispatch({ type: 'SET_CASH', payload: r1((af.cash || 0) + offer.cashComponent) });
+              // Handle Cash Component — use current cash from state, not stale af snapshot
+              if (offer.cashComponent && offer.cashComponent !== 0) {
+                const currentCash = fr[activeIdx]?.cash ?? cash;
+                dispatch({ type: 'SET_CASH', payload: r1(currentCash + offer.cashComponent) });
               }
               dispatch({ type: 'SET_TRADE_OFFERS', payload: tradeOffers.filter(o => o.id !== offer.id) });
             }}
@@ -1031,6 +1102,7 @@ export default function App() {
             onCashChange={newCash => dispatch({ type: 'SET_CASH', payload: newCash })}
             leagueHistory={leagueHistory}
             offseasonFAPool={offseasonFAPool}
+            quarterPhase={quarterPhase}
           />
         )}
 

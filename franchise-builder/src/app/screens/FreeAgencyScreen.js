@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { SLOT_BUDGET, signToSlot, releaseSlot } from '@/lib/engine';
+import { RATING_TOOLTIP } from '@/app/components/SharedComponents';
 
 // ============================================================
 // FREE AGENCY FLOW SCREEN
@@ -129,7 +130,7 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
                       <td className="font-body" style={{ padding: '6px 8px', fontWeight: 500 }}>{p.name}</td>
                       <td className="font-mono" style={{ padding: '6px 8px' }}>{p.position}</td>
                       <td className="font-mono" style={{ padding: '6px 8px' }}>{p.age}</td>
-                      <td className="font-mono" style={{ padding: '6px 8px', fontWeight: 600, color: p.rating >= 85 ? 'var(--green)' : p.rating >= 70 ? 'var(--ink)' : 'var(--ink-muted)' }}>{p.rating}</td>
+                      <td className="font-mono" title={RATING_TOOLTIP} style={{ padding: '6px 8px', fontWeight: 600, cursor: 'help', color: p.rating >= 85 ? 'var(--green)' : p.rating >= 70 ? 'var(--ink)' : 'var(--ink-muted)' }}>{p.rating}</td>
                       <td className="font-mono" style={{ padding: '6px 8px' }}>${p.salary}M</td>
                       <td>{p.trait && <span className="badge badge-ink">{p.trait}</span>}</td>
                       <td style={{ padding: '6px 8px' }}>

@@ -149,3 +149,25 @@ export function MiniChart({ data, width = 280, height = 80, color = 'var(--red)'
     </svg>
   );
 }
+
+// ============================================================
+// RATING TOOLTIP — displays player rating with hover explanation
+// ============================================================
+const RATING_TOOLTIP = 'Overall rating (40\u201399). Affected by age, development staff level, training camp focus, and morale. Peaks between ages 26\u201330 for NGL, 24\u201328 for ABL.';
+
+export function RatingBadge({ rating, style }) {
+  return (
+    <span
+      title={RATING_TOOLTIP}
+      style={{
+        cursor: 'help',
+        borderBottom: '1px dotted var(--ink-muted)',
+        ...style,
+      }}
+    >
+      {rating}
+    </span>
+  );
+}
+
+export { RATING_TOOLTIP };

@@ -1,6 +1,7 @@
 'use client';
 import { useState, useMemo } from 'react';
 import { calculateCapSpace, generateDeadlineFreeAgents, r1 } from '@/lib/engine';
+import { RATING_TOOLTIP } from '@/app/components/SharedComponents';
 
 // ============================================================
 // TRADE DEADLINE SCREEN
@@ -207,7 +208,8 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
                     padding: '10px 12px',
                     fontWeight: 600,
                     color: player.rating >= 85 ? 'var(--green)' : player.rating >= 70 ? 'var(--ink)' : 'var(--ink-muted)',
-                  }}>
+                    cursor: 'help',
+                  }} title={RATING_TOOLTIP}>
                     {player.rating}
                   </td>
                   <td className="font-mono" style={{ padding: '10px 12px' }}>{player.salary}</td>
@@ -246,26 +248,57 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
           <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Trade Offers</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {tradeOffers.map(offer => (
-              <div key={offer.id} className="card" style={{ padding: '10px 14px', border: '1px solid var(--cream-darker)' }}>
-                <div className="font-display" style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: 4 }}>
+              <div key={offer.id} className="card" style={{ padding: '12px 14px', border: '1px solid var(--cream-darker)' }}>
+                <div className="font-display" style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: 6 }}>
                   {offer.aiTeam.city} {offer.aiTeam.name} ({offer.aiTeam.wins}-{offer.aiTeam.losses})
                 </div>
-                <div className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
-                  {offer.type === 'buy' ? 'Wants' : 'Offers'}: {offer.playerWanted?.name || offer.playerOffered?.name || 'Draft pick swap'}
-                  {offer.draftCompensation?.length > 0 && ` + Round ${offer.draftCompensation[0].round} pick`}
-                  {offer.cashComponent > 0 && ` + $${offer.cashComponent}M cash`}
-                </div>
-                <div style={{ marginTop: 6 }}>
+
+                {/* Buy offer: AI wants your player, offers picks/cash */}
+                {offer.type === 'buy' && offer.playerWanted && (
+                  <div style={{ fontSize: '0.78rem', marginBottom: 6 }}>
+                    <div className="font-mono" style={{ color: 'var(--red)', marginBottom: 4 }}>
+                      They want: {offer.playerWanted.name} ({offer.playerWanted.position}, {offer.playerWanted.rating} rtg, ${offer.playerWanted.salary}M)
+                    </div>
+                    <div className="font-mono" style={{ color: 'var(--green)' }}>
+                      You receive:
+                      {offer.draftCompensation?.length > 0 && offer.draftCompensation.map((pick, i) => (
+                        <span key={i}> Round {pick.round} pick (S{pick.season || 'next'}){i < offer.draftCompensation.length - 1 ? ',' : ''}</span>
+                      ))}
+                      {offer.cashComponent > 0 && <span> + ${offer.cashComponent}M cash</span>}
+                      {(!offer.draftCompensation?.length && !offer.cashComponent) && <span> Draft considerations</span>}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sell offer: AI offers you a player */}
+                {offer.type === 'sell' && offer.playerOffered && (
+                  <div style={{ fontSize: '0.78rem', marginBottom: 6 }}>
+                    <div className="font-mono" style={{ color: 'var(--green)', marginBottom: 4 }}>
+                      You receive: {offer.playerOffered.name} · {offer.playerOffered.position} · Age {offer.playerOffered.age} · {offer.playerOffered.rating} rtg · ${offer.playerOffered.salary}M/yr
+                    </div>
+                    {offer.cashComponent < 0 && (
+                      <div className="font-mono" style={{ color: 'var(--red)' }}>
+                        You pay: ${Math.abs(offer.cashComponent)}M cash
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                   <button
                     className="btn-primary"
-                    style={{ fontSize: '0.72rem', marginRight: 6 }}
+                    style={{ fontSize: '0.72rem' }}
                     onClick={() => onAcceptTrade && onAcceptTrade(offer)}
                   >
-                    Accept
+                    Accept Trade
                   </button>
-                  <span className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>
-                    or ignore
-                  </span>
+                  <button
+                    className="btn-secondary"
+                    style={{ fontSize: '0.72rem' }}
+                    onClick={() => {/* no-op: decline by ignoring */}}
+                  >
+                    Decline
+                  </button>
                 </div>
               </div>
             ))}
