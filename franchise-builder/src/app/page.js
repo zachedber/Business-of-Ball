@@ -898,6 +898,8 @@ export default function App() {
         gmRep={gmRep}
         cash={af?.cash ?? cash}
         notifCount={notifCount}
+        quarterPhase={quarterPhase}
+        activeFranchise={af}
       />
 
       <main style={{ flex: 1, paddingBottom: 30 }}>
@@ -925,6 +927,15 @@ export default function App() {
                   description={evt.description}
                 />
               ))}
+            </div>
+            <div style={{ textAlign: 'center', marginTop: 12 }}>
+              <button
+                className="btn-secondary"
+                style={{ padding: '8px 24px', fontSize: '0.8rem' }}
+                onClick={() => dispatch({ type: 'SET_PLAYER_EVENTS', payload: [] })}
+              >
+                Dismiss
+              </button>
             </div>
           </div>
         )}
@@ -1042,6 +1053,9 @@ export default function App() {
             cash={af.cash ?? cash}
             setCash={newCash => dispatch({ type: 'SET_CASH', payload: newCash })}
             tradeOffers={tradeOffers}
+            onDeclineTrade={(offerId) => {
+              dispatch({ type: 'SET_TRADE_OFFERS', payload: tradeOffers.filter(o => o.id !== offerId) });
+            }}
             onAcceptTrade={(offer) => {
               setActiveFr(prev => {
                 let updated = { ...prev };

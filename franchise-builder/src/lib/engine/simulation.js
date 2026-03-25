@@ -82,7 +82,11 @@ function getSeasonGames(league) {
 }
 
 function sortTeamsByStanding(a, b) {
-  return (b.wins - a.wins) || ((a.losses || 0) - (b.losses || 0)) || ((b.rosterQuality || 0) - (a.rosterQuality || 0)) || a.id.localeCompare(b.id);
+  const aGP = Math.max(1, (a.wins || 0) + (a.losses || 0));
+  const bGP = Math.max(1, (b.wins || 0) + (b.losses || 0));
+  const wpDiff = (b.wins / bGP) - (a.wins / aGP);
+  if (Math.abs(wpDiff) > 0.001) return wpDiff;
+  return ((b.rosterQuality || 0) - (a.rosterQuality || 0)) || a.id.localeCompare(b.id);
 }
 
 function applyLeagueStandings(teams, playoffSlots) {

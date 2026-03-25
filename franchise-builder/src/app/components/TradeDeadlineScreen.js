@@ -18,7 +18,7 @@ import { RATING_TOOLTIP } from '@/app/components/SharedComponents';
  * @param {number}   cash            - Global liquid cash
  * @param {function} setCash         - Global cash setter
  */
-export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCash, tradeOffers, onAcceptTrade, waiverPool, onSignWaiver }) {
+export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCash, tradeOffers, onAcceptTrade, onDeclineTrade, waiverPool, onSignWaiver }) {
   const [deadlineFAs] = useState(() => generateDeadlineFreeAgents(fr.league, 6));
   const [error, setError] = useState(null);
   const [released, setReleased] = useState([]);
@@ -295,7 +295,7 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
                   <button
                     className="btn-secondary"
                     style={{ fontSize: '0.72rem' }}
-                    onClick={() => {/* no-op: decline by ignoring */}}
+                    onClick={() => onDeclineTrade && onDeclineTrade(offer.id)}
                   >
                     Decline
                   </button>

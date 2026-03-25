@@ -121,6 +121,19 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {(quarterPhase || 0) > 0 && (
+        <div className="card" style={{ padding: '10px 14px', textAlign: 'center', background: 'linear-gradient(180deg, rgba(26,18,8,0.04), transparent)' }}>
+          <div className="stat-label" style={{ fontSize: '0.7rem', marginBottom: 2 }}>Current Season Record</div>
+          <div className="font-display" style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--ink)' }}>
+            {fr.wins ?? 0}–{fr.losses ?? 0}
+          </div>
+          <div className="font-mono" style={{ fontSize: '0.72rem', color: 'var(--ink-muted)' }}>
+            {((fr.wins ?? 0) + (fr.losses ?? 0)) > 0
+              ? `${(((fr.wins ?? 0) / ((fr.wins ?? 0) + (fr.losses ?? 0))) * 100).toFixed(0)}% win rate · Q${quarterPhase}`
+              : `Quarter ${quarterPhase}`}
+          </div>
+        </div>
+      )}
       {notifications && notifications.length > 0 && (
         <NotificationsPanel notifications={notifications} onDismiss={onDismissNotif} />
       )}
