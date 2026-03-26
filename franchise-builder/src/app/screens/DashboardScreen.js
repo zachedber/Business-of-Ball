@@ -79,7 +79,7 @@ export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, eve
           {[
             ['Record', `${fr.wins}-${fr.losses}`],
             ['Rank', `#${fr.leagueRank || '—'}`, 'var(--red)'],
-            ['Value', `$${val}M`],
+            ['Value', `$${val}M`, null],
             ['Cash', formatMoney(fr.cash || 0), (fr.cash || 0) > 5 ? 'var(--green)' : 'var(--red)'],
           ].map(([label, value, color]) => (
             <div key={label} style={{ textAlign: 'center', padding: '6px 0', position: 'relative' }}>
@@ -243,23 +243,26 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
       )}
       <div className="stat-grid">
         {[
-          ['Fan', fr.fanRating, fr.fanRating > 65 ? 'var(--green)' : null],
-          ['Chem', fr.lockerRoomChemistry, fr.lockerRoomChemistry > 60 ? 'var(--green)' : 'var(--amber)'],
-          ['Media', fr.mediaRep],
-          ['Community', fr.communityRating],
-          ['Revenue', `$${fr.finances.revenue}M`, 'var(--green)'],
-          ['Profit', `$${fr.finances.profit}M`, fr.finances.profit > 0 ? 'var(--green)' : 'var(--red)'],
-        ].map(([label, value, color]) => (
-          <div key={label} className="card" style={{ padding: '10px 12px', textAlign: 'center' }}>
-            <div className="stat-label">{label}</div>
-            <div className="stat-value" style={{ fontSize: '1rem', color: color || 'var(--ink)' }}>
-              <MathTooltip
-                breakdown={fr.mathBreakdowns?.[label === 'Fan' ? 'fanRating' : label.toLowerCase()]}
-                label={label}
-              /> {!fr.mathBreakdowns?.[label === 'Fan' ? 'fanRating' : label.toLowerCase()] && value}
+          ['Win Prob', fr.mathBreakdowns?.winProbability?.finalValue != null ? `${Math.round(fr.mathBreakdowns.winProbability.finalValue * 100)}%` : '—', null, 'winProbability'],
+          ['Fan', fr.fanRating, fr.fanRating > 65 ? 'var(--green)' : null, 'fanRating'],
+          ['Chem', fr.lockerRoomChemistry, fr.lockerRoomChemistry > 60 ? 'var(--green)' : 'var(--amber)', 'lockerRoomChemistry'],
+          ['Media', fr.mediaRep, null, 'mediaRep'],
+          ['Community', fr.communityRating, null, 'communityRating'],
+          ['Revenue', `$${fr.finances.revenue}M`, 'var(--green)', 'revenue'],
+          ['Profit', `$${fr.finances.profit}M`, fr.finances.profit > 0 ? 'var(--green)' : 'var(--red)', null],
+        ].map(([label, value, color, breakdownKey]) => {
+          const bd = breakdownKey ? fr.mathBreakdowns?.[breakdownKey] : null;
+          return (
+            <div key={label} className="card" style={{ padding: '10px 12px', textAlign: 'center' }}>
+              <div className="stat-label">{label}</div>
+              <div className="stat-value" style={{ fontSize: '1rem', color: color || 'var(--ink)' }}>
+                {bd ? (
+                  <MathTooltip breakdown={bd} label={label}>{value}</MathTooltip>
+                ) : value}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       {/* Rival Card */}
       {fr.rivalry?.active && fr.rivalry.teamName && (
@@ -609,7 +612,7 @@ function CoachTab({ fr, setFr, gmRep }) {
           <div>
             <div className="font-display" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{coach.name}</div>
             <div className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', marginTop: 3 }}>
-              {coach.personality} · Lvl {coach.level}/4 · {coach.seasonsWithTeam}yr
+              {coach.personality} · <span title={`Coach Level ${coach.level}: +${coach.level * 1.5}% win probability bonus. Higher levels improve player development and morale.`} style={{ cursor: 'help', borderBottom: '1px dotted var(--ink-muted)' }}>Lvl {coach.level}/4</span> · {coach.seasonsWithTeam}yr
             </div>
             <div style={{ display: 'flex', gap: 3, marginTop: 6 }}>
               {[1, 2, 3, 4].map(l => (
@@ -684,7 +687,11 @@ function BizTab({ fr, setFr }) {
       <div className="card" style={{ padding: 16 }}>
         <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Revenue Projection</h3>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-          <div><div className="stat-label">Revenue</div><div className="stat-value" style={{ color: 'var(--green)' }}>${proj.totalRevenue}M</div></div>
+          <div><div className="stat-label">Revenue</div><div className="stat-value" style={{ color: 'var(--green)' }}>
+            {fr.mathBreakdowns?.revenue ? (
+              <MathTooltip breakdown={fr.mathBreakdowns.revenue} label="Revenue">${proj.totalRevenue}M</MathTooltip>
+            ) : `$${proj.totalRevenue}M`}
+          </div></div>
           <div><div className="stat-label">Expenses</div><div className="stat-value" style={{ color: 'var(--red)' }}>${proj.totalExpenses}M</div></div>
           <div><div className="stat-label">Profit</div><div className="stat-value" style={{ color: proj.projectedProfit > 0 ? 'var(--green)' : 'var(--red)' }}>${proj.projectedProfit}M</div></div>
         </div>
@@ -713,7 +720,11 @@ function BizTab({ fr, setFr }) {
           Fans compare price to team quality — overpricing hurts attendance and fan rating.
         </p>
         <div style={{ display: 'flex', gap: 16, marginTop: 10 }}>
-          <div><span className="stat-label">Attendance</span><div className="stat-value" style={{ color: proj.attendance > 75 ? 'var(--green)' : proj.attendance > 55 ? 'var(--amber)' : 'var(--red)' }}>{proj.attendance}%</div></div>
+          <div><span className="stat-label">Attendance</span><div className="stat-value" style={{ color: proj.attendance > 75 ? 'var(--green)' : proj.attendance > 55 ? 'var(--amber)' : 'var(--red)' }}>
+            {fr.mathBreakdowns?.attendance ? (
+              <MathTooltip breakdown={fr.mathBreakdowns.attendance} label="Attendance">{proj.attendance}%</MathTooltip>
+            ) : `${proj.attendance}%`}
+          </div></div>
           <div><span className="stat-label">Gate Rev</span><div className="stat-value">${proj.gateRevenue}M</div></div>
         </div>
       </div>
