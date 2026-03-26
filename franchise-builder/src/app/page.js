@@ -373,7 +373,6 @@ export default function App() {
   }
 
   function handleSlotDecisionDone() {
-    dispatch({ type: 'SLOT_DECISION_CLOSE' });
     dispatch({ type: 'FA_OPEN', payload: { offseasonFAPool: offseasonFAPool, aiSigningsLog: aiSigningsLog } });
   }
 
