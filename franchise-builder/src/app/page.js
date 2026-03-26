@@ -1153,6 +1153,7 @@ export default function App() {
               const val = typeof newCash === 'function' ? newCash(cash) : newCash;
               dispatch({ type: 'SET_CASH', payload: val });
             }}
+            playerLeague={af?.league}
           />
         )}
 
