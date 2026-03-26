@@ -189,8 +189,15 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
               <p className="font-body" style={{ fontSize: '0.85rem', fontStyle: 'italic', color: 'var(--ink-soft)', marginBottom: 10 }}>{pc.prompt}</p>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {pc.options.map((opt, oi) => (
-                  <button key={oi} className="btn-secondary" style={{ fontSize: '0.72rem' }} onClick={() => onPressConf(pc.id, oi)}>
+                  <button key={oi} className="btn-secondary" style={{ fontSize: '0.72rem', textAlign: 'left' }} onClick={() => onPressConf(pc.id, oi)}>
                     {opt.label}
+                    {opt.effectLabels?.length > 0 && (
+                      <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 3 }}>
+                        {opt.effectLabels.map((el, ei) => (
+                          <span key={ei} style={{ fontSize: '0.62rem', padding: '1px 4px', borderRadius: 3, background: el.includes('-') ? 'rgba(180,40,40,0.12)' : 'rgba(40,140,40,0.12)', color: el.includes('-') ? '#b42828' : '#1a7a1a' }}>{el}</span>
+                        ))}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
