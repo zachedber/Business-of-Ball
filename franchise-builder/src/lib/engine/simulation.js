@@ -499,16 +499,19 @@ export function simQuarter(f, season, quarter) {
     wpFactors.push({ label: 'Scheme fit', impact: r1(((f.schemeFit || 50) - 50) / 1000 * 100) / 100 });
     wpFactors.push({ label: 'Staff chemistry', impact: r1(((f.staffChemistry || 65) - 65) / 800 * 100) / 100 });
 
-    // Training camp focus bonus (applied to initial WP calculation in Q1)
-    if (f.trainingCampFocus === 'offense' && f.offensiveCoordinator) {
-      wp += 0.015;
-      wpFactors.push({ label: 'Training camp (offense)', impact: 0.015 });
+    // Training camp allocation bonus (point-based)
+    const campOffense = f.trainingCampAllocation?.offense || 0;
+    const campDefense = f.trainingCampAllocation?.defense || 0;
+    const campConditioning = f.trainingCampAllocation?.conditioning || 0;
+    if (campOffense > 0 && f.offensiveCoordinator) {
+      wp += campOffense * 0.003;
+      wpFactors.push({ label: 'Training camp (offense)', impact: r1(campOffense * 0.003) });
     }
-    if (f.trainingCampFocus === 'defense' && f.defensiveCoordinator) {
-      wp += 0.015;
-      wpFactors.push({ label: 'Training camp (defense)', impact: 0.015 });
+    if (campDefense > 0 && f.defensiveCoordinator) {
+      wp += campDefense * 0.003;
+      wpFactors.push({ label: 'Training camp (defense)', impact: r1(campDefense * 0.003) });
     }
-    if (f.trainingCampFocus === 'conditioning') {
+    if (campConditioning > 0) {
       wpFactors.push({ label: 'Training camp (conditioning)', impact: 0 });
     }
 
@@ -535,9 +538,10 @@ export function simQuarter(f, season, quarter) {
 
   f.players.forEach(p => {
     let risk = predictInjury(p.age, p.seasonsPlayed, f.medicalStaff, p.trait, p.rating);
-    // Conditioning training camp bonus: 25% injury reduction for Q1 and Q2
-    if (f.trainingCampFocus === 'conditioning' && (quarter === 1 || quarter === 2)) {
-      risk *= 0.75;
+    // Conditioning training camp bonus: point-based injury reduction for Q1 and Q2
+    const condReduction = Math.min(0.50, (f.trainingCampAllocation?.conditioning || 0) * 0.05);
+    if (condReduction > 0 && (quarter === 1 || quarter === 2)) {
+      risk *= (1 - condReduction);
     }
     if (Math.random() < risk) {
       p.injured = true;
@@ -812,6 +816,7 @@ export function simQuarter(f, season, quarter) {
     delete f._quarterEconMod;
     delete f._quarterGamesPlayed;
     delete f.trainingCampFocus;
+    delete f.trainingCampAllocation;
   }
 
   return f;

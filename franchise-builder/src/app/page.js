@@ -386,20 +386,16 @@ export default function App() {
     dispatch({ type: 'TRAINING_CAMP_OPEN' });
   }
 
-  /** Called when player picks a training camp focus area — runs Q1 only, then pauses */
-  async function handleTrainingCampDone(focus) {
+  /** Called when player allocates training camp points — runs Q1 only, then pauses */
+  async function handleTrainingCampDone(allocation) {
     dispatch({ type: 'TRAINING_CAMP_CLOSE' });
     dispatch({ type: 'BEGIN_SIM' });
 
-    // Deduct training camp cost and set focus on franchise
-    const campCosts = { offense: 2, defense: 2, conditioning: 3 };
-    const campCost = campCosts[focus] || 2;
-    const newCampCash = r1((fr[activeIdx]?.cash || cash) - campCost);
+    // Training camp is free — value comes from facility investment
     const updatedFr = fr.map((f, i) =>
-      i === activeIdx ? { ...f, trainingCampFocus: focus, cash: newCampCash } : f
+      i === activeIdx ? { ...f, trainingCampAllocation: allocation } : f
     );
     dispatch({ type: 'SET_FRANCHISE', payload: updatedFr });
-    dispatch({ type: 'SET_CASH', payload: newCampCash });
 
     await new Promise(r => setTimeout(r, 300));
 
@@ -908,7 +904,7 @@ export default function App() {
         {trainingCampActive && af && (
           <TrainingCampScreen
             franchise={af}
-            onSelectFocus={(focus) => handleTrainingCampDone(focus)}
+            onSelectFocus={(allocation) => handleTrainingCampDone(allocation)}
           />
         )}
 
