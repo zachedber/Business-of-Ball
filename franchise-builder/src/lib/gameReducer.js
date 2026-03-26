@@ -544,6 +544,11 @@ export function gameReducer(state, action) {
       return { ...state, draftProspects: Array.isArray(action.payload) ? action.payload : state.draftProspects };
     }
 
+    /** Replaces the draftPicks array (used for draft pick swaps/trades). */
+    case 'SET_DRAFT_PICKS': {
+      return { ...state, draftPicks: Array.isArray(action.payload) ? action.payload : state.draftPicks };
+    }
+
     /** Sets trade offers for the trade deadline. */
     case 'SET_TRADE_OFFERS': {
       return { ...state, tradeOffers: action.payload || [] };

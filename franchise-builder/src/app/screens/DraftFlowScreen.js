@@ -91,10 +91,11 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
             {draftPicks.map((p, i) => {
               const used = i >= remainingPicks.length && pickedPlayers.length > (draftPicks.length - remainingPicks.length - 1 - (draftPicks.length - i - 1));
               const isNext = i === draftPicks.length - remainingPicks.length;
+              const shownPick = p.pickPos ?? p.pick;
               return (
                 <div key={i} style={{ padding: '8px 12px', borderRadius: 2, background: isNext ? 'var(--red)' : used ? 'var(--cream-darker)' : 'var(--cream-dark)', color: isNext ? '#fff' : 'var(--ink)', minWidth: 80, textAlign: 'center' }}>
                   <div className="font-mono" style={{ fontSize: '0.7rem', fontWeight: 700 }}>Round {p.round}</div>
-                  <div className="font-mono" style={{ fontSize: '0.75rem' }}>Pick #{p.pick}</div>
+                  <div className="font-mono" style={{ fontSize: '0.75rem' }}>Pick #{shownPick}</div>
                   {p.aiPicksBefore > 0 && <div className="font-mono" style={{ fontSize: '0.7rem', marginTop: 2, opacity: 0.7 }}>{p.aiPicksBefore} before</div>}
                 </div>
               );
@@ -133,9 +134,14 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
               </div>
               <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '4px 10px' }} onClick={() => {
                 if (onAcceptTradeUp) {
-                  onAcceptTradeUp(offer);
-                  // Consume the current pick locally without triggering the useEffect reset
-                  setRemainingPicks(prev => prev.slice(1));
+                  const currentPick = remainingPicks[0];
+                  const incomingPick = offer?.pickSwap?.toPick || null;
+                  onAcceptTradeUp(offer, currentPick, incomingPick);
+                  setRemainingPicks(prev => {
+                    if (prev.length === 0) return prev;
+                    if (!incomingPick) return prev.slice(1);
+                    return [incomingPick, ...prev.slice(1)];
+                  });
                 }
               }}>Accept</button>
             </div>
