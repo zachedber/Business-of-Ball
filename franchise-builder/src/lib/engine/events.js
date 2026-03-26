@@ -133,51 +133,212 @@ export function generateCBAEvent(season) {
 // ============================================================
 
 /**
- * Generates press conference question/answer options based on current win percentage.
- * @param {Object} f - Franchise state
+ * Formats effect labels for a press conference option.
+ * @param {Object} opt - Option with bonus fields
+ * @returns {string[]} Array of effect label strings like "Fan +5"
+ */
+function formatEffects(opt) {
+  const effects = [];
+  if (opt.fanBonus) effects.push(`Fan ${opt.fanBonus > 0 ? '+' : ''}${opt.fanBonus}`);
+  if (opt.mediaBonus) effects.push(`Media ${opt.mediaBonus > 0 ? '+' : ''}${opt.mediaBonus}`);
+  if (opt.communityBonus) effects.push(`Community ${opt.communityBonus > 0 ? '+' : ''}${opt.communityBonus}`);
+  if (opt.moraleBonus) effects.push(`Chemistry ${opt.moraleBonus > 0 ? '+' : ''}${opt.moraleBonus}`);
+  return effects;
+}
+
+/**
+ * Generates press conference questions from a pool of 12 situational templates.
+ * Selects 2-3 questions based on current franchise state.
+ * Each option includes visible effect labels.
+ * @param {Object} f - Franchise state (must have current-season wins/losses)
  * @returns {Object[]} Array of press conference prompt objects with options
  */
 export function genPressConference(f) {
-  const wp = f.wins / (f.wins + f.losses || 1);
-  const out = [];
-  if (wp > 0.6) {
-    out.push({
-      id: 'pc1',
-      prompt: 'Reporter: "Can you guarantee a championship?"',
+  const totalGames = Math.max(1, (f.wins || 0) + (f.losses || 0));
+  const wp = (f.wins || 0) / totalGames;
+  const pool = [];
+
+  // 1. Winning streak (3+ wins in a row or high win%)
+  if (wp > 0.65) {
+    pool.push({
+      id: 'pc_win_streak',
+      prompt: `Reporter: "The ${f.name} are on fire. Can you keep this run going?"`,
       options: [
-        { label: 'Guarantee it', text: '"We\'re bringing the trophy home."', fanBonus: 8, mediaBonus: -5, moraleBonus: 10, risk: 'guarantee' },
-        { label: 'Stay humble', text: '"Results will follow hard work."', fanBonus: 2, mediaBonus: 5, moraleBonus: 3 },
-        { label: 'Deflect with humor', text: '"I guarantee the postgame spread."', fanBonus: 3, mediaBonus: 8, moraleBonus: 1 },
-      ],
-    });
-  } else if (wp < 0.35) {
-    out.push({
-      id: 'pc1',
-      prompt: 'Reporter: "Is it time for a full rebuild?"',
-      options: [
-        { label: 'Admit it', text: '"We\'re building for the future."', fanBonus: -3, mediaBonus: 6, moraleBonus: -5 },
-        { label: 'Stay defiant', text: '"We\'re closer than people think."', fanBonus: 4, mediaBonus: -2, moraleBonus: 6 },
-      ],
-    });
-  } else {
-    out.push({
-      id: 'pc1',
-      prompt: 'Reporter: "What\'s the plan to contend?"',
-      options: [
-        { label: 'Bold moves', text: '"Expect upgrades soon."', fanBonus: 5, mediaBonus: 3, moraleBonus: -2 },
-        { label: 'Trust process', text: '"Our core is developing."', fanBonus: 1, mediaBonus: 2, moraleBonus: 4 },
+        { label: '"We\'re bringing it home."', fanBonus: 5, mediaBonus: 3, moraleBonus: 2, effectLabels: null },
+        { label: '"One game at a time."', fanBonus: 1, mediaBonus: 1, moraleBonus: 1, effectLabels: null },
+        { label: '"No comment."', mediaBonus: -3, effectLabels: null },
       ],
     });
   }
-  out.push({
-    id: 'pc2',
+
+  // 2. Losing streak (3+ losses or low win%)
+  if (wp < 0.35 && totalGames > 3) {
+    pool.push({
+      id: 'pc_lose_streak',
+      prompt: `Reporter: "The losses keep piling up. How do you respond to the skid?"`,
+      options: [
+        { label: '"We\'re making changes."', fanBonus: 3, mediaBonus: 4, moraleBonus: -3, effectLabels: null },
+        { label: '"Stay the course."', fanBonus: -2, mediaBonus: -1, moraleBonus: 5, effectLabels: null },
+        { label: '"I take full responsibility."', fanBonus: 4, mediaBonus: 6, moraleBonus: 1, effectLabels: null },
+      ],
+    });
+  }
+
+  // 3. Rivalry game
+  if (f.rivalry?.active && f.rivalry?.teamName) {
+    pool.push({
+      id: 'pc_rivalry',
+      prompt: `Reporter: "What's your message to ${f.rivalry.teamName}?"`,
+      options: [
+        { label: '"They know who we are."', fanBonus: 6, mediaBonus: 2, moraleBonus: 3, effectLabels: null },
+        { label: '"We respect the competition."', fanBonus: 1, mediaBonus: 4, moraleBonus: 1, effectLabels: null },
+        { label: '"Let the scoreboard talk."', fanBonus: 3, mediaBonus: 3, moraleBonus: 2, effectLabels: null },
+      ],
+    });
+  }
+
+  // 4. Star player injury
+  const injuredStar = [f.star1, f.star2, f.corePiece].find(p => p?.injured);
+  if (injuredStar) {
+    pool.push({
+      id: 'pc_injury',
+      prompt: `Reporter: "With ${injuredStar.name} out, how do you plan to compete?"`,
+      options: [
+        { label: '"Next man up."', fanBonus: 2, mediaBonus: 3, moraleBonus: 4, effectLabels: null },
+        { label: '"It\'s a devastating blow."', fanBonus: -1, mediaBonus: 5, moraleBonus: -2, effectLabels: null },
+        { label: '"We have depth for a reason."', fanBonus: 3, mediaBonus: 2, moraleBonus: 3, effectLabels: null },
+      ],
+    });
+  }
+
+  // 5. Rookie breakout (taxi squad or rookie slots have players)
+  if ((f.taxiSquad?.length > 0 || f.rookieSlots?.length > 0)) {
+    const rookie = f.taxiSquad?.[0] || f.rookieSlots?.[0];
+    if (rookie) {
+      pool.push({
+        id: 'pc_rookie',
+        prompt: `Reporter: "${rookie.name} has been impressive. Talk about the young talent."`,
+        options: [
+          { label: '"Sky\'s the limit."', fanBonus: 4, mediaBonus: 4, moraleBonus: 2, effectLabels: null },
+          { label: '"Still a lot to learn."', fanBonus: 0, mediaBonus: 2, moraleBonus: -1, effectLabels: null },
+          { label: '"Our scouting deserves credit."', fanBonus: 2, mediaBonus: 3, moraleBonus: 1, effectLabels: null },
+        ],
+      });
+    }
+  }
+
+  // 6. Trade deadline (used after Q2)
+  if (f.quarterWins !== undefined || f._quarterGamesPlayed !== undefined) {
+    pool.push({
+      id: 'pc_deadline',
+      prompt: `Reporter: "Trade deadline is approaching. Are you buyers or sellers?"`,
+      options: [
+        { label: '"We\'re all in."', fanBonus: 5, mediaBonus: 3, moraleBonus: 3, effectLabels: null },
+        { label: '"We\'re open to offers."', fanBonus: -2, mediaBonus: 4, moraleBonus: -3, effectLabels: null },
+        { label: '"We\'re evaluating."', fanBonus: 0, mediaBonus: 1, moraleBonus: 0, effectLabels: null },
+      ],
+    });
+  }
+
+  // 7. Playoff push (win% > 0.550)
+  if (wp > 0.55) {
+    pool.push({
+      id: 'pc_playoff_push',
+      prompt: `Reporter: "Is this a championship roster?"`,
+      options: [
+        { label: '"Absolutely."', fanBonus: 6, mediaBonus: -2, moraleBonus: 5, effectLabels: null },
+        { label: '"We need to prove it on the field."', fanBonus: 2, mediaBonus: 4, moraleBonus: 2, effectLabels: null },
+        { label: '"We\'re close, but not there yet."', fanBonus: 1, mediaBonus: 3, moraleBonus: -1, effectLabels: null },
+      ],
+    });
+  }
+
+  // 8. Tanking (win% < 0.300)
+  if (wp < 0.3 && totalGames > 5) {
+    pool.push({
+      id: 'pc_tanking',
+      prompt: `Reporter: "Are you building for the future?"`,
+      options: [
+        { label: '"We\'re investing in tomorrow."', fanBonus: -3, mediaBonus: 6, moraleBonus: -5, effectLabels: null },
+        { label: '"We compete every day."', fanBonus: 4, mediaBonus: -2, moraleBonus: 6, effectLabels: null },
+      ],
+    });
+  }
+
+  // 9. Financial pressure (low cash)
+  if ((f.cash || 0) < 10) {
+    pool.push({
+      id: 'pc_finance',
+      prompt: `Reporter: "Budget constraints are real. How do you manage with tight finances?"`,
+      options: [
+        { label: '"Smart money wins."', fanBonus: 2, mediaBonus: 4, moraleBonus: 1, effectLabels: null },
+        { label: '"We need ownership to step up."', fanBonus: 3, mediaBonus: -3, moraleBonus: -2, effectLabels: null },
+        { label: '"We develop, not overspend."', fanBonus: 1, mediaBonus: 3, moraleBonus: 3, effectLabels: null },
+      ],
+    });
+  }
+
+  // 10. Fan unrest (fanRating < 40)
+  if ((f.fanRating || 50) < 40) {
+    pool.push({
+      id: 'pc_fans',
+      prompt: `Reporter: "The fans are frustrated. Your response?"`,
+      options: [
+        { label: '"We hear them. Changes are coming."', fanBonus: 6, mediaBonus: 3, moraleBonus: -2, effectLabels: null },
+        { label: '"Fans should trust the process."', fanBonus: -3, mediaBonus: -2, moraleBonus: 3, effectLabels: null },
+        { label: '"We owe them better."', fanBonus: 4, mediaBonus: 5, moraleBonus: 1, effectLabels: null },
+      ],
+    });
+  }
+
+  // 11. Championship defense (previous champion)
+  if ((f.championships || 0) > 0 && (f.season || 1) > 1) {
+    pool.push({
+      id: 'pc_defend',
+      prompt: `Reporter: "Can you repeat as champions?"`,
+      options: [
+        { label: '"We\'re hungrier than ever."', fanBonus: 5, mediaBonus: 4, moraleBonus: 4, effectLabels: null },
+        { label: '"The target is on our back."', fanBonus: 2, mediaBonus: 3, moraleBonus: 2, effectLabels: null },
+        { label: '"History is hard to repeat."', fanBonus: -1, mediaBonus: 2, moraleBonus: -1, effectLabels: null },
+      ],
+    });
+  }
+
+  // 12. New GM (first season)
+  if ((f.season || 1) === 1) {
+    pool.push({
+      id: 'pc_new_gm',
+      prompt: `Reporter: "What's your vision for this franchise?"`,
+      options: [
+        { label: '"Win now."', fanBonus: 5, mediaBonus: 2, moraleBonus: 4, effectLabels: null },
+        { label: '"Build a dynasty."', fanBonus: 3, mediaBonus: 5, moraleBonus: 2, effectLabels: null },
+        { label: '"Sustainable excellence."', fanBonus: 2, mediaBonus: 4, moraleBonus: 3, effectLabels: null },
+      ],
+    });
+  }
+
+  // Always include a community question as fallback
+  pool.push({
+    id: 'pc_community',
     prompt: `Reporter: "What are the ${f.name} doing for ${f.city}?"`,
     options: [
-      { label: 'Highlight charity', communityBonus: 5, mediaBonus: 4, fanBonus: 2 },
-      { label: 'Deflect to sport', communityBonus: -3, mediaBonus: -2, fanBonus: 1 },
+      { label: 'Highlight charity', communityBonus: 5, mediaBonus: 4, fanBonus: 2, effectLabels: null },
+      { label: 'Deflect to sport', communityBonus: -3, mediaBonus: -2, fanBonus: 1, effectLabels: null },
     ],
   });
-  return out;
+
+  // Add effect labels to all options
+  pool.forEach(pc => {
+    pc.options = pc.options.map(opt => ({
+      ...opt,
+      effectLabels: formatEffects(opt),
+    }));
+  });
+
+  // Select 2-3 questions: shuffle and pick, always including at least one situational
+  const shuffled = pool.sort(() => Math.random() - 0.5);
+  const count = Math.min(shuffled.length, rand(2, 3));
+  return shuffled.slice(0, count);
 }
 
 // ============================================================

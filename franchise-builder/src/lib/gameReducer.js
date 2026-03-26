@@ -195,7 +195,7 @@ export function gameReducer(state, action) {
         cash: saved.cash ?? 0,
         gmRep: saved.gmReputation || 50,
         dynasty: saved.dynastyHistory || [],
-        lt: saved.leagueTeams,
+        lt: saved.leagueTeams || { ngl: [], abl: [] },
         fr: saved.franchises || [],
         stakes: saved.stakes || [],
         season: saved.season || 1,
@@ -203,6 +203,20 @@ export function gameReducer(state, action) {
         notifications: saved.notifications || [],
         leagueHistory: saved.leagueHistory || initLeagueHistory(),
         loading: false,
+        // Reset V4 quarterly flow to clean state on load
+        screen: (saved.franchises?.length > 0) ? 'dashboard' : 'intro',
+        simming: false,
+        quarterPhase: 0,
+        trainingCampActive: false,
+        q1PauseActive: false,
+        q3PauseActive: false,
+        tradeDeadlineActive: false,
+        playoffActive: false,
+        draftActive: false,
+        freeAgencyActive: false,
+        slotDecisionActive: false,
+        waiverWireActive: false,
+        playerEvents: [],
       };
     }
 
@@ -250,6 +264,17 @@ export function gameReducer(state, action) {
         playoffResult: null,
         aiSigningsLog: [],
         leagueHistory: initLeagueHistory(),
+        // V4 quarterly flow resets
+        simming: false,
+        quarterPhase: 0,
+        trainingCampActive: false,
+        q1PauseActive: false,
+        q3PauseActive: false,
+        waiverWireActive: false,
+        waiverPool: [],
+        tradeOffers: [],
+        playerEvents: [],
+        slotDecisionActive: false,
       };
     }
 

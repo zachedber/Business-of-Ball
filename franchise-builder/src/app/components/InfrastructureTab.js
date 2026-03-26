@@ -40,9 +40,9 @@ export function FacilitiesSection({ fr, setFr, onCashChange }) {
     ['developmentStaff', 'Player Dev', 'Player growth rate'],
     ['medicalStaff', 'Medical', 'Injury reduction'],
     ['marketingStaff', 'Marketing', 'Fan rating boost'],
-    ['trainingFacility', 'Training Facility', 'Win probability'],
-    ['weightRoom', 'Weight Room', 'Conditioning & durability'],
-    ['filmRoom', 'Film Room', 'Tactical edge'],
+    ['trainingFacility', 'Training Facility', `Training camp budget: ${6 + (fr.trainingFacility || 1) * 2} pts (base 6 + Lvl×2)`],
+    ['weightRoom', 'Weight Room', 'Conditioning & durability — reduces injury severity'],
+    ['filmRoom', 'Film Room', 'Tactical edge — boosts scheme fit effectiveness'],
   ];
 
   return (

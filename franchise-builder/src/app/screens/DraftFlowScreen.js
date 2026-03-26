@@ -1,5 +1,5 @@
 'use client';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { draftPlayer, generateDraftProspects } from '@/lib/engine';
 import { RATING_TOOLTIP } from '@/app/components/SharedComponents';
 
@@ -11,11 +11,16 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
   const [remainingPicks, setRemainingPicks] = useState(draftPicks || []);
   const [availableProspects, setAvailableProspects] = useState(draftProspects || []);
   const currentRound = remainingPicks[0]?.round || draftPicks?.[draftPicks.length - 1]?.round || 1;
+  const initializedRef = useRef(false);
 
+  // Only reset on true reinitialization (new draft session), not mid-draft prop changes
   useEffect(() => {
-    setRemainingPicks(draftPicks || []);
-    setAvailableProspects(draftProspects || []);
-    setPickedPlayers([]);
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      setRemainingPicks(draftPicks || []);
+      setAvailableProspects(draftProspects || []);
+      setPickedPlayers([]);
+    }
   }, [draftPicks, draftProspects]);
 
   useEffect(() => {
@@ -53,6 +58,21 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
     const topProspect = prospects.find(p => !pickedPlayers.some(x => x.id === p.id));
     if (topProspect) handlePick(topProspect);
     else onAutoPick();
+  }
+
+  // Guard: if no picks available at all, show message instead of crashing
+  if ((!draftPicks || draftPicks.length === 0) && pickedPlayers.length === 0) {
+    return (
+      <div style={{ maxWidth: 800, margin: '0 auto', padding: '20px 12px', textAlign: 'center' }}>
+        <div className="card" style={{ padding: 20 }}>
+          <h3 className="font-display section-header" style={{ fontSize: '1rem' }}>No Picks Available</h3>
+          <p className="font-body" style={{ fontSize: '0.85rem', color: 'var(--ink-muted)', marginBottom: 16 }}>
+            Your franchise has no draft picks this season.
+          </p>
+          <button className="btn-gold" style={{ padding: '12px 32px' }} onClick={onDone}>Continue to Free Agency</button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -105,13 +125,19 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
           {tradeUpOffers.map(offer => (
             <div key={offer.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--cream-dark)' }}>
               <div>
-                <span className="font-body" style={{ fontSize: '0.78rem', fontWeight: 500 }}>{offer.aiTeam.city} {offer.aiTeam.name}</span>
+                <span className="font-body" style={{ fontSize: '0.78rem', fontWeight: 500 }}>{offer.aiTeam?.city} {offer.aiTeam?.name}</span>
                 <span className="font-mono" style={{ fontSize: '0.72rem', marginLeft: 8, color: 'var(--ink-muted)' }}>
-                  {offer.draftCompensation.map(d => `R${d.round} '${String(d.season).slice(-2)}`).join(' + ')}
+                  {(offer.draftCompensation || []).map(d => `R${d.round} '${String(d.season).slice(-2)}`).join(' + ')}
                   {offer.cashComponent > 0 && ` + $${offer.cashComponent}M`}
                 </span>
               </div>
-              <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '4px 10px' }} onClick={() => onAcceptTradeUp && onAcceptTradeUp(offer)}>Accept</button>
+              <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '4px 10px' }} onClick={() => {
+                if (onAcceptTradeUp) {
+                  onAcceptTradeUp(offer);
+                  // Consume the current pick locally without triggering the useEffect reset
+                  setRemainingPicks(prev => prev.slice(1));
+                }
+              }}>Accept</button>
             </div>
           ))}
         </div>

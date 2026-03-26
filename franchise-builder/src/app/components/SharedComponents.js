@@ -66,7 +66,7 @@ export function Ticker({ lt, fr, season }) {
 // ============================================================
 // NAV
 // ============================================================
-export function Nav({ screen, setScreen, fr, gmRep, cash, notifCount }) {
+export function Nav({ screen, setScreen, fr, gmRep, cash, notifCount, quarterPhase, activeFranchise }) {
   const tier = getGMTier(gmRep);
   return (
     <nav className="nav-bar">
@@ -80,6 +80,14 @@ export function Nav({ screen, setScreen, fr, gmRep, cash, notifCount }) {
         </h1>
         <div className="nav-stats">
           {fr.length > 0 && <>
+            {(quarterPhase || 0) > 0 && activeFranchise && (
+              <div style={{ textAlign: 'right' }}>
+                <span className="stat-label" style={{ color: 'rgba(255,255,255,0.5)' }}>Record</span>
+                <div className="stat-value" style={{ fontSize: '0.85rem', color: '#fff' }}>
+                  {activeFranchise.wins ?? 0}–{activeFranchise.losses ?? 0}
+                </div>
+              </div>
+            )}
             <div style={{ textAlign: 'right' }}>
               <span className="stat-label" style={{ color: 'rgba(255,255,255,0.5)' }}>Cash</span>
               <div className="stat-value" style={{ fontSize: '0.95rem', color: cash > 5 ? '#4ade80' : cash > 0 ? '#fbbf24' : '#f87171' }}>

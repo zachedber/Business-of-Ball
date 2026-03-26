@@ -212,7 +212,8 @@ export interface Franchise {
   _quarterGamesPlayed?: number;
 
   // Preseason training camp
-  trainingCampFocus?: 'offense' | 'defense' | 'conditioning' | null;
+  trainingCampFocus?: 'offense' | 'defense' | 'conditioning' | null; // legacy — kept for save compat
+  trainingCampAllocation?: { offense: number; defense: number; conditioning: number };
 
   // Draft
   draftPickInventory: DraftPick[];

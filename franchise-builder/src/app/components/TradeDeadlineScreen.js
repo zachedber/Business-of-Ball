@@ -18,7 +18,7 @@ import { RATING_TOOLTIP } from '@/app/components/SharedComponents';
  * @param {number}   cash            - Global liquid cash
  * @param {function} setCash         - Global cash setter
  */
-export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCash, tradeOffers, onAcceptTrade, waiverPool, onSignWaiver }) {
+export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCash, tradeOffers, onAcceptTrade, onDeclineTrade, waiverPool, onSignWaiver }) {
   const [deadlineFAs] = useState(() => generateDeadlineFreeAgents(fr.league, 6));
   const [error, setError] = useState(null);
   const [released, setReleased] = useState([]);
@@ -250,7 +250,7 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
             {tradeOffers.map(offer => (
               <div key={offer.id} className="card" style={{ padding: '12px 14px', border: '1px solid var(--cream-darker)' }}>
                 <div className="font-display" style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: 6 }}>
-                  {offer.aiTeam.city} {offer.aiTeam.name} ({offer.aiTeam.wins}-{offer.aiTeam.losses})
+                  {offer.aiTeam?.city} {offer.aiTeam?.name} ({offer.aiTeam?.wins ?? 0}-{offer.aiTeam?.losses ?? 0})
                 </div>
 
                 {/* Buy offer: AI wants your player, offers picks/cash */}
@@ -295,7 +295,7 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
                   <button
                     className="btn-secondary"
                     style={{ fontSize: '0.72rem' }}
-                    onClick={() => {/* no-op: decline by ignoring */}}
+                    onClick={() => onDeclineTrade && onDeclineTrade(offer.id)}
                   >
                     Decline
                   </button>

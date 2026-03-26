@@ -82,7 +82,11 @@ function getSeasonGames(league) {
 }
 
 function sortTeamsByStanding(a, b) {
-  return (b.wins - a.wins) || ((a.losses || 0) - (b.losses || 0)) || ((b.rosterQuality || 0) - (a.rosterQuality || 0)) || a.id.localeCompare(b.id);
+  const aGP = Math.max(1, (a.wins || 0) + (a.losses || 0));
+  const bGP = Math.max(1, (b.wins || 0) + (b.losses || 0));
+  const wpDiff = (b.wins / bGP) - (a.wins / aGP);
+  if (Math.abs(wpDiff) > 0.001) return wpDiff;
+  return ((b.rosterQuality || 0) - (a.rosterQuality || 0)) || a.id.localeCompare(b.id);
 }
 
 function applyLeagueStandings(teams, playoffSlots) {
@@ -211,6 +215,8 @@ export function simAITeam(team, season) {
   team.season = season;
   const winPct = w / games;
   const att = calcAttendance(80, team.fanRating, winPct, team.market, team.stadiumCondition, team.rosterQuality || 70);
+  // Deep-copy nested objects to avoid shared-reference mutations
+  team.finances = { ...team.finances };
   team.finances.revenue = r1(
     att * team.stadiumCapacity * 80 * games / 1e6 +
     team.market * randFloat(0.8, 1.2) +
@@ -222,11 +228,13 @@ export function simAITeam(team, season) {
   else if (winPct < 0.35) team.fanRating = clamp(team.fanRating - rand(1, 5), 0, 100);
   team.stadiumAge++;
   if (team.stadiumAge > 15) team.stadiumCondition = clamp(team.stadiumCondition - rand(1, 3), 20, 100);
-  team.players.forEach(p => {
-    p.age++;
-    p.seasonsPlayed++;
-    const d = predictDev(p.age, p.rating, 65, 1, p.trait, lg);
-    p.rating = clamp(p.rating + d, 40, 99);
+  team.players = team.players.map(p => {
+    const aged = { ...p };
+    aged.age++;
+    aged.seasonsPlayed++;
+    const d = predictDev(aged.age, aged.rating, 65, 1, aged.trait, lg);
+    aged.rating = clamp(aged.rating + d, 40, 99);
+    return aged;
   });
   team.players = team.players.filter(p => !(p.age >= 35 && Math.random() < 0.3) && p.age < 38);
   const pos = lg === 'ngl' ? NGL_POSITIONS : ABL_POSITIONS;
@@ -235,9 +243,14 @@ export function simAITeam(team, season) {
     team.players.push(generatePlayer(pos[team.players.length % pos.length], lg, { age: rand(22, 24), rating: rand(55, 72) }));
   }
   team.rosterQuality = Math.round(team.players.reduce((s, p) => s + p.rating, 0) / team.players.length);
-  team.coach.seasonsWithTeam++;
-  if (winPct < 0.35 && team.coach.seasonsWithTeam >= 2 && Math.random() < 0.5) team.coach = generateCoach();
+  if (team.coach) {
+    team.coach = { ...team.coach };
+    team.coach.seasonsWithTeam++;
+    if (winPct < 0.35 && team.coach.seasonsWithTeam >= 2 && Math.random() < 0.5) team.coach = generateCoach();
+  }
+  team.history = [...(team.history || [])];
   team.history.push({ season, wins: w, losses: games - w, winPct: r1(winPct), rosterQuality: team.rosterQuality, revenue: team.finances.revenue, fanRating: team.fanRating });
+  if (team.history.length > 25) team.history = team.history.slice(-25);
   return team;
 }
 
@@ -495,16 +508,19 @@ export function simQuarter(f, season, quarter) {
     wpFactors.push({ label: 'Scheme fit', impact: r1(((f.schemeFit || 50) - 50) / 1000 * 100) / 100 });
     wpFactors.push({ label: 'Staff chemistry', impact: r1(((f.staffChemistry || 65) - 65) / 800 * 100) / 100 });
 
-    // Training camp focus bonus (applied to initial WP calculation in Q1)
-    if (f.trainingCampFocus === 'offense' && f.offensiveCoordinator) {
-      wp += 0.015;
-      wpFactors.push({ label: 'Training camp (offense)', impact: 0.015 });
+    // Training camp allocation bonus (point-based)
+    const campOffense = f.trainingCampAllocation?.offense || 0;
+    const campDefense = f.trainingCampAllocation?.defense || 0;
+    const campConditioning = f.trainingCampAllocation?.conditioning || 0;
+    if (campOffense > 0 && f.offensiveCoordinator) {
+      wp += campOffense * 0.003;
+      wpFactors.push({ label: 'Training camp (offense)', impact: r1(campOffense * 0.003) });
     }
-    if (f.trainingCampFocus === 'defense' && f.defensiveCoordinator) {
-      wp += 0.015;
-      wpFactors.push({ label: 'Training camp (defense)', impact: 0.015 });
+    if (campDefense > 0 && f.defensiveCoordinator) {
+      wp += campDefense * 0.003;
+      wpFactors.push({ label: 'Training camp (defense)', impact: r1(campDefense * 0.003) });
     }
-    if (f.trainingCampFocus === 'conditioning') {
+    if (campConditioning > 0) {
       wpFactors.push({ label: 'Training camp (conditioning)', impact: 0 });
     }
 
@@ -525,15 +541,16 @@ export function simQuarter(f, season, quarter) {
   // ── INJURIES — every quarter ─────────────────────────────────────
   f.players = f.players.map(p => ({ ...p })); // shallow copy players
   // Re-sync slot refs
-  if (f.star1) f.star1 = f.players.find(pp => pp.id === f.star1.id) || f.star1;
-  if (f.star2) f.star2 = f.players.find(pp => pp.id === f.star2.id) || f.star2;
-  if (f.corePiece) f.corePiece = f.players.find(pp => pp.id === f.corePiece.id) || f.corePiece;
+  if (f.star1?.id) f.star1 = f.players.find(pp => pp.id === f.star1.id) || f.star1;
+  if (f.star2?.id) f.star2 = f.players.find(pp => pp.id === f.star2.id) || f.star2;
+  if (f.corePiece?.id) f.corePiece = f.players.find(pp => pp.id === f.corePiece.id) || f.corePiece;
 
   f.players.forEach(p => {
     let risk = predictInjury(p.age, p.seasonsPlayed, f.medicalStaff, p.trait, p.rating);
-    // Conditioning training camp bonus: 25% injury reduction for Q1 and Q2
-    if (f.trainingCampFocus === 'conditioning' && (quarter === 1 || quarter === 2)) {
-      risk *= 0.75;
+    // Conditioning training camp bonus: point-based injury reduction for Q1 and Q2
+    const condReduction = Math.min(0.50, (f.trainingCampAllocation?.conditioning || 0) * 0.05);
+    if (condReduction > 0 && (quarter === 1 || quarter === 2)) {
+      risk *= (1 - condReduction);
     }
     if (Math.random() < risk) {
       p.injured = true;
@@ -736,9 +753,11 @@ export function simQuarter(f, season, quarter) {
     // Stadium & coach
     f.stadiumAge++;
     if (f.stadiumAge > 12) f.stadiumCondition = clamp(f.stadiumCondition - rand(1, 3), 20, 100);
-    f.coach = { ...f.coach };
-    f.coach.seasonsWithTeam++;
-    f.coach.age++;
+    if (f.coach) {
+      f.coach = { ...f.coach };
+      f.coach.seasonsWithTeam++;
+      f.coach.age++;
+    }
     // Media rep with breakdown
     let mediaDelta = 0;
     if (winPct > 0.65) mediaDelta = rand(1, 4);
@@ -808,6 +827,7 @@ export function simQuarter(f, season, quarter) {
     delete f._quarterEconMod;
     delete f._quarterGamesPlayed;
     delete f.trainingCampFocus;
+    delete f.trainingCampAllocation;
   }
 
   return f;
@@ -877,7 +897,7 @@ export function simulateLeagueQuarter(lt, pf, season, quarter) {
     const all = [...ul.ngl, ...ul.abl];
     const totalRev = all.reduce((s, t) => s + (t.finances?.revenue || 0), 0);
     const pool = totalRev * REVENUE_SHARE_PCT;
-    const perTeam = pool / all.length;
+    const perTeam = all.length > 0 ? pool / all.length : 0;
     uf.forEach(p => {
       const share = r1(perTeam - p.finances.revenue * REVENUE_SHARE_PCT);
       p.cash = r1(p.cash + share);
@@ -1166,7 +1186,7 @@ export function simulateFullSeason(lt, pf, season) {
   const all = [...ul.ngl, ...ul.abl];
   const totalRev = all.reduce((s, t) => s + (t.finances?.revenue || 0), 0);
   const pool = totalRev * REVENUE_SHARE_PCT;
-  const perTeam = pool / all.length;
+  const perTeam = all.length > 0 ? pool / all.length : 0;
   uf.forEach(p => {
     const share = r1(perTeam - p.finances.revenue * REVENUE_SHARE_PCT);
     p.cash = r1(p.cash + share);
@@ -1237,7 +1257,7 @@ export function simulateFullSeasonSecondHalf(lt, pf, season) {
   const all = [...lt.ngl, ...lt.abl];
   const totalRev = all.reduce((s, t) => s + (t.finances?.revenue || 0), 0);
   const pool = totalRev * REVENUE_SHARE_PCT;
-  const perTeam = pool / all.length;
+  const perTeam = all.length > 0 ? pool / all.length : 0;
   uf.forEach(p => {
     const share = r1(perTeam - p.finances.revenue * REVENUE_SHARE_PCT);
     p.cash = r1(p.cash + share);
@@ -1271,8 +1291,16 @@ export function simulatePlayoffs(nglTeams, playerFranchise) {
   const eastSeeds = eastAll.slice(0, 6).map((t, i) => ({ ...t, seed: i + 1, conf: 'East' })); // Bugfix: conference seeds now stay ordered best-to-worst so seed #1 is always the top team.
   const westSeeds = westAll.slice(0, 6).map((t, i) => ({ ...t, seed: i + 1, conf: 'West' })); // Bugfix: west seeding mirrors the east path so seed numbers stay aligned with team quality.
   const seededTeamIds = new Set([...eastSeeds, ...westSeeds].map(t => t.id));
-  if (seededTeamIds.size !== eastSeeds.length + westSeeds.length) throw new Error('Duplicate team detected in playoff bracket'); // Bugfix: duplicate playoff entrants now fail fast instead of filling multiple bracket slots.
-  if (eastSeeds.length < 6 || westSeeds.length < 6) throw new Error('Not enough NGL teams to build the playoff bracket'); // Bugfix: the bracket now refuses to render incomplete conference fields.
+  // Graceful fallback instead of crashing if bracket data is incomplete
+  if (seededTeamIds.size !== eastSeeds.length + westSeeds.length || eastSeeds.length < 6 || westSeeds.length < 6) {
+    console.warn('Playoff bracket issue: duplicates or insufficient teams. Returning fallback.');
+    const fallbackChamp = eastSeeds[0] || westSeeds[0] || nglTeams[0];
+    return {
+      eastSeeds, westSeeds, rounds: [],
+      champion: fallbackChamp,
+      playerMadePlayoffs: false, playerEliminated: true, playerWonChampionship: false,
+    };
+  }
 
   const playerMadePlayoffs = playerFranchise
     ? seededTeamIds.has(playerFranchise.id)

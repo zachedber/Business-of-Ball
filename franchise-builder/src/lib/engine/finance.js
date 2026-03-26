@@ -195,27 +195,36 @@ export function repayDebt(f, amt) {
  * @param {number} season - Current season number
  * @returns {Object[]} Array of stake offer objects
  */
-export function generateStakeOffers(lt, cash, season) {
+export function generateStakeOffers(lt, cash, season, playerLeague, existingStakes) {
   if (cash < 15 || season < 3) return [];
+  const stakes = existingStakes || [];
   const all = [...lt.ngl, ...lt.abl]
-    .filter(t => !t.isPlayerOwned)
+    .filter(t => !t.isPlayerOwned && t.league !== playerLeague)
     .sort(() => Math.random() - 0.5)
     .slice(0, rand(1, 3));
-  return all.map(t => {
+  const offers = all.map(t => {
     const v = calculateValuation(t);
-    const pct = pick([10, 15, 20, 25]);
+    const existingPct = stakes.filter(s => s.teamId === t.id).reduce((sum, s) => sum + s.stakePct, 0);
+    // If already at 49%, skip this team for new offers
+    if (existingPct >= 49) return null;
+    // If player already has a stake in this team, offer a smaller increase
+    const pct = existingPct > 0 ? pick([5, 10]) : pick([10, 15, 20, 25]);
+    const cappedPct = Math.min(pct, 49 - existingPct);
+    if (cappedPct <= 0) return null;
     return {
       id: generateId(),
       teamId: t.id,
       teamName: `${t.city} ${t.name}`,
       league: t.league,
-      stakePct: pct,
-      price: Math.round(v * (pct / 100) * randFloat(0.85, 1.15)),
+      stakePct: cappedPct,
+      price: Math.round(v * (cappedPct / 100) * randFloat(0.85, 1.15)),
       valuation: v,
       record: `${t.wins}-${t.losses}`,
       market: t.market,
+      isIncrease: existingPct > 0,
     };
-  });
+  }).filter(Boolean);
+  return offers;
 }
 
 /**

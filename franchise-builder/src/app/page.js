@@ -2,46 +2,35 @@
 import { useReducer, useEffect, useCallback, useRef } from 'react';
 import {
   initializeLeague, createPlayerFranchise,
-  simulateFullSeasonFirstHalf, simulateFullSeasonSecondHalf,
   simulateLeagueQuarter,
   generateDraftProspects, generateFreeAgents,
-  calculateValuation, clamp, generateId,
+  clamp,
   genPressConference, calcStakeIncome,
-  maxLoan, takeLoan, repayDebt,
-  getGMTier,
   generateNamingRightsOffer, acceptNamingRights,
   generateCBAEvent, generateNewspaper,
   generateNotifications, updateGMReputation,
-  signToSlot, releaseSlot,
-  getFranchiseAskingPrice, getFranchiseFlavor,
   generateDraftPickPositions,
   generateOffseasonFAPool,
   simulatePlayoffs, simulateAIFreeAgency,
   generateExtensionDemands, applyExtension, checkPressureEvent,
   generateNewStadiumNamingRightsOffer,
-  initLeagueHistory, addChampion, checkNotableSeasons,
+  addChampion, checkNotableSeasons,
   initFranchiseRecords, updateFranchiseRecords, evaluateHallOfFame,
   initHeadToHead, updateHeadToHead, initRivalry, updateRivalry,
   initDraftPickInventory,
-  formatMoney, generateTVDealEvent, formatLabel, r1,
+  generateTVDealEvent, r1,
 } from '@/lib/engine';
 import { rollPlayerEvents } from '@/lib/events';
 import { generateTradeOffers, generateWaiverWire, generateDraftTradeUpOffers } from '@/lib/tradeAI';
-import {
-  NGL_TEAMS, ABL_TEAMS, MARKET_TIERS, getMarketTier, getMarketTierInfo,
-  UPGRADE_COSTS, STARTING_CASH,
-} from '@/data/leagues';
 import { saveGame, loadGame, deleteSave } from '@/lib/storage';
 import {
   generateSeasonRecap, generateGMGrade, generateDynastyNarrative,
-  generateOffseasonEvents, setNarrativeApiKey, hasNarrativeApi,
+  generateOffseasonEvents, setNarrativeApiKey,
 } from '@/lib/narrative';
 import { gameReducer, initialState } from '@/lib/gameReducer';
 import TradeDeadlineScreen from '@/app/components/TradeDeadlineScreen';
 import TrainingCampScreen from '@/app/components/TrainingCampScreen';
 import EventNotificationCard from '@/app/components/EventNotificationCard';
-import WaiverWireScreen from '@/app/components/WaiverWireScreen';
-import MathTooltip from '@/app/components/MathTooltip';
 import AnalyticsScreen from '@/app/components/AnalyticsScreen';
 import HelpPanel from '@/app/components/HelpPanel';
 import { Ticker, Nav } from '@/app/components/SharedComponents';
@@ -111,6 +100,11 @@ export default function App() {
     dispatch({ type: 'SET_SAVE_STATUS', payload: 'saved' });
   }, [cash, gmRep, dynasty, lt, fr, stakes, season, freeAg, notifications, leagueHistory]);
 
+  const prevFranchiseRef = useRef(null);
+  const frRef = useRef(fr);
+  frRef.current = fr;
+  const ltRef = useRef(lt);
+  ltRef.current = lt;
   const saveTimer = useRef(null);
   useEffect(() => {
     if (!lt || fr.length === 0) return;
@@ -159,12 +153,21 @@ export default function App() {
     if (fr.length > 0 && lt) dispatch({ type: 'SET_SCREEN', payload: 'dashboard' });
   }
 
-  function handleCreate(template, league) {
+  async function handleCreate(template, league) {
     const newFr = createPlayerFranchise(template, league);
     const newFrArray = [...fr, newFr];
     const newLt = { ...lt, [league]: lt[league].map(t => t.id === template.id ? { ...t, isPlayerOwned: true } : t) };
-    dispatch({ type: 'SET_FRANCHISE', payload: newFrArray });
-    dispatch({ type: 'SET_LEAGUE_TEAMS', payload: newLt });
+    const initialEvents = await generateOffseasonEvents(newFr);
+    dispatch({
+      type: 'CREATE_FRANCHISE',
+      payload: {
+        lt: newLt,
+        frArray: newFrArray,
+        cash: newFr.cash || 0,
+        events: initialEvents.map(e => ({ ...e, resolved: false })),
+        freeAg: freeAg,
+      },
+    });
     dispatch({ type: 'SET_SCREEN', payload: 'dashboard' });
   }
 
@@ -256,6 +259,7 @@ export default function App() {
   }
 
   function handleCBA(choiceIdx) {
+    if (!cbaEvent?.choices?.[choiceIdx]) return;
     const choice = cbaEvent.choices[choiceIdx];
     if (choice.strikeRisk && Math.random() < choice.strikeRisk) {
       dispatch({ type: 'SET_RECAP', payload: { recap: (recap || '') + ' A labour strike shortened the season, devastating gate revenue.', grade } });
@@ -336,6 +340,12 @@ export default function App() {
 
   function handleDraftDone() {
     const af = fr[activeIdx];
+    if (!af) {
+      console.error('handleDraftDone: no active franchise');
+      dispatch({ type: 'DRAFT_CLOSE' });
+      dispatch({ type: 'SET_SCREEN', payload: 'dashboard' });
+      return;
+    }
 
     // FA pool lock (1.2): only generate once per offseason; reuse if already populated
     let playerPool, aiSigned;
@@ -382,20 +392,16 @@ export default function App() {
     dispatch({ type: 'TRAINING_CAMP_OPEN' });
   }
 
-  /** Called when player picks a training camp focus area — runs Q1 only, then pauses */
-  async function handleTrainingCampDone(focus) {
+  /** Called when player allocates training camp points — runs Q1 only, then pauses */
+  async function handleTrainingCampDone(allocation) {
     dispatch({ type: 'TRAINING_CAMP_CLOSE' });
     dispatch({ type: 'BEGIN_SIM' });
 
-    // Deduct training camp cost and set focus on franchise
-    const campCosts = { offense: 2, defense: 2, conditioning: 3 };
-    const campCost = campCosts[focus] || 2;
-    const newCampCash = r1((fr[activeIdx]?.cash || cash) - campCost);
+    // Training camp is free — value comes from facility investment
     const updatedFr = fr.map((f, i) =>
-      i === activeIdx ? { ...f, trainingCampFocus: focus, cash: newCampCash } : f
+      i === activeIdx ? { ...f, trainingCampAllocation: allocation } : f
     );
     dispatch({ type: 'SET_FRANCHISE', payload: updatedFr });
-    dispatch({ type: 'SET_CASH', payload: newCampCash });
 
     await new Promise(r => setTimeout(r, 300));
 
@@ -423,8 +429,8 @@ export default function App() {
 
     await new Promise(r => setTimeout(r, 200));
 
-    // Q2
-    const r2Result = simulateLeagueQuarter(lt, fr, season, 2);
+    // Q2 — use refs to avoid stale closure
+    const r2Result = simulateLeagueQuarter(ltRef.current, frRef.current, season, 2);
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: r2Result.leagueTeams });
     dispatch({ type: 'SET_FRANCHISE', payload: r2Result.franchises });
     dispatch({ type: 'SET_QUARTER_PHASE', payload: 2 });
@@ -444,8 +450,8 @@ export default function App() {
     dispatch({ type: 'WAIVER_WIRE_CLOSE' });
     await new Promise(r => setTimeout(r, 300));
 
-    // Q3 only
-    const r3Result = simulateLeagueQuarter(tradeDeadlineLeague || lt, fr, season, 3);
+    // Q3 only — use refs to avoid stale closure
+    const r3Result = simulateLeagueQuarter(tradeDeadlineLeague || ltRef.current, frRef.current, season, 3);
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: r3Result.leagueTeams });
     dispatch({ type: 'SET_FRANCHISE', payload: r3Result.franchises });
     dispatch({ type: 'SET_QUARTER_PHASE', payload: 3 });
@@ -466,11 +472,12 @@ export default function App() {
     dispatch({ type: 'Q3_PAUSE_CLOSE' });
     dispatch({ type: 'BEGIN_SIM' });
     const prevFranchise = fr[activeIdx];
+    prevFranchiseRef.current = prevFranchise;
 
     await new Promise(r => setTimeout(r, 200));
 
-    // Q4 (end of season)
-    const r4Result = simulateLeagueQuarter(lt, fr, season, 4);
+    // Q4 (end of season) — use refs to avoid stale closure
+    const r4Result = simulateLeagueQuarter(ltRef.current, frRef.current, season, 4);
     const result = r4Result;
     const af = result.franchises[activeIdx];
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: result.leagueTeams });
@@ -534,7 +541,8 @@ export default function App() {
       playoffResult,
     };
     const afNow = fr[activeIdx];
-    await runEndOfSeasonFlow(result, afNow, afNow);
+    await runEndOfSeasonFlow(result, afNow, prevFranchiseRef.current || afNow);
+    prevFranchiseRef.current = null;
     await doSave();
   }
 
@@ -691,8 +699,8 @@ export default function App() {
       newFr = newFr.map((x, i) => i === activeIdx ? { ...x, headToHead: h2h, rivalry: newRivalry } : x);
     }
 
-    // ── Notifications (accumulate all at once) ────────────────
-    let allNotifications = [...notifications.filter(n => !['contract', 'cap', 'stadium', 'fans', 'player'].includes(n.type))];
+    // ── Notifications (accumulate all at once, cap stale ones) ─
+    let allNotifications = [...notifications.filter(n => !['contract', 'cap', 'stadium', 'fans', 'player'].includes(n.type))].slice(-15);
     let newNamingOffer = namingOffer;
 
     if (af) {
@@ -706,9 +714,9 @@ export default function App() {
       if (stakeIncome > 0.1) {
         newNotifs.push({ id: 'stake_' + Date.now(), severity: 'info', message: `Stake income: +$${Math.round(stakeIncome * 10) / 10}M added to liquid capital.`, type: 'stakes' });
       }
-      if (af.finances.profit > 0) {
+      if (af.finances?.profit > 0) {
         newNotifs.push({ id: 'profit_' + Date.now(), severity: 'info', message: `Your franchise turned $${af.finances.profit}M profit, increasing your liquid capital to $${Math.round(newCash * 10) / 10}M.`, type: 'finance' });
-      } else if (af.finances.profit < 0) {
+      } else if (af.finances?.profit < 0) {
         newNotifs.push({ id: 'loss_' + Date.now(), severity: 'warning', message: `Season loss of $${Math.abs(af.finances.profit)}M drained liquid capital to $${Math.round(newCash * 10) / 10}M.`, type: 'finance' });
       }
       // A1: Stadium project events
@@ -827,8 +835,9 @@ export default function App() {
 
       // B4: Refresh draft pick inventory for next season
       newFr = newFr.map((x, i) => i === activeIdx ? {
-        ...x, gmInvestments: {}, stadiumUnderConstruction: false, pendingStadiumEvent: null, // Bugfix: per-season stadium/investment flags now reset before the next season begins.
+        ...x, gmInvestments: {}, stadiumUnderConstruction: false, pendingStadiumEvent: null,
         draftPickInventory: initDraftPickInventory(newSeason, x.id),
+        trainingCampAllocation: undefined, deferredDeadCap: 0,
       } : x);
 
       // Draft flow setup
@@ -892,6 +901,8 @@ export default function App() {
         gmRep={gmRep}
         cash={af?.cash ?? cash}
         notifCount={notifCount}
+        quarterPhase={quarterPhase}
+        activeFranchise={af}
       />
 
       <main style={{ flex: 1, paddingBottom: 30 }}>
@@ -902,7 +913,7 @@ export default function App() {
         {trainingCampActive && af && (
           <TrainingCampScreen
             franchise={af}
-            onSelectFocus={(focus) => handleTrainingCampDone(focus)}
+            onSelectFocus={(allocation) => handleTrainingCampDone(allocation)}
           />
         )}
 
@@ -919,6 +930,15 @@ export default function App() {
                   description={evt.description}
                 />
               ))}
+            </div>
+            <div style={{ textAlign: 'center', marginTop: 12 }}>
+              <button
+                className="btn-secondary"
+                style={{ padding: '8px 24px', fontSize: '0.8rem' }}
+                onClick={() => dispatch({ type: 'SET_PLAYER_EVENTS', payload: [] })}
+              >
+                Dismiss
+              </button>
             </div>
           </div>
         )}
@@ -938,8 +958,22 @@ export default function App() {
             onDismissRosterAlert={() => dispatch({ type: 'SET_ROSTER_FULL_ALERT', payload: null })}
             tradeUpOffers={tradeOffers}
             onAcceptTradeUp={(offer) => {
-              const newCash = cash + (offer.cashComponent || 0);
-              dispatch({ type: 'SET_CASH', payload: newCash });
+              // Add cash component
+              if (offer.cashComponent) {
+                const newCash = cash + (offer.cashComponent || 0);
+                dispatch({ type: 'SET_CASH', payload: newCash });
+              }
+              // Add draft compensation picks to franchise inventory
+              if (offer.draftCompensation?.length > 0) {
+                dispatch({
+                  type: 'SET_FRANCHISE',
+                  payload: prev => prev.map((f, i) => i === activeIdx ? {
+                    ...f,
+                    draftPickInventory: [...(f.draftPickInventory || []), ...offer.draftCompensation],
+                  } : f),
+                });
+              }
+              // Remove offer from list
               dispatch({ type: 'SET_TRADE_OFFERS', payload: tradeOffers.filter(o => o.id !== offer.id) });
             }}
           />
@@ -1022,6 +1056,9 @@ export default function App() {
             cash={af.cash ?? cash}
             setCash={newCash => dispatch({ type: 'SET_CASH', payload: newCash })}
             tradeOffers={tradeOffers}
+            onDeclineTrade={(offerId) => {
+              dispatch({ type: 'SET_TRADE_OFFERS', payload: tradeOffers.filter(o => o.id !== offerId) });
+            }}
             onAcceptTrade={(offer) => {
               setActiveFr(prev => {
                 let updated = { ...prev };
@@ -1121,6 +1158,7 @@ export default function App() {
               const val = typeof newCash === 'function' ? newCash(cash) : newCash;
               dispatch({ type: 'SET_CASH', payload: val });
             }}
+            playerLeague={af?.league}
           />
         )}
 
