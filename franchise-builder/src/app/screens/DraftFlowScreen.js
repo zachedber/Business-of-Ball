@@ -125,9 +125,9 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
           {tradeUpOffers.map(offer => (
             <div key={offer.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--cream-dark)' }}>
               <div>
-                <span className="font-body" style={{ fontSize: '0.78rem', fontWeight: 500 }}>{offer.aiTeam.city} {offer.aiTeam.name}</span>
+                <span className="font-body" style={{ fontSize: '0.78rem', fontWeight: 500 }}>{offer.aiTeam?.city} {offer.aiTeam?.name}</span>
                 <span className="font-mono" style={{ fontSize: '0.72rem', marginLeft: 8, color: 'var(--ink-muted)' }}>
-                  {offer.draftCompensation.map(d => `R${d.round} '${String(d.season).slice(-2)}`).join(' + ')}
+                  {(offer.draftCompensation || []).map(d => `R${d.round} '${String(d.season).slice(-2)}`).join(' + ')}
                   {offer.cashComponent > 0 && ` + $${offer.cashComponent}M`}
                 </span>
               </div>

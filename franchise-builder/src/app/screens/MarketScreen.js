@@ -12,7 +12,7 @@ export default function MarketScreen({ lt, cash, stakes, season, setStakes, setC
 
   useEffect(() => {
     if (lt) setOffers(generateStakeOffers(lt, cash, season, playerLeague, stakes));
-  }, [lt, season, playerLeague]);
+  }, [lt, season, playerLeague, cash, stakes]);
 
   // Auto-dismiss error after 5 seconds
   useEffect(() => {
@@ -196,7 +196,7 @@ export default function MarketScreen({ lt, cash, stakes, season, setStakes, setC
                       {offer.isIncrease && <span className="badge badge-amber" style={{ marginLeft: 6, fontSize: '0.6rem' }}>Increase</span>}
                     </div>
                     <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>
-                      {offer.league.toUpperCase()} · {offer.record} · T{getMarketTier(offer.market)} · {offer.stakePct}% stake
+                      {(offer.league || '').toUpperCase()} · {offer.record} · T{getMarketTier(offer.market)} · {offer.stakePct}% stake
                     </div>
                   </div>
                   <button

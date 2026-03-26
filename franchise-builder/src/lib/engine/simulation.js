@@ -744,9 +744,11 @@ export function simQuarter(f, season, quarter) {
     // Stadium & coach
     f.stadiumAge++;
     if (f.stadiumAge > 12) f.stadiumCondition = clamp(f.stadiumCondition - rand(1, 3), 20, 100);
-    f.coach = { ...f.coach };
-    f.coach.seasonsWithTeam++;
-    f.coach.age++;
+    if (f.coach) {
+      f.coach = { ...f.coach };
+      f.coach.seasonsWithTeam++;
+      f.coach.age++;
+    }
     // Media rep with breakdown
     let mediaDelta = 0;
     if (winPct > 0.65) mediaDelta = rand(1, 4);

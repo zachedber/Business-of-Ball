@@ -100,6 +100,11 @@ export default function App() {
     dispatch({ type: 'SET_SAVE_STATUS', payload: 'saved' });
   }, [cash, gmRep, dynasty, lt, fr, stakes, season, freeAg, notifications, leagueHistory]);
 
+  const prevFranchiseRef = useRef(null);
+  const frRef = useRef(fr);
+  frRef.current = fr;
+  const ltRef = useRef(lt);
+  ltRef.current = lt;
   const saveTimer = useRef(null);
   useEffect(() => {
     if (!lt || fr.length === 0) return;
@@ -254,6 +259,7 @@ export default function App() {
   }
 
   function handleCBA(choiceIdx) {
+    if (!cbaEvent?.choices?.[choiceIdx]) return;
     const choice = cbaEvent.choices[choiceIdx];
     if (choice.strikeRisk && Math.random() < choice.strikeRisk) {
       dispatch({ type: 'SET_RECAP', payload: { recap: (recap || '') + ' A labour strike shortened the season, devastating gate revenue.', grade } });
@@ -423,8 +429,8 @@ export default function App() {
 
     await new Promise(r => setTimeout(r, 200));
 
-    // Q2
-    const r2Result = simulateLeagueQuarter(lt, fr, season, 2);
+    // Q2 — use refs to avoid stale closure
+    const r2Result = simulateLeagueQuarter(ltRef.current, frRef.current, season, 2);
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: r2Result.leagueTeams });
     dispatch({ type: 'SET_FRANCHISE', payload: r2Result.franchises });
     dispatch({ type: 'SET_QUARTER_PHASE', payload: 2 });
@@ -444,8 +450,8 @@ export default function App() {
     dispatch({ type: 'WAIVER_WIRE_CLOSE' });
     await new Promise(r => setTimeout(r, 300));
 
-    // Q3 only
-    const r3Result = simulateLeagueQuarter(tradeDeadlineLeague || lt, fr, season, 3);
+    // Q3 only — use refs to avoid stale closure
+    const r3Result = simulateLeagueQuarter(tradeDeadlineLeague || ltRef.current, frRef.current, season, 3);
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: r3Result.leagueTeams });
     dispatch({ type: 'SET_FRANCHISE', payload: r3Result.franchises });
     dispatch({ type: 'SET_QUARTER_PHASE', payload: 3 });
@@ -466,11 +472,12 @@ export default function App() {
     dispatch({ type: 'Q3_PAUSE_CLOSE' });
     dispatch({ type: 'BEGIN_SIM' });
     const prevFranchise = fr[activeIdx];
+    prevFranchiseRef.current = prevFranchise;
 
     await new Promise(r => setTimeout(r, 200));
 
-    // Q4 (end of season)
-    const r4Result = simulateLeagueQuarter(lt, fr, season, 4);
+    // Q4 (end of season) — use refs to avoid stale closure
+    const r4Result = simulateLeagueQuarter(ltRef.current, frRef.current, season, 4);
     const result = r4Result;
     const af = result.franchises[activeIdx];
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: result.leagueTeams });
@@ -534,7 +541,8 @@ export default function App() {
       playoffResult,
     };
     const afNow = fr[activeIdx];
-    await runEndOfSeasonFlow(result, afNow, afNow);
+    await runEndOfSeasonFlow(result, afNow, prevFranchiseRef.current || afNow);
+    prevFranchiseRef.current = null;
     await doSave();
   }
 
@@ -691,8 +699,8 @@ export default function App() {
       newFr = newFr.map((x, i) => i === activeIdx ? { ...x, headToHead: h2h, rivalry: newRivalry } : x);
     }
 
-    // ── Notifications (accumulate all at once) ────────────────
-    let allNotifications = [...notifications.filter(n => !['contract', 'cap', 'stadium', 'fans', 'player'].includes(n.type))];
+    // ── Notifications (accumulate all at once, cap stale ones) ─
+    let allNotifications = [...notifications.filter(n => !['contract', 'cap', 'stadium', 'fans', 'player'].includes(n.type))].slice(-15);
     let newNamingOffer = namingOffer;
 
     if (af) {
@@ -706,9 +714,9 @@ export default function App() {
       if (stakeIncome > 0.1) {
         newNotifs.push({ id: 'stake_' + Date.now(), severity: 'info', message: `Stake income: +$${Math.round(stakeIncome * 10) / 10}M added to liquid capital.`, type: 'stakes' });
       }
-      if (af.finances.profit > 0) {
+      if (af.finances?.profit > 0) {
         newNotifs.push({ id: 'profit_' + Date.now(), severity: 'info', message: `Your franchise turned $${af.finances.profit}M profit, increasing your liquid capital to $${Math.round(newCash * 10) / 10}M.`, type: 'finance' });
-      } else if (af.finances.profit < 0) {
+      } else if (af.finances?.profit < 0) {
         newNotifs.push({ id: 'loss_' + Date.now(), severity: 'warning', message: `Season loss of $${Math.abs(af.finances.profit)}M drained liquid capital to $${Math.round(newCash * 10) / 10}M.`, type: 'finance' });
       }
       // A1: Stadium project events
@@ -827,8 +835,9 @@ export default function App() {
 
       // B4: Refresh draft pick inventory for next season
       newFr = newFr.map((x, i) => i === activeIdx ? {
-        ...x, gmInvestments: {}, stadiumUnderConstruction: false, pendingStadiumEvent: null, // Bugfix: per-season stadium/investment flags now reset before the next season begins.
+        ...x, gmInvestments: {}, stadiumUnderConstruction: false, pendingStadiumEvent: null,
         draftPickInventory: initDraftPickInventory(newSeason, x.id),
+        trainingCampAllocation: undefined, deferredDeadCap: 0,
       } : x);
 
       // Draft flow setup

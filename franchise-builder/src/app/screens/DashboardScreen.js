@@ -255,8 +255,8 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
           ['Chem', fr.lockerRoomChemistry, fr.lockerRoomChemistry > 60 ? 'var(--green)' : 'var(--amber)', 'lockerRoomChemistry'],
           ['Media', fr.mediaRep, null, 'mediaRep'],
           ['Community', fr.communityRating, null, 'communityRating'],
-          ['Revenue', `$${fr.finances.revenue}M`, 'var(--green)', 'revenue'],
-          ['Profit', `$${fr.finances.profit}M`, fr.finances.profit > 0 ? 'var(--green)' : 'var(--red)', null],
+          ['Revenue', `$${fr.finances?.revenue ?? 0}M`, 'var(--green)', 'revenue'],
+          ['Profit', `$${fr.finances?.profit ?? 0}M`, (fr.finances?.profit ?? 0) > 0 ? 'var(--green)' : 'var(--red)', null],
         ].map(([label, value, color, breakdownKey]) => {
           const bd = breakdownKey ? fr.mathBreakdowns?.[breakdownKey] : null;
           return (
@@ -615,6 +615,7 @@ function CoachTab({ fr, setFr, gmRep }) {
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div className="card-elevated" style={{ padding: 16 }}>
         <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Head Coach</h3>
+        {coach ? (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
           <div>
             <div className="font-display" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{coach.name}</div>
@@ -637,6 +638,9 @@ function CoachTab({ fr, setFr, gmRep }) {
               </div>
           }
         </div>
+        ) : (
+        <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>No head coach — hire from candidates below.</p>
+        )}
       </div>
       {candidates && (
         <div className="card" style={{ padding: 16 }}>
@@ -1152,7 +1156,7 @@ function LegacyTab({ fr, leagueHistory }) {
           <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Season Timeline</h3>
           <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 8 }}>
             {history.map(h => {
-              const wp = h.wins / (h.wins + h.losses);
+              const wp = (h.wins + h.losses) > 0 ? h.wins / (h.wins + h.losses) : 0;
               const isChamp = trophies.some(t => t.season === h.season);
               return (
                 <div key={h.season} style={{ minWidth: 50, textAlign: 'center', padding: '6px 4px', borderRadius: 2, background: isChamp ? 'var(--gold)' : wp > 0.6 ? 'var(--green)' : wp < 0.35 ? 'var(--red)' : 'var(--cream-dark)', color: isChamp || wp > 0.6 || wp < 0.35 ? '#fff' : 'var(--ink)' }}>
@@ -1178,11 +1182,12 @@ function LegacyTab({ fr, leagueHistory }) {
 // HISTORY TAB
 // ============================================================
 function HistTab({ fr }) {
+  const history = Array.isArray(fr?.history) ? fr.history : [];
   return (
     <div className="fade-in">
       <div className="card" style={{ padding: 16 }}>
         <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Season History</h3>
-        {fr.history.length === 0
+        {history.length === 0
           ? <p className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>No seasons completed yet.</p>
           : <div className="table-wrap">
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
@@ -1194,7 +1199,7 @@ function HistTab({ fr }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {[...fr.history].reverse().map(h => (
+                  {[...history].reverse().map(h => (
                     <tr key={h.season} style={{ borderBottom: '1px solid var(--cream-dark)' }}>
                       <td className="font-mono" style={{ padding: '6px 8px', fontWeight: 600 }}>{h.season}</td>
                       <td className="font-mono" style={{ padding: '6px 8px' }}>{h.wins}-{h.losses}</td>
