@@ -2,6 +2,7 @@ import {
   NGL_SALARY_CAP, ABL_SALARY_CAP, CAP_INFLATION_RATE, CITY_ECONOMY,
   MARKET_TIERS, getMarketTier, TICKET_BASE_PRICE, TICKET_ELASTICITY,
   REVENUE_SHARE_PCT, MAX_DEBT_RATIO, DEBT_INTEREST,
+  STADIUM_TIERS, STAFF_SALARIES,
 } from '@/data/leagues';
 import { rand, randFloat, pick, clamp, r1, generateId } from './roster';
 
@@ -304,4 +305,52 @@ export function formatFullDollars(millions) {
   if (millions == null || isNaN(millions)) return '$0';
   const full = Math.round(millions * 1_000_000);
   return '$' + full.toLocaleString('en-US');
+}
+
+/**
+ * Calculates end-of-season financial results for a player franchise.
+ * Computes revenue (gate, TV, merch, sponsorship, naming, premium seating),
+ * expenses (salary, staff, facilities, maintenance, interest, dead cap, coordinators),
+ * and updates franchise finances and cash.
+ * @param {Object} f - Franchise state
+ * @param {number} winPct - Season win percentage (0–1)
+ * @param {number} totalGames - Total games in the season
+ * @param {number} [econMod=1.0] - Economy cycle modifier
+ * @returns {Object} Updated franchise with finances and cash recalculated
+ */
+export function calculateEndSeasonFinances(f, winPct, totalGames, econMod = 1.0) {
+  const lg = f.league;
+  const attRaw = calcAttendance(f.ticketPrice, f.fanRating, winPct, f.market, f.stadiumCondition, f.rosterQuality || 70);
+  const att = f.namingRightsActive ? Math.max(0.25, attRaw - 0.03) : attRaw;
+  const _stadTier = STADIUM_TIERS[f.stadiumTier || 'small'];
+  const tierGateMult = _stadTier ? _stadTier.gateMultiplier : 1.0;
+  const constructionPenalty = f.stadiumUnderConstruction ? 0.80 : 1.0;
+  const honeymoonBonus = (f.newStadiumHoneymoon || 0) > 0 ? 1.25 : 1.0;
+  const leagueGateMult = lg === 'ngl' ? 1.6 : 1.1;
+  const gate = att * f.stadiumCapacity * f.ticketPrice * totalGames / 1e6 * econMod * tierGateMult * constructionPenalty * honeymoonBonus * leagueGateMult;
+  const tv = (15 + f.market * (0.25 + (f.tvTier || 1) * 0.18)) * randFloat(0.9, 1.1);
+  const merch = f.market * (f.merchMultiplier || 1) * (0.15 + winPct * 0.25) * econMod * randFloat(0.9, 1.1);
+  const spon = (f.sponsorLevel || 1) * f.market * 0.14 * randFloat(0.9, 1.1);
+  const naming = f.namingRightsActive ? (f.namingRightsDeal || 3) : 0;
+  const luxuryBoxRev = (f.luxuryBoxes || 0) * 0.8;
+  const clubSeatRev = (f.clubSeatSections || 0) * 0.15 * clamp(0.8 + winPct * 0.4, 0.8, 1.2);
+  const totalRev = gate + tv + merch + spon + naming + luxuryBoxRev + clubSeatRev;
+  const staff = (f.scoutingStaff + f.developmentStaff + f.medicalStaff + f.marketingStaff) * 2;
+  const fac = (f.trainingFacility + f.weightRoom + f.filmRoom) * 1.5;
+  const maintBase = f.stadiumAge > 15 ? f.stadiumAge * 0.3 : 1;
+  const maintMult = _stadTier ? _stadTier.maintMultiplier : 1.0;
+  const maint = maintBase * maintMult;
+  const interest = (f.debt || 0) * DEBT_INTEREST;
+  // Coordinator salaries
+  let coordSalaries = 0;
+  if (f.offensiveCoordinator) coordSalaries += STAFF_SALARIES.oc[f.offensiveCoordinator.level] || 1;
+  if (f.defensiveCoordinator) coordSalaries += STAFF_SALARIES.dc[f.defensiveCoordinator.level] || 1;
+  if (f.playerDevCoach) coordSalaries += STAFF_SALARIES.pdc[f.playerDevCoach.level] || 0.8;
+  const totalExp = f.totalSalary + staff + fac + maint + interest + (f.capDeadMoney || 0) + coordSalaries;
+  const profit = totalRev - totalExp;
+  return {
+    ...f,
+    finances: { revenue: r1(totalRev), expenses: r1(totalExp), profit: r1(profit) },
+    cash: r1((f.cash || 0) + profit),
+  };
 }

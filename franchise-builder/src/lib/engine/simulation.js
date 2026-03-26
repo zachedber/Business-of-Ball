@@ -17,7 +17,7 @@ import {
   updateStaffChemistry, calculateSchemeFit,
   endOfSeasonAging,
 } from './roster';
-import { calcAttendance, calculateValuation, getFranchiseAskingPrice } from './finance';
+import { calcAttendance, calculateValuation, getFranchiseAskingPrice, calculateEndSeasonFinances } from './finance';
 import {
   updateCityEconomy, advanceStadiumProject,
   initFranchiseRecords, initHeadToHead, initRivalry,
@@ -210,25 +210,25 @@ export function simAITeam(team, season) {
 
   let w = 0;
   for (let g = 0; g < games; g++) if (Math.random() < wp) w++;
-  team.wins = w;
-  team.losses = games - w;
-  team.season = season;
   const winPct = w / games;
   const att = calcAttendance(80, team.fanRating, winPct, team.market, team.stadiumCondition, team.rosterQuality || 70);
-  // Deep-copy nested objects to avoid shared-reference mutations
-  team.finances = { ...team.finances };
-  team.finances.revenue = r1(
+  const revenue = r1(
     att * team.stadiumCapacity * 80 * games / 1e6 +
     team.market * randFloat(0.8, 1.2) +
     team.market * winPct * randFloat(0.3, 0.6)
   );
-  team.finances.expenses = r1(team.totalSalary + team.market * randFloat(0.3, 0.6));
-  team.finances.profit = r1(team.finances.revenue - team.finances.expenses);
-  if (winPct > 0.6) team.fanRating = clamp(team.fanRating + rand(1, 4), 0, 100);
-  else if (winPct < 0.35) team.fanRating = clamp(team.fanRating - rand(1, 5), 0, 100);
-  team.stadiumAge++;
-  if (team.stadiumAge > 15) team.stadiumCondition = clamp(team.stadiumCondition - rand(1, 3), 20, 100);
-  team.players = team.players.map(p => {
+  const expenses = r1(team.totalSalary + team.market * randFloat(0.3, 0.6));
+  const profit = r1(revenue - expenses);
+  const newFanRating = winPct > 0.6
+    ? clamp(team.fanRating + rand(1, 4), 0, 100)
+    : winPct < 0.35
+      ? clamp(team.fanRating - rand(1, 5), 0, 100)
+      : team.fanRating;
+  const newStadiumAge = team.stadiumAge + 1;
+  const newStadiumCondition = newStadiumAge > 15
+    ? clamp(team.stadiumCondition - rand(1, 3), 20, 100)
+    : team.stadiumCondition;
+  let players = team.players.map(p => {
     const aged = { ...p };
     aged.age++;
     aged.seasonsPlayed++;
@@ -236,22 +236,34 @@ export function simAITeam(team, season) {
     aged.rating = clamp(aged.rating + d, 40, 99);
     return aged;
   });
-  team.players = team.players.filter(p => !(p.age >= 35 && Math.random() < 0.3) && p.age < 38);
+  players = players.filter(p => !(p.age >= 35 && Math.random() < 0.3) && p.age < 38);
   const pos = lg === 'ngl' ? NGL_POSITIONS : ABL_POSITIONS;
   const tgt = lg === 'ngl' ? NGL_ROSTER_SIZE : ABL_ROSTER_SIZE;
-  while (team.players.length < tgt) {
-    team.players.push(generatePlayer(pos[team.players.length % pos.length], lg, { age: rand(22, 24), rating: rand(55, 72) }));
+  while (players.length < tgt) {
+    players.push(generatePlayer(pos[players.length % pos.length], lg, { age: rand(22, 24), rating: rand(55, 72) }));
   }
-  team.rosterQuality = Math.round(team.players.reduce((s, p) => s + p.rating, 0) / team.players.length);
-  if (team.coach) {
-    team.coach = { ...team.coach };
-    team.coach.seasonsWithTeam++;
-    if (winPct < 0.35 && team.coach.seasonsWithTeam >= 2 && Math.random() < 0.5) team.coach = generateCoach();
+  const rosterQuality = Math.round(players.reduce((s, p) => s + p.rating, 0) / players.length);
+  let coach = team.coach;
+  if (coach) {
+    coach = { ...coach, seasonsWithTeam: coach.seasonsWithTeam + 1 };
+    if (winPct < 0.35 && coach.seasonsWithTeam >= 2 && Math.random() < 0.5) coach = generateCoach();
   }
-  team.history = [...(team.history || [])];
-  team.history.push({ season, wins: w, losses: games - w, winPct: r1(winPct), rosterQuality: team.rosterQuality, revenue: team.finances.revenue, fanRating: team.fanRating });
-  if (team.history.length > 25) team.history = team.history.slice(-25);
-  return team;
+  let history = [...(team.history || []), { season, wins: w, losses: games - w, winPct: r1(winPct), rosterQuality, revenue, fanRating: newFanRating }];
+  if (history.length > 25) history = history.slice(-25);
+  return {
+    ...team,
+    wins: w,
+    losses: games - w,
+    season,
+    finances: { revenue, expenses, profit },
+    fanRating: newFanRating,
+    stadiumAge: newStadiumAge,
+    stadiumCondition: newStadiumCondition,
+    players,
+    rosterQuality,
+    coach,
+    history,
+  };
 }
 
 // ============================================================
@@ -314,38 +326,8 @@ export function simPlayerSeason(f, season) {
   f.season = season;
   const winPct = w / games;
 
-  // Revenue with economy modifier
-  // Phase 3: naming rights attendance penalty (-3% fill rate — corporate feel)
-  const attRaw = calcAttendance(f.ticketPrice, f.fanRating, winPct, f.market, f.stadiumCondition, f.rosterQuality || 70);
-  const att = f.namingRightsActive ? Math.max(0.25, attRaw - 0.03) : attRaw;
-  // A1: Stadium tier gate multiplier, construction penalty, honeymoon bonus
-  const _stadTier = STADIUM_TIERS[f.stadiumTier || 'small'];
-  const tierGateMult = _stadTier ? _stadTier.gateMultiplier : 1.0;
-  const constructionPenalty = f.stadiumUnderConstruction ? 0.80 : 1.0;
-  const honeymoonBonus = (f.newStadiumHoneymoon || 0) > 0 ? 1.25 : 1.0;
-  const leagueGateMult2 = lg === 'ngl' ? 1.6 : 1.1;
-  const gate = att * f.stadiumCapacity * f.ticketPrice * games / 1e6 * econMod * tierGateMult * constructionPenalty * honeymoonBonus * leagueGateMult2;
-  const tv = (15 + f.market * (0.25 + (f.tvTier || 1) * 0.18)) * randFloat(0.9, 1.1);
-  const merch = f.market * (f.merchMultiplier || 1) * (0.15 + winPct * 0.25) * econMod * randFloat(0.9, 1.1);
-  const spon = (f.sponsorLevel || 1) * f.market * 0.14 * randFloat(0.9, 1.1);
-  const naming = f.namingRightsActive ? (f.namingRightsDeal || 3) : 0;
-  // A1: Premium seating revenue
-  const luxuryBoxRev = (f.luxuryBoxes || 0) * 0.8;
-  const clubSeatRev = (f.clubSeatSections || 0) * 0.15 * clamp(0.8 + winPct * 0.4, 0.8, 1.2);
-  const totalRev = gate + tv + merch + spon + naming + luxuryBoxRev + clubSeatRev;
-  const staff = (f.scoutingStaff + f.developmentStaff + f.medicalStaff + f.marketingStaff) * 2;
-  const fac = (f.trainingFacility + f.weightRoom + f.filmRoom) * 1.5;
-  // A1: Tier-based maintenance multiplier
-  const maintBase = f.stadiumAge > 15 ? f.stadiumAge * 0.3 : 1;
-  const maintMult = _stadTier ? _stadTier.maintMultiplier : 1.0;
-  const maint = maintBase * maintMult;
-  const interest = (f.debt || 0) * DEBT_INTEREST;
-  // A2: Coordinator salaries
-  const coordSalaries = calcCoordSalaries(f);
-  const totalExp = f.totalSalary + staff + fac + maint + interest + (f.capDeadMoney || 0) + coordSalaries;
-  const profit = totalRev - totalExp;
-  f.finances = { revenue: r1(totalRev), expenses: r1(totalExp), profit: r1(profit) };
-  f.cash = r1((f.cash || 0) + profit);
+  // Revenue & expenses
+  f = calculateEndSeasonFinances(f, winPct, games, econMod);
 
   // Naming rights countdown
   if (f.namingRightsActive && f.namingRightsYears) {
@@ -394,6 +376,9 @@ export function simPlayerSeason(f, season) {
     if (p.trait === 'volatile') cd -= rand(2, 5);
     if (p.trait === 'showman') cd += winPct > 0.5 ? 2 : -3;
   });
+  // mediaRep influence: high mediaRep slows chemistry decay, low accelerates it
+  if (f.mediaRep > 70) cd += 1;
+  else if (f.mediaRep < 40) cd -= 1;
   f.lockerRoomChemistry = clamp(Math.round(f.lockerRoomChemistry + cd / Math.max(1, f.players.length) * 3), 0, 100);
 
   // Unified end-of-season aging — 1.1
@@ -623,35 +608,12 @@ export function simQuarter(f, season, quarter) {
     const winPct = w / totalGames;
     const econMod = f._quarterEconMod || 1.0;
 
-    // Revenue
+    // Revenue & expenses
+    f = calculateEndSeasonFinances(f, winPct, totalGames, econMod);
+
+    // Attendance breakdown (recompute lightweight values for mathBreakdowns display)
     const attRaw = calcAttendance(f.ticketPrice, f.fanRating, winPct, f.market, f.stadiumCondition, f.rosterQuality || 70);
     const att = f.namingRightsActive ? Math.max(0.25, attRaw - 0.03) : attRaw;
-    const _stadTier = STADIUM_TIERS[f.stadiumTier || 'small'];
-    const tierGateMult = _stadTier ? _stadTier.gateMultiplier : 1.0;
-    const constructionPenalty = f.stadiumUnderConstruction ? 0.80 : 1.0;
-    const honeymoonBonus = (f.newStadiumHoneymoon || 0) > 0 ? 1.25 : 1.0;
-    const leagueGateMult = lg === 'ngl' ? 1.6 : 1.1;
-    const gate = att * f.stadiumCapacity * f.ticketPrice * totalGames / 1e6 * econMod * tierGateMult * constructionPenalty * honeymoonBonus * leagueGateMult;
-    const tv = (15 + f.market * (0.25 + (f.tvTier || 1) * 0.18)) * randFloat(0.9, 1.1);
-    const merch = f.market * (f.merchMultiplier || 1) * (0.15 + winPct * 0.25) * econMod * randFloat(0.9, 1.1);
-    const spon = (f.sponsorLevel || 1) * f.market * 0.14 * randFloat(0.9, 1.1);
-    const naming = f.namingRightsActive ? (f.namingRightsDeal || 3) : 0;
-    const luxuryBoxRev = (f.luxuryBoxes || 0) * 0.8;
-    const clubSeatRev = (f.clubSeatSections || 0) * 0.15 * clamp(0.8 + winPct * 0.4, 0.8, 1.2);
-    const totalRev = gate + tv + merch + spon + naming + luxuryBoxRev + clubSeatRev;
-    const staff = (f.scoutingStaff + f.developmentStaff + f.medicalStaff + f.marketingStaff) * 2;
-    const fac = (f.trainingFacility + f.weightRoom + f.filmRoom) * 1.5;
-    const maintBase = f.stadiumAge > 15 ? f.stadiumAge * 0.3 : 1;
-    const maintMult = _stadTier ? _stadTier.maintMultiplier : 1.0;
-    const maint = maintBase * maintMult;
-    const interest = (f.debt || 0) * DEBT_INTEREST;
-    const coordSalaries = calcCoordSalaries(f);
-    const totalExp = f.totalSalary + staff + fac + maint + interest + (f.capDeadMoney || 0) + coordSalaries;
-    const profit = totalRev - totalExp;
-    f.finances = { revenue: r1(totalRev), expenses: r1(totalExp), profit: r1(profit) };
-    f.cash = r1((f.cash || 0) + profit);
-
-    // Attendance breakdown
     const attBase = f.fanRating / 100 * 0.28 + winPct * 0.24 + f.market / 100 * 0.18 + f.stadiumCondition / 100 * 0.10 + 0.18;
     f.mathBreakdowns.attendance = {
       baseValue: r1(attBase * 100) / 100,
@@ -664,19 +626,9 @@ export function simQuarter(f, season, quarter) {
 
     // Revenue breakdown
     f.mathBreakdowns.revenue = {
-      baseValue: r1(gate),
-      factors: [
-        { label: 'TV deal', impact: r1(tv) },
-        { label: 'Merchandise', impact: r1(merch) },
-        { label: 'Sponsorship', impact: r1(spon) },
-        { label: 'Naming rights', impact: r1(naming) },
-        { label: 'Luxury boxes', impact: r1(luxuryBoxRev) },
-        { label: 'Club seats', impact: r1(clubSeatRev) },
-        { label: 'Stadium tier mult', impact: r1((tierGateMult - 1.0) * gate / tierGateMult) },
-        { label: 'Construction penalty', impact: f.stadiumUnderConstruction ? r1(-gate * 0.2) : 0 },
-        { label: 'Honeymoon bonus', impact: (f.newStadiumHoneymoon || 0) > 0 ? r1(gate * 0.25) : 0 },
-      ],
-      finalValue: r1(totalRev),
+      baseValue: f.finances.revenue,
+      factors: [],
+      finalValue: f.finances.revenue,
     };
 
     // Naming rights countdown
@@ -739,6 +691,13 @@ export function simQuarter(f, season, quarter) {
       if (p.trait === 'volatile') { const v = -rand(2, 5); cd += v; chemFactors.push({ label: `Volatile: ${p.name}`, impact: v }); }
       if (p.trait === 'showman') { const v = winPct > 0.5 ? 2 : -3; cd += v; chemFactors.push({ label: `Showman: ${p.name}`, impact: v }); }
     });
+    // mediaRep influence: high mediaRep slows chemistry decay, low accelerates it
+    let mediaRepChemMod = 0;
+    if (f.mediaRep > 70) mediaRepChemMod = 1;
+    else if (f.mediaRep < 40) mediaRepChemMod = -1;
+    cd += mediaRepChemMod;
+    if (mediaRepChemMod !== 0) chemFactors.push({ label: 'Media reputation', impact: mediaRepChemMod });
+
     const chemDelta = Math.round(cd / Math.max(1, f.players.length) * 3);
     f.mathBreakdowns.lockerRoomChemistry = {
       baseValue: 0,
@@ -1007,39 +966,8 @@ export function simPlayerSeasonSecondHalf(f, season) {
   f.season = season;
   const winPct = w / games;
 
-  // Revenue with economy modifier
-  // Phase 3: naming rights attendance penalty (-3% fill rate — corporate feel)
-  const attRaw = calcAttendance(f.ticketPrice, f.fanRating, winPct, f.market, f.stadiumCondition, f.rosterQuality || 70);
-  const att = f.namingRightsActive ? Math.max(0.25, attRaw - 0.03) : attRaw;
-  // A1: Stadium tier gate multiplier, construction penalty, honeymoon bonus
-  const _stadTier = STADIUM_TIERS[f.stadiumTier || 'small'];
-  const tierGateMult = _stadTier ? _stadTier.gateMultiplier : 1.0;
-  const constructionPenalty = f.stadiumUnderConstruction ? 0.80 : 1.0;
-  const honeymoonBonus = (f.newStadiumHoneymoon || 0) > 0 ? 1.25 : 1.0;
-  // Revenue recalibration: boosted base multipliers
-  const leagueGateMult = lg === 'ngl' ? 1.6 : 1.1;
-  const gate = att * f.stadiumCapacity * f.ticketPrice * games / 1e6 * econMod * tierGateMult * constructionPenalty * honeymoonBonus * leagueGateMult;
-  const tv = (15 + f.market * (0.25 + (f.tvTier || 1) * 0.18)) * randFloat(0.9, 1.1);
-  const merch = f.market * (f.merchMultiplier || 1) * (0.15 + winPct * 0.25) * econMod * randFloat(0.9, 1.1);
-  const spon = (f.sponsorLevel || 1) * f.market * 0.14 * randFloat(0.9, 1.1);
-  const naming = f.namingRightsActive ? (f.namingRightsDeal || 3) : 0;
-  // A1: Premium seating revenue
-  const luxuryBoxRev = (f.luxuryBoxes || 0) * 0.8;
-  const clubSeatRev = (f.clubSeatSections || 0) * 0.15 * clamp(0.8 + winPct * 0.4, 0.8, 1.2);
-  const totalRev = gate + tv + merch + spon + naming + luxuryBoxRev + clubSeatRev;
-  const staff = (f.scoutingStaff + f.developmentStaff + f.medicalStaff + f.marketingStaff) * 2;
-  const fac = (f.trainingFacility + f.weightRoom + f.filmRoom) * 1.5;
-  // A1: Tier-based maintenance multiplier
-  const maintBase = f.stadiumAge > 15 ? f.stadiumAge * 0.3 : 1;
-  const maintMult = _stadTier ? _stadTier.maintMultiplier : 1.0;
-  const maint = maintBase * maintMult;
-  const interest = (f.debt || 0) * DEBT_INTEREST;
-  // A2: Coordinator salaries
-  const coordSalaries = calcCoordSalaries(f);
-  const totalExp = f.totalSalary + staff + fac + maint + interest + (f.capDeadMoney || 0) + coordSalaries;
-  const profit = totalRev - totalExp;
-  f.finances = { revenue: r1(totalRev), expenses: r1(totalExp), profit: r1(profit) };
-  f.cash = r1((f.cash || 0) + profit);
+  // Revenue & expenses
+  f = calculateEndSeasonFinances(f, winPct, games, econMod);
 
   // Naming rights countdown
   if (f.namingRightsActive && f.namingRightsYears) {
@@ -1088,6 +1016,9 @@ export function simPlayerSeasonSecondHalf(f, season) {
     if (p.trait === 'volatile') cd -= rand(2, 5);
     if (p.trait === 'showman') cd += winPct > 0.5 ? 2 : -3;
   });
+  // mediaRep influence: high mediaRep slows chemistry decay, low accelerates it
+  if (f.mediaRep > 70) cd += 1;
+  else if (f.mediaRep < 40) cd -= 1;
   f.lockerRoomChemistry = clamp(Math.round(f.lockerRoomChemistry + cd / Math.max(1, f.players.length) * 3), 0, 100);
 
   // Unified end-of-season aging — 1.1

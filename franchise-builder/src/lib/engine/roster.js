@@ -865,6 +865,49 @@ export function generateExtensionDemands(f, gmRep) {
 // ============================================================
 
 /**
+ * Shared aging/development logic for a single player.
+ * Applies rating development and morale shift based on win percentage.
+ * @param {Object} player - Shallow-copied player object to update in place
+ * @param {number} devStaff - Development staff level
+ * @param {number} winPct - Season win percentage (0–1)
+ * @param {number} ps - Peak age start
+ * @param {number} pe - Peak age end
+ */
+function processPlayerAging(player, devStaff, winPct, ps, pe) {
+  const rating = player.rating || 50;
+  const morale = player.morale || 60;
+
+  // Development rating change
+  if (!player.injured || player.injurySeverity !== 'severe') {
+    const ageFactor = player.age < ps
+      ? (ps - player.age) * 0.6
+      : player.age <= pe ? 0.3 : -(player.age - pe) * 0.8;
+    let traitBonus = 0;
+    if (player.trait === 'hometown') traitBonus = 0.3;
+    else if (player.trait === 'volatile') traitBonus = randFloat(-1, 1.5);
+    else if (player.trait === 'leader') traitBonus = 0.2;
+    const ceilingPenalty = rating > 85 ? -(rating - 85) * 0.15 : 0;
+    const delta = Math.round(clamp(
+      ageFactor + devStaff * 0.5 + (morale - 50) * 0.015 + traitBonus + ceilingPenalty + randFloat(-1.5, 1.5),
+      -5, 8
+    ));
+    player.rating = clamp(rating + delta, 40, 99);
+    player.careerStats = {
+      ...player.careerStats,
+      seasons: (player.careerStats?.seasons || 0) + 1,
+      bestRating: Math.max(player.rating, player.careerStats?.bestRating || 0),
+    };
+  } else {
+    player.careerStats = { ...player.careerStats, seasons: (player.careerStats?.seasons || 0) + 1 };
+  }
+
+  // Morale shift
+  if (winPct > 0.6) player.morale = clamp(morale + rand(1, 3), 0, 100);
+  else if (winPct < 0.35) player.morale = clamp(morale - rand(1, 3), 0, 100);
+  if (player.trait === 'volatile') player.morale = clamp((player.morale || 60) + rand(-10, 10), 0, 100);
+}
+
+/**
  * Applies end-of-season aging to ALL players in a single pass, covering both
  * slot players (star1, star2, corePiece) and any additional players in
  * fr.players[]. Deduplicates by player id so no player is processed twice.
@@ -909,34 +952,8 @@ export function endOfSeasonAging(franchise, winPct) {
     aged.seasonsPlayed = (p.seasonsPlayed || 0) + 1;
     aged.seasonsWithTeam = (p.seasonsWithTeam || 0) + 1;
 
-    // Development rating change — same math as predictDev() in simulation.js
-    if (!p.injured || p.injurySeverity !== 'severe') {
-      const ageFactor = aged.age < ps
-        ? (ps - aged.age) * 0.6
-        : aged.age <= pe ? 0.3 : -(aged.age - pe) * 0.8;
-      let traitBonus = 0;
-      if (p.trait === 'hometown') traitBonus = 0.3;
-      else if (p.trait === 'volatile') traitBonus = randFloat(-1, 1.5);
-      else if (p.trait === 'leader') traitBonus = 0.2;
-      const ceilingPenalty = p.rating > 85 ? -(p.rating - 85) * 0.15 : 0;
-      const delta = Math.round(clamp(
-        ageFactor + devStaff * 0.5 + (p.morale - 50) * 0.015 + traitBonus + ceilingPenalty + randFloat(-1.5, 1.5),
-        -5, 8
-      ));
-      aged.rating = clamp(p.rating + delta, 40, 99);
-      aged.careerStats = {
-        ...aged.careerStats,
-        seasons: (aged.careerStats?.seasons || 0) + 1,
-        bestRating: Math.max(aged.rating, aged.careerStats?.bestRating || 0),
-      };
-    } else {
-      aged.careerStats = { ...aged.careerStats, seasons: (aged.careerStats?.seasons || 0) + 1 };
-    }
-
-    // Morale shift
-    if (winPct > 0.6) aged.morale = clamp(aged.morale + rand(2, 5), 0, 100);
-    else if (winPct < 0.35) aged.morale = clamp(aged.morale - rand(2, 6), 0, 100);
-    if (p.trait === 'volatile') aged.morale = clamp(aged.morale + rand(-10, 10), 0, 100);
+    // Development rating change + morale shift
+    processPlayerAging(aged, devStaff, winPct, ps, pe);
 
     // Retirement flag
     if (aged.age >= 35 && Math.random() < 0.3) {
@@ -1000,31 +1017,8 @@ export function endOfSeasonAging(franchise, winPct) {
     aged.seasonsOnTaxi = (p.seasonsOnTaxi || 0) + 1;
     aged.seasonsPlayed = (p.seasonsPlayed || 0) + 1;
 
-    // Development: same formula as slot players
-    if (!p.injured || p.injurySeverity !== 'severe') {
-      const ageFactor = aged.age < ps
-        ? (ps - aged.age) * 0.6
-        : aged.age <= pe ? 0.3 : -(aged.age - pe) * 0.8;
-      let traitBonus = 0;
-      if (p.trait === 'hometown') traitBonus = 0.3;
-      else if (p.trait === 'volatile') traitBonus = randFloat(-1, 1.5);
-      else if (p.trait === 'leader') traitBonus = 0.2;
-      const ceilingPenalty = (p.rating || 50) > 85 ? -((p.rating || 50) - 85) * 0.15 : 0;
-      const delta = Math.round(clamp(
-        ageFactor + devStaff * 0.5 + ((p.morale || 60) - 50) * 0.015 + traitBonus + ceilingPenalty + randFloat(-1.5, 1.5),
-        -5, 8
-      ));
-      aged.rating = clamp((p.rating || 50) + delta, 40, 99);
-      aged.careerStats = {
-        ...aged.careerStats,
-        seasons: ((aged.careerStats?.seasons || 0) + 1),
-        bestRating: Math.max(aged.rating, aged.careerStats?.bestRating || 0),
-      };
-    }
-
-    // Morale shift
-    if (winPct > 0.6) aged.morale = clamp((aged.morale || 60) + rand(1, 3), 0, 100);
-    else if (winPct < 0.35) aged.morale = clamp((aged.morale || 60) - rand(1, 3), 0, 100);
+    // Development + morale shift
+    processPlayerAging(aged, devStaff, winPct, ps, pe);
 
     return aged;
   }).filter(Boolean);
@@ -1059,31 +1053,8 @@ export function endOfSeasonAging(franchise, winPct) {
     aged.seasonsPlayed = (p.seasonsPlayed || 0) + 1;
     aged.seasonsWithTeam = (p.seasonsWithTeam || 0) + 1;
 
-    // Development: same formula as slot and taxi players
-    if (!p.injured || p.injurySeverity !== 'severe') {
-      const ageFactor = aged.age < ps
-        ? (ps - aged.age) * 0.6
-        : aged.age <= pe ? 0.3 : -(aged.age - pe) * 0.8;
-      let traitBonus = 0;
-      if (p.trait === 'hometown') traitBonus = 0.3;
-      else if (p.trait === 'volatile') traitBonus = randFloat(-1, 1.5);
-      else if (p.trait === 'leader') traitBonus = 0.2;
-      const ceilingPenalty = (p.rating || 50) > 85 ? -((p.rating || 50) - 85) * 0.15 : 0;
-      const delta = Math.round(clamp(
-        ageFactor + devStaff * 0.5 + ((p.morale || 60) - 50) * 0.015 + traitBonus + ceilingPenalty + randFloat(-1.5, 1.5),
-        -5, 8
-      ));
-      aged.rating = clamp((p.rating || 50) + delta, 40, 99);
-      aged.careerStats = {
-        ...aged.careerStats,
-        seasons: ((aged.careerStats?.seasons || 0) + 1),
-        bestRating: Math.max(aged.rating, aged.careerStats?.bestRating || 0),
-      };
-    }
-
-    // Morale shift
-    if (winPct > 0.6) aged.morale = clamp((aged.morale || 60) + rand(1, 3), 0, 100);
-    else if (winPct < 0.35) aged.morale = clamp((aged.morale || 60) - rand(1, 3), 0, 100);
+    // Development + morale shift
+    processPlayerAging(aged, devStaff, winPct, ps, pe);
 
     return aged;
   }).filter(Boolean);
