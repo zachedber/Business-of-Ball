@@ -958,11 +958,23 @@ export default function App() {
             rosterFullAlert={rosterFullAlert}
             onDismissRosterAlert={() => dispatch({ type: 'SET_ROSTER_FULL_ALERT', payload: null })}
             tradeUpOffers={tradeOffers}
-            onAcceptTradeUp={(offer) => {
+            onAcceptTradeUp={(offer, currentPick, incomingPick) => {
               // Add cash component
               if (offer.cashComponent) {
                 const newCash = cash + (offer.cashComponent || 0);
                 dispatch({ type: 'SET_CASH', payload: newCash });
+              }
+              // Swap out the currently-traded draft pick with the incoming pick
+              if (currentPick && incomingPick) {
+                dispatch({
+                  type: 'SET_DRAFT_PICKS',
+                  payload: draftPicks.map((p) => {
+                    if (p.id === currentPick.id) {
+                      return { ...incomingPick, pick: incomingPick.pickPos ?? incomingPick.pick };
+                    }
+                    return p;
+                  }),
+                });
               }
               // Add draft compensation picks to franchise inventory
               if (offer.draftCompensation?.length > 0) {

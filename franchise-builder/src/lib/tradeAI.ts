@@ -81,6 +81,7 @@ export function generateTradeOffers(
         playerOffered: null,
         playerWanted: target.player,
         draftCompensation: [draftPick],
+        pickSwap: null,
         cashComponent: rand(2, 6),
         salaryRetention: 0,
         retentionBoost: 0,
@@ -120,6 +121,7 @@ export function generateTradeOffers(
         },
         playerWanted: null,
         draftCompensation: [],
+        pickSwap: null,
         cashComponent: -rand(1, 3), // Player pays cash
         salaryRetention: 0,
         retentionBoost: 0,
@@ -127,29 +129,10 @@ export function generateTradeOffers(
     }
   }
 
-  // Ensure at least 2 offers
-  while (offers.length < 2 && allTeams.length > 0) {
-    const team = pick(allTeams);
-    offers.push({
-      id: generateId(),
-      type: 'sell',
-      aiTeam: { id: team.id, city: team.city, name: team.name, wins: team.wins || 0, losses: team.losses || 0 },
-      playerOffered: null,
-      playerWanted: null,
-      draftCompensation: [{
-        id: generateId(),
-        round: rand(2, 4),
-        season: season + 1,
-        originalTeam: team.id,
-        isFuture: true,
-      }],
-      cashComponent: rand(1, 4),
-      salaryRetention: 0,
-      retentionBoost: 0,
-    });
-  }
-
-  return offers.slice(0, 4);
+  // Guard against blank/empty offers.
+  return offers
+    .filter((offer) => Boolean(offer.playerWanted || offer.playerOffered || (offer.draftCompensation?.length || 0) > 0 || offer.pickSwap))
+    .slice(0, 4);
 }
 
 /**
@@ -197,7 +180,7 @@ export function generateDraftTradeUpOffers(
   remainingProspects: any[],
   currentPick: any
 ): TradeOffer[] {
-  if (!remainingProspects || remainingProspects.length === 0) return [];
+  if (!remainingProspects || remainingProspects.length === 0 || !currentPick) return [];
 
   const league = franchise.league;
   const allTeams = (leagueTeams[league] || []).filter((t: any) => !t.isPlayerOwned);
@@ -215,6 +198,16 @@ export function generateDraftTradeUpOffers(
     const team = allTeams[i];
     const cashOffer = midpoint >= 75 ? rand(3, 8) : rand(1, 4);
     const draftRound = midpoint >= 75 ? 1 : 2;
+    const currentPickPos = currentPick.pickPos ?? currentPick.pick ?? 1;
+    const movedBackTo = clamp(currentPickPos + rand(2, 8), currentPickPos + 1, 32);
+    const swapPick: DraftPick = {
+      id: generateId(),
+      round: currentPick.round || 1,
+      season: currentPick.season || (franchise.season || 1),
+      originalTeam: team.id,
+      isFuture: false,
+      pickPos: movedBackTo,
+    };
 
     offers.push({
       id: generateId(),
@@ -222,6 +215,10 @@ export function generateDraftTradeUpOffers(
       aiTeam: { id: team.id, city: team.city, name: team.name, wins: team.wins || 0, losses: team.losses || 0 },
       playerOffered: null,
       playerWanted: null,
+      pickSwap: {
+        fromPick: currentPick,
+        toPick: swapPick,
+      },
       draftCompensation: [{
         id: generateId(),
         round: draftRound,

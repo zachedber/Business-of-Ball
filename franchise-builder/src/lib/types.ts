@@ -107,6 +107,10 @@ export interface TradeOffer {
   playerOffered: Player | null;
   playerWanted: Player | null;
   draftCompensation: DraftPick[];
+  pickSwap?: {
+    fromPick: DraftPick;
+    toPick: DraftPick;
+  } | null;
   cashComponent: number;
   salaryRetention: number;
   retentionBoost: number;
