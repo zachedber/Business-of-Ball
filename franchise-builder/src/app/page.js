@@ -28,6 +28,7 @@ import {
   generateOffseasonEvents, setNarrativeApiKey,
 } from '@/lib/narrative';
 import { gameReducer, initialState } from '@/lib/gameReducer';
+import { draftPlayer } from '@/lib/engine/roster';
 import TradeDeadlineScreen from '@/app/components/TradeDeadlineScreen';
 import TrainingCampScreen from '@/app/components/TrainingCampScreen';
 import EventNotificationCard from '@/app/components/EventNotificationCard';
@@ -313,7 +314,8 @@ export default function App() {
               taxiSquad: f.taxiSquad || [],
               players: f.players || [],
             };
-            const draftedPlayer = { ...player, isRookie: true, draftRound: usedPick?.round, draftPick: usedPick?.pickPos ?? usedPick?.pick, seasonsOnTaxi: 0 };
+            const validPlayer = draftPlayer(player, f.league);
+            const draftedPlayer = { ...validPlayer, isRookie: true, draftRound: usedPick?.round, draftPick: usedPick?.pickPos ?? usedPick?.pick, seasonsOnTaxi: 0 };
             const taxi = [...updated.taxiSquad];
             if (taxi.length < 4) {
               // Route to taxi squad (max 4)
@@ -1017,7 +1019,7 @@ export default function App() {
             <div className="card" style={{ padding: '20px', textAlign: 'center' }}>
               <h3 className="font-display section-header" style={{ fontSize: '1rem', marginBottom: 8 }}>End of Q1</h3>
               <div className="font-mono" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)', marginBottom: 4 }}>
-                Record: {af.wins ?? 0}–{af.losses ?? 0}
+                Record: {af.quarterWins ?? af.wins ?? 0}–{af.quarterLosses ?? af.losses ?? 0}
               </div>
               <p className="font-body" style={{ fontSize: '0.85rem', color: 'var(--ink-soft)', marginBottom: 16 }}>
                 Review your roster and player events before continuing to Q2.
@@ -1035,7 +1037,7 @@ export default function App() {
             <div className="card" style={{ padding: '20px', textAlign: 'center' }}>
               <h3 className="font-display section-header" style={{ fontSize: '1rem', marginBottom: 8 }}>End of Q3</h3>
               <div className="font-mono" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)', marginBottom: 4 }}>
-                Record: {af.wins ?? 0}–{af.losses ?? 0}
+                Record: {af.quarterWins ?? af.wins ?? 0}–{af.quarterLosses ?? af.losses ?? 0}
               </div>
               <p className="font-body" style={{ fontSize: '0.85rem', color: 'var(--ink-soft)', marginBottom: 16 }}>
                 Final stretch — review your roster before the season finale.

@@ -971,7 +971,6 @@ function FacTab({ fr, setFr, onCashChange }) {
     if ((fr.cash || 0) < cost) return;
     const newCash = r1((fr.cash || 0) - cost); // Round facility spend before syncing both cash stores.
     setFr(prev => ({ ...prev, [field]: current + 1, cash: newCash }));
-    if (onCashChange) onCashChange(newCash);
   }
   const facilities = [
     ['scoutingStaff', 'Scouting', 'Draft eval'],
