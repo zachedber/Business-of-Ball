@@ -24,7 +24,7 @@ import {
 } from '@/lib/engine';
 import { applyDebtPenalty, calculateDebtPayment } from '@/lib/engine/finance';
 import { processQuarterInjuries } from '@/lib/engine/injuries';
-import { rollPlayerEvents } from '@/lib/events';
+import { rollPlayerEvents } from '@/lib/events/playerEvents';
 import { missedDebtWarnings } from '@/data/eventFlavor';
 import { generateTradeOffers, generateWaiverWire, generateDraftTradeUpOffers } from '@/lib/tradeAI';
 import {

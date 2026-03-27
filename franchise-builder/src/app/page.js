@@ -1,23 +1,18 @@
 'use client';
 import { useReducer, useEffect, useCallback, useRef } from 'react';
 import { useSimulation } from '@/app/hooks/useSimulation';
-import {
-  initializeLeague,
-  createPlayerFranchise,
-  generateFreeAgents,
-  applyExtension,
-  acceptNamingRights,
-  clamp,
-  r1,
-} from '@/lib/engine';
-import { generateTradeOffers, generateWaiverWire, generateDraftTradeUpOffers } from '@/lib/tradeAI';
+import { initializeLeague, createPlayerFranchise } from '@/lib/simulation';
+import { generateFreeAgents } from '@/lib/freeAgency';
+import { acceptNamingRights } from '@/lib/economy';
+import { clamp, r1 } from '@/lib/roster';
 import { saveGame, loadGame, deleteSave } from '@/lib/storage';
-import {
-  generateOffseasonEvents, setNarrativeApiKey,
-} from '@/lib/narrative';
+import { generateOffseasonEvents, setNarrativeApiKey } from '@/lib/narrative';
 import { gameReducer, initialState } from '@/lib/gameReducer';
-import { draftPlayer, processDraftSelection } from '@/lib/engine/roster';
-import { resolveEventChoice } from '@/lib/engine/events';
+import { processDraftSelection } from '@/lib/draft';
+import { resolveOffseasonEvent, getGMRepAfterEvent, resolvePressConference } from '@/lib/events/handlers';
+import { applyLeveragedPurchase, applyCBAChoice, rollCBAStrike } from '@/lib/economy/handlers';
+import { prepareOffseasonFAPool, needsSlotDecision } from '@/lib/freeAgency/handlers';
+import { processTradeAcceptance, processWaiverSigning, processDraftTradeUp } from '@/lib/league/handlers';
 import TradeDeadlineScreen from '@/app/components/TradeDeadlineScreen';
 import TrainingCampScreen from '@/app/components/TrainingCampScreen';
 import EventNotificationCard from '@/app/components/EventNotificationCard';
@@ -147,22 +142,7 @@ export default function App() {
 
   async function handleCreate(template, league, leverageOptions) {
     let newFr = createPlayerFranchise(template, league);
-
-    // Apply leveraged purchase if selected
-    if (leverageOptions?.leveraged) {
-      newFr = {
-        ...newFr,
-        debt: leverageOptions.loanAmount,
-        debtObject: {
-          principal: leverageOptions.loanAmount,
-          interestRate: leverageOptions.interestRate,
-          termSeasons: leverageOptions.termSeasons,
-          seasonalPayment: leverageOptions.seasonalPayment,
-          gmRep: 50,
-          consecutiveMissedPayments: 0,
-        },
-      };
-    }
+    newFr = applyLeveragedPurchase(newFr, leverageOptions);
 
     const newFrArray = [...fr, newFr];
     const newLt = { ...lt, [league]: lt[league].map(t => t.id === template.id ? { ...t, isPlayerOwned: true } : t) };
@@ -188,15 +168,10 @@ export default function App() {
 
     dispatch({
       type: 'SET_FRANCHISE',
-      payload: prev => prev.map((f, i) => {
-        if (i !== activeIdx) return f;
-        return resolveEventChoice(f, event, choice);
-      }),
+      payload: prev => prev.map((f, i) => i !== activeIdx ? f : resolveOffseasonEvent(f, event, choice)),
     });
 
-    if (event.type === 'pressure' && event.gmRepDelta) {
-      dispatch({ type: 'SET_GM_REP', payload: clamp(gmRep + event.gmRepDelta, 0, 100) });
-    }
+    dispatch({ type: 'SET_GM_REP', payload: getGMRepAfterEvent(gmRep, event) });
 
     dispatch({
       type: 'SET_EVENTS',
@@ -210,15 +185,7 @@ export default function App() {
       const option = pc.options[optionIdx];
       dispatch({
         type: 'SET_FRANCHISE',
-        payload: prev => prev.map((f, i) => {
-          if (i !== activeIdx) return f;
-          const updated = { ...f };
-          if (option.fanBonus) updated.fanRating = clamp(updated.fanRating + option.fanBonus, 0, 100);
-          if (option.mediaBonus) updated.mediaRep = clamp((updated.mediaRep || 50) + option.mediaBonus, 0, 100);
-          if (option.communityBonus) updated.communityRating = clamp((updated.communityRating || 50) + option.communityBonus, 0, 100);
-          if (option.moraleBonus) updated.players = (updated.players || []).map(p => ({ ...p, morale: clamp(p.morale + option.moraleBonus, 0, 100) }));
-          return updated;
-        }),
+        payload: prev => prev.map((f, i) => i !== activeIdx ? f : resolvePressConference(f, option)),
       });
     }
     dispatch({ type: 'SET_PRESS_CONF', payload: (pressConf || []).filter(x => x.id !== pcId) });
@@ -227,18 +194,12 @@ export default function App() {
   function handleCBA(choiceIdx) {
     if (!cbaEvent?.choices?.[choiceIdx]) return;
     const choice = cbaEvent.choices[choiceIdx];
-    if (choice.strikeRisk && Math.random() < choice.strikeRisk) {
+    if (rollCBAStrike(choice)) {
       dispatch({ type: 'SET_RECAP', payload: { recap: (recap || '') + ' A labour strike shortened the season, devastating gate revenue.', grade } });
     }
     dispatch({
       type: 'SET_FRANCHISE',
-      payload: prev => prev.map((f, i) => {
-        if (i !== activeIdx) return f;
-        const updated = { ...f };
-        if (choice.moraleBonus) updated.players = (updated.players || []).map(p => ({ ...p, morale: clamp(p.morale + choice.moraleBonus, 0, 100) }));
-        if (choice.revenuePenalty) updated.cash = r1((updated.cash || 0) + (choice.revenuePenalty || 0)); // Round event cash updates before they hit shared state.
-        return updated;
-      }),
+      payload: prev => prev.map((f, i) => i !== activeIdx ? f : applyCBAChoice(f, choice)),
     });
     dispatch({ type: 'SET_CBA', payload: null });
   }
@@ -285,22 +246,15 @@ export default function App() {
       return;
     }
 
-    // FA pool lock (1.2): only generate once per offseason; reuse if already populated
-    let playerPool, aiSigned;
-    if (offseasonFAPool && offseasonFAPool.length > 0) {
-      playerPool = offseasonFAPool;
-      aiSigned = aiSigningsLog || [];
-    } else {
-      const fullPool = generateOffseasonFAPool(af.league, gmRep, 18);
-      const result = simulateAIFreeAgency(fullPool, lt || { ngl: [], abl: [] }, af.league);
-      playerPool = result.remaining;
-      aiSigned = result.signed;
-    }
+    const { playerPool, aiSigned } = prepareOffseasonFAPool({
+      league: af.league,
+      gmRep,
+      existingPool: offseasonFAPool,
+      existingAILog: aiSigningsLog,
+      leagueTeams: lt || { ngl: [], abl: [] },
+    });
 
-    // Slot decision (1.5): show if any slot is vacant and depth/taxi candidates exist
-    const hasCandidates = (af.taxiSquad || []).length > 0 || (af.rookieSlots || []).length > 0 || af.players.length > 0;
-    const needsSlotDecision = (!af.star1 || !af.star2 || !af.corePiece) && hasCandidates;
-    if (needsSlotDecision) {
+    if (needsSlotDecision(af)) {
       dispatch({ type: 'SLOT_DECISION_OPEN', payload: { offseasonFAPool: playerPool, aiSigningsLog: aiSigned } });
     } else {
       dispatch({ type: 'DRAFT_CLOSE' });
@@ -450,12 +404,9 @@ export default function App() {
             onDismissRosterAlert={() => dispatch({ type: 'SET_ROSTER_FULL_ALERT', payload: null })}
             tradeUpOffers={tradeOffers}
             onAcceptTradeUp={(offer, currentPick, incomingPick) => {
-              // Add cash component
               if (offer.cashComponent) {
-                const newCash = cash + (offer.cashComponent || 0);
-                dispatch({ type: 'SET_CASH', payload: newCash });
+                dispatch({ type: 'SET_CASH', payload: cash + (offer.cashComponent || 0) });
               }
-              // Swap out the currently-traded draft pick with the incoming pick
               if (currentPick && incomingPick) {
                 dispatch({
                   type: 'SET_DRAFT_PICKS',
@@ -467,17 +418,12 @@ export default function App() {
                   }),
                 });
               }
-              // Add draft compensation picks to franchise inventory
               if (offer.draftCompensation?.length > 0) {
                 dispatch({
                   type: 'SET_FRANCHISE',
-                  payload: prev => prev.map((f, i) => i === activeIdx ? {
-                    ...f,
-                    draftPickInventory: [...(f.draftPickInventory || []), ...offer.draftCompensation],
-                  } : f),
+                  payload: prev => prev.map((f, i) => i === activeIdx ? processDraftTradeUp(f, offer) : f),
                 });
               }
-              // Remove offer from list
               dispatch({ type: 'SET_TRADE_OFFERS', payload: tradeOffers.filter(o => o.id !== offer.id) });
             }}
           />
@@ -564,40 +510,8 @@ export default function App() {
               dispatch({ type: 'SET_TRADE_OFFERS', payload: tradeOffers.filter(o => o.id !== offerId) });
             }}
             onAcceptTrade={(offer) => {
-              setActiveFr(prev => {
-                let updated = { ...prev };
+              setActiveFr(prev => processTradeAcceptance(prev, offer));
 
-                // Handle Buy Offers (AI wants your player)
-                if (offer.type === 'buy' && offer.playerWanted) {
-                  if (updated.star1?.id === offer.playerWanted.id) updated.star1 = null;
-                  else if (updated.star2?.id === offer.playerWanted.id) updated.star2 = null;
-                  else if (updated.corePiece?.id === offer.playerWanted.id) updated.corePiece = null;
-
-                  // Handle salary retention dead cap
-                  if (offer.salaryRetention > 0) {
-                    const retainedAmount = r1(offer.playerWanted.salary * 0.5);
-                    updated.deferredDeadCap = (updated.deferredDeadCap || 0) + retainedAmount;
-                  }
-                }
-
-                // Handle Sell Offers (AI offers you a player)
-                if (offer.type === 'sell' && offer.playerOffered) {
-                  const emptySlot = !updated.star1 ? 'star1' : !updated.star2 ? 'star2' : !updated.corePiece ? 'corePiece' : null;
-                  if (emptySlot) updated[emptySlot] = offer.playerOffered;
-                }
-
-                // Add draft picks to inventory
-                if (offer.draftCompensation?.length > 0) {
-                  updated.draftPickInventory = [...(updated.draftPickInventory || []), ...offer.draftCompensation];
-                }
-
-                // Update derived roster stats
-                updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
-                updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
-                return updated;
-              });
-
-              // Handle Cash Component — use current cash from state, not stale af snapshot
               if (offer.cashComponent && offer.cashComponent !== 0) {
                 const currentCash = fr[activeIdx]?.cash ?? cash;
                 dispatch({ type: 'SET_CASH', payload: r1(currentCash + offer.cashComponent) });
@@ -606,15 +520,9 @@ export default function App() {
             }}
             waiverPool={waiverPool}
             onSignWaiver={(player) => {
-              // Sign waiver player to first empty slot
-              const slotKey = !af.star1 ? 'star1' : !af.star2 ? 'star2' : !af.corePiece ? 'corePiece' : null;
-              if (!slotKey) return;
-              setActiveFr(prev => {
-                const updated = { ...prev, [slotKey]: player };
-                updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
-                updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
-                return updated;
-              });
+              const result = processWaiverSigning(af, player);
+              if (!result) return;
+              setActiveFr(() => result);
               dispatch({ type: 'WAIVER_WIRE_OPEN', payload: waiverPool.filter(p => p.id !== player.id) });
             }}
           />
