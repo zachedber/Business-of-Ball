@@ -19,8 +19,11 @@ import {
   initHeadToHead, updateHeadToHead, initRivalry, updateRivalry,
   initDraftPickInventory,
   generateTVDealEvent, r1,
+  generateSponsorDeal,
 } from '@/lib/engine';
+import { applyDebtPenalty, calculateDebtPayment } from '@/lib/engine/finance';
 import { rollPlayerEvents } from '@/lib/events';
+import { shortTermInjuries, longTermInjuries, missedDebtWarnings, breakoutHeadlines } from '@/data/eventFlavor';
 import { generateTradeOffers, generateWaiverWire, generateDraftTradeUpOffers } from '@/lib/tradeAI';
 import { saveGame, loadGame, deleteSave } from '@/lib/storage';
 import {
@@ -69,6 +72,7 @@ export default function App() {
     rosterFullAlert,
     trainingCampActive, quarterPhase, q1PauseActive, q3PauseActive, playerEvents,
     waiverWireActive, waiverPool, tradeOffers,
+    gameOverForced,
   } = state;
 
   // Load API key from localStorage
@@ -138,6 +142,63 @@ export default function App() {
       payload: prev => prev.map((f, i) => i === activeIdx ? (typeof updater === 'function' ? updater(f) : updater) : f),
     });
 
+  /** Process injury results after a quarter: assign names, generate notifications, auto-swap taxi */
+  function processQuarterInjuries(franchise) {
+    const pickArr = arr => arr[Math.floor(Math.random() * arr.length)];
+    const injuryNotifs = [];
+    let updated = { ...franchise };
+
+    for (const slotKey of ['star1', 'star2', 'corePiece']) {
+      const player = updated[slotKey];
+      if (!player || !player.injured) continue;
+
+      // Assign injury name if not already set
+      if (!player.injuryName) {
+        const isLong = player.injurySeverity === 'severe' || (player.injuryStatus?.severity === 'long_term');
+        player.injuryName = isLong ? pickArr(longTermInjuries) : pickArr(shortTermInjuries);
+      }
+
+      // For long-term / severe injuries, auto-swap with taxi squad
+      const isLongTerm = player.injurySeverity === 'severe' || (player.injuryStatus?.severity === 'long_term');
+      if (isLongTerm) {
+        const taxi = updated.taxiSquad || [];
+        const bestTaxi = [...taxi].sort((a, b) => (b.rating || 0) - (a.rating || 0))[0];
+
+        if (bestTaxi) {
+          injuryNotifs.push({
+            id: `injury_${player.id}_${Date.now()}`,
+            severity: 'critical',
+            message: `${player.name} has suffered a ${player.injuryName} and will miss the remainder of the season. Calling up ${bestTaxi.name} from Taxi Squad.`,
+            type: 'player',
+          });
+          // Store the injured player info for UI display
+          const injuredSnapshot = { ...player };
+          updated[slotKey] = { ...bestTaxi, replacingInjured: injuredSnapshot.name, replacingInjuryName: injuredSnapshot.injuryName };
+          updated.taxiSquad = taxi.filter(t => t.id !== bestTaxi.id);
+          updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
+          updated.rosterQuality = updated.players.length > 0 ? Math.round(updated.players.reduce((s, p) => s + (p.rating || 0), 0) / updated.players.length) : 0;
+          updated.totalSalary = r1(updated.players.reduce((s, p) => s + (p.salary || 0), 0));
+        } else {
+          injuryNotifs.push({
+            id: `injury_${player.id}_${Date.now()}`,
+            severity: 'critical',
+            message: `${player.name} has suffered a ${player.injuryName} and will miss the remainder of the season. No taxi squad replacement available.`,
+            type: 'player',
+          });
+        }
+      } else if (player.injuryName) {
+        injuryNotifs.push({
+          id: `injury_${player.id}_${Date.now()}`,
+          severity: 'warning',
+          message: `${player.name} is dealing with a ${player.injuryName}. Expected to miss ${player.gamesOut || 'a few'} games.`,
+          type: 'player',
+        });
+      }
+    }
+
+    return { franchise: updated, notifications: injuryNotifs };
+  }
+
   // ── Game setup handlers ───────────────────────────────────────
   function handleNew() {
     const league = initializeLeague();
@@ -154,8 +215,25 @@ export default function App() {
     if (fr.length > 0 && lt) dispatch({ type: 'SET_SCREEN', payload: 'dashboard' });
   }
 
-  async function handleCreate(template, league) {
-    const newFr = createPlayerFranchise(template, league);
+  async function handleCreate(template, league, leverageOptions) {
+    let newFr = createPlayerFranchise(template, league);
+
+    // Apply leveraged purchase if selected
+    if (leverageOptions?.leveraged) {
+      newFr = {
+        ...newFr,
+        debt: leverageOptions.loanAmount,
+        debtObject: {
+          principal: leverageOptions.loanAmount,
+          interestRate: leverageOptions.interestRate,
+          termSeasons: leverageOptions.termSeasons,
+          seasonalPayment: leverageOptions.seasonalPayment,
+          gmRep: 50,
+          consecutiveMissedPayments: 0,
+        },
+      };
+    }
+
     const newFrArray = [...fr, newFr];
     const newLt = { ...lt, [league]: lt[league].map(t => t.id === template.id ? { ...t, isPlayerOwned: true } : t) };
     const initialEvents = await generateOffseasonEvents(newFr);
@@ -408,12 +486,20 @@ export default function App() {
 
     // Q1 only
     const r1Result = simulateLeagueQuarter(lt, updatedFr, season, 1);
+
+    // Process injuries for Q1
+    const q1Injury = processQuarterInjuries(r1Result.franchises[activeIdx]);
+    const q1Franchises = r1Result.franchises.map((f, i) => i === activeIdx ? q1Injury.franchise : f);
+    if (q1Injury.notifications.length > 0) {
+      dispatch({ type: 'SET_NOTIFICATIONS', payload: [...notifications, ...q1Injury.notifications] });
+    }
+
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: r1Result.leagueTeams });
-    dispatch({ type: 'SET_FRANCHISE', payload: r1Result.franchises });
+    dispatch({ type: 'SET_FRANCHISE', payload: q1Franchises });
     dispatch({ type: 'SET_QUARTER_PHASE', payload: 1 });
 
     // Roll player events after Q1
-    const af1 = r1Result.franchises[activeIdx];
+    const af1 = q1Franchises[activeIdx];
     const af1Copy = { ...af1, star1: af1.star1 ? { ...af1.star1 } : null, star2: af1.star2 ? { ...af1.star2 } : null, corePiece: af1.corePiece ? { ...af1.corePiece } : null };
     const events1 = rollPlayerEvents(af1Copy, season, 1);
     if (events1.length > 0) {
@@ -440,12 +526,20 @@ export default function App() {
 
     // Q2 — use refs to avoid stale closure
     const r2Result = simulateLeagueQuarter(ltRef.current, frRef.current, season, 2);
+
+    // Process injuries for Q2
+    const q2Injury = processQuarterInjuries(r2Result.franchises[activeIdx]);
+    const q2Franchises = r2Result.franchises.map((f, i) => i === activeIdx ? q2Injury.franchise : f);
+    if (q2Injury.notifications.length > 0) {
+      dispatch({ type: 'SET_NOTIFICATIONS', payload: [...notifications, ...q2Injury.notifications] });
+    }
+
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: r2Result.leagueTeams });
-    dispatch({ type: 'SET_FRANCHISE', payload: r2Result.franchises });
+    dispatch({ type: 'SET_FRANCHISE', payload: q2Franchises });
     dispatch({ type: 'SET_QUARTER_PHASE', payload: 2 });
 
     // After Q2: generate trade offers & waiver wire, then show trade deadline
-    const af2 = r2Result.franchises[activeIdx];
+    const af2 = q2Franchises[activeIdx];
     const offers = generateTradeOffers(af2, r2Result.leagueTeams, season);
     const waiver = generateWaiverWire(af2.league);
     dispatch({ type: 'SET_TRADE_OFFERS', payload: offers });
@@ -461,12 +555,20 @@ export default function App() {
 
     // Q3 only — use refs to avoid stale closure
     const r3Result = simulateLeagueQuarter(tradeDeadlineLeague || ltRef.current, frRef.current, season, 3);
+
+    // Process injuries for Q3
+    const q3Injury = processQuarterInjuries(r3Result.franchises[activeIdx]);
+    const q3Franchises = r3Result.franchises.map((f, i) => i === activeIdx ? q3Injury.franchise : f);
+    if (q3Injury.notifications.length > 0) {
+      dispatch({ type: 'SET_NOTIFICATIONS', payload: [...notifications, ...q3Injury.notifications] });
+    }
+
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: r3Result.leagueTeams });
-    dispatch({ type: 'SET_FRANCHISE', payload: r3Result.franchises });
+    dispatch({ type: 'SET_FRANCHISE', payload: q3Franchises });
     dispatch({ type: 'SET_QUARTER_PHASE', payload: 3 });
 
     // Roll player events after Q3
-    const af3 = r3Result.franchises[activeIdx];
+    const af3 = q3Franchises[activeIdx];
     const af3Copy = { ...af3, star1: af3.star1 ? { ...af3.star1 } : null, star2: af3.star2 ? { ...af3.star2 } : null, corePiece: af3.corePiece ? { ...af3.corePiece } : null };
     const events3 = rollPlayerEvents(af3Copy, season, 3);
     if (events3.length > 0) {
@@ -495,7 +597,15 @@ export default function App() {
 
     // Q4 (end of season) — use refs to avoid stale closure
     const r4Result = simulateLeagueQuarter(ltRef.current, frRef.current, season, 4);
-    const result = r4Result;
+
+    // Process injuries for Q4
+    const q4Injury = processQuarterInjuries(r4Result.franchises[activeIdx]);
+    const q4Franchises = r4Result.franchises.map((f, i) => i === activeIdx ? q4Injury.franchise : f);
+    if (q4Injury.notifications.length > 0) {
+      dispatch({ type: 'SET_NOTIFICATIONS', payload: [...notifications, ...q4Injury.notifications] });
+    }
+
+    const result = { ...r4Result, franchises: q4Franchises };
     const af = result.franchises[activeIdx];
     dispatch({ type: 'SET_LEAGUE_TEAMS', payload: result.leagueTeams });
     dispatch({ type: 'SET_FRANCHISE', payload: result.franchises });
@@ -576,6 +686,73 @@ export default function App() {
     let newCash = af ? r1((af.cash || 0) + stakeIncome) : r1(cash || 0); // Round stake cash before syncing both franchise and top-level cash.
     if (af && stakeIncome !== 0) {
       newFr = newFr.map((f, i) => i === activeIdx ? { ...f, cash: newCash } : f);
+    }
+
+    // ── Debt payment and investment effects are applied after notifications init ──
+    let _debtMissedNotifs = [];
+    let gameOverForced = false;
+    if (af && af.debtObject && af.debtObject.principal > 0) {
+      const debtResult = applyDebtPenalty(af.debtObject, newCash);
+      newCash = debtResult.cash;
+      const updatedDebt = {
+        ...debtResult.debt,
+        seasonalPayment: calculateDebtPayment(debtResult.debt),
+        termSeasons: Math.max(0, (debtResult.debt.termSeasons || 1) - 1),
+      };
+      newFr = newFr.map((f, i) => i === activeIdx ? { ...f, cash: newCash, debt: updatedDebt.principal, debtObject: updatedDebt } : f);
+
+      if (debtResult.unpaidRemainder > 0) {
+        const pickOne = arr => arr[Math.floor(Math.random() * arr.length)];
+        _debtMissedNotifs.push({
+          id: 'debt_miss_' + Date.now(),
+          severity: 'warning',
+          message: pickOne(missedDebtWarnings),
+          type: 'finance',
+        });
+      }
+
+      if ((updatedDebt.consecutiveMissedPayments || 0) >= 2) {
+        gameOverForced = true;
+      }
+
+      if (updatedDebt.principal <= 0 || updatedDebt.termSeasons <= 0) {
+        newFr = newFr.map((f, i) => i === activeIdx ? { ...f, debt: 0, debtObject: null } : f);
+      }
+    }
+
+    // ── Front Office investment seasonal effects ──────────────
+    if (af) {
+      const inv = af.investments || {};
+      const ssTier = inv.sportsScienceDept || 0;
+      const ssUpkeep = ssTier === 1 ? 1 : ssTier === 2 ? 2 : ssTier === 3 ? 4 : 0;
+      if (ssUpkeep > 0) newCash = r1(newCash - ssUpkeep);
+
+      const gmTierInv = inv.globalMarketing || 0;
+      const mediaBoost = gmTierInv === 1 ? 1 : gmTierInv === 2 ? 3 : gmTierInv === 3 ? 6 : 0;
+      if (mediaBoost > 0) {
+        newFr = newFr.map((f, i) => i === activeIdx ? { ...f, mediaRep: clamp((f.mediaRep || 50) + mediaBoost, 0, 100) } : f);
+      }
+
+      const districtTier = inv.stadiumDistrict || 0;
+      const districtIncome = districtTier === 1 ? 4 : districtTier === 2 ? 10 : districtTier === 3 ? 22 : 0;
+      if (districtIncome > 0) newCash = r1(newCash + districtIncome);
+
+      const overseasCount = inv.overseasStakes || 0;
+      if (overseasCount > 0) {
+        let overseasIncome = 0;
+        for (let s = 0; s < overseasCount; s++) {
+          overseasIncome += 0.5 + Math.random() * 1.5;
+        }
+        newCash = r1(newCash + r1(overseasIncome));
+      }
+
+      newFr = newFr.map((f, i) => i === activeIdx ? { ...f, cash: newCash } : f);
+    }
+
+    // ── Forced sale check ─────────────────────────────────────
+    if (gameOverForced) {
+      dispatch({ type: 'GAME_OVER_FORCED' });
+      return;
     }
 
     // GM Reputation
@@ -717,7 +894,7 @@ export default function App() {
     }
 
     // ── Notifications (accumulate all at once, cap stale ones) ─
-    let allNotifications = [...notifications.filter(n => !['contract', 'cap', 'stadium', 'fans', 'player'].includes(n.type))].slice(-15);
+    let allNotifications = [...notifications.filter(n => !['contract', 'cap', 'stadium', 'fans', 'player'].includes(n.type)), ..._debtMissedNotifs].slice(-15);
     let newNamingOffer = namingOffer;
 
     if (af) {
@@ -921,6 +1098,40 @@ export default function App() {
         quarterPhase={quarterPhase}
         activeFranchise={af}
       />
+
+      {/* Game Over — Forced Sale overlay */}
+      {gameOverForced && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.85)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: '#1a1a1a', border: '2px solid var(--red)',
+            borderRadius: 8, padding: '40px 32px', maxWidth: 500,
+            textAlign: 'center',
+          }}>
+            <div className="font-display" style={{
+              fontSize: '2rem', fontWeight: 700, color: 'var(--red)',
+              textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12,
+            }}>
+              Forced Sale
+            </div>
+            <p className="font-body" style={{
+              fontSize: '0.9rem', color: '#ccc', lineHeight: 1.6, marginBottom: 24,
+            }}>
+              Your creditors have seized control of the franchise due to catastrophic insolvency.
+            </p>
+            <button
+              className="btn-secondary"
+              style={{ padding: '10px 28px', fontSize: '0.85rem', color: '#fff', borderColor: '#666' }}
+              onClick={handleNew}
+            >
+              Start Over
+            </button>
+          </div>
+        </div>
+      )}
 
       <main style={{ flex: 1, paddingBottom: 30 }}>
         {screen === 'intro' && <Intro onNew={handleNew} onLoad={handleLoad} hasSv={fr.length > 0} />}
@@ -1211,6 +1422,17 @@ export default function App() {
             stakes={stakes}
             lt={lt}
             season={season}
+            onPayOffDebt={(amount) => {
+              setActiveFr(prev => {
+                if ((prev.cash || 0) < amount) return prev;
+                return {
+                  ...prev,
+                  cash: r1((prev.cash || 0) - amount),
+                  debt: 0,
+                  debtObject: null,
+                };
+              });
+            }}
           />
         )}
 

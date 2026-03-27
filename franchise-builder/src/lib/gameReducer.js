@@ -65,6 +65,7 @@ export const initialState = {
   waiverWireActive: false,
   waiverPool: [],
   tradeOffers: [],
+  gameOverForced: false,
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -568,6 +569,10 @@ export function gameReducer(state, action) {
     }
     case 'Q3_PAUSE_CLOSE': {
       return { ...state, q3PauseActive: false };
+    }
+
+    case 'GAME_OVER_FORCED': {
+      return { ...state, gameOverForced: true, simming: false };
     }
 
     /**

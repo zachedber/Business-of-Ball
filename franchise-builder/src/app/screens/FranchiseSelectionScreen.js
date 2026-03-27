@@ -2,6 +2,7 @@
 import { useState, useMemo } from 'react';
 import { NGL_TEAMS, ABL_TEAMS, MARKET_TIERS, getMarketTier, getMarketTierInfo } from '@/data/leagues';
 import { getContrastText } from '@/data/teamColors';
+import { calculateDynamicInterestRate, calculateDebtPayment } from '@/lib/engine/finance';
 
 // Starting cash by market tier
 const TIER_CASH = { 1: 120, 2: 100, 3: 85, 4: 75, 5: 65 };
@@ -34,6 +35,8 @@ export default function FranchiseSelectionScreen({ onCreate }) {
   const [leagueTab, setLeagueTab] = useState('ngl');
   const [selected, setSelected] = useState(null);
   const [collapsed, setCollapsed] = useState({});
+  const [leveraged, setLeveraged] = useState(false);
+  const [downPct, setDownPct] = useState(30);
 
   const nglTeams = useMemo(() => NGL_TEAMS.map(t => ({ ...t, league: 'ngl' })), []);
   const ablTeams = useMemo(() => ABL_TEAMS.map(t => ({ ...t, league: 'abl' })), []);
@@ -181,39 +184,126 @@ export default function FranchiseSelectionScreen({ onCreate }) {
       </div>
 
       {/* Sticky confirmation sheet */}
-      {selected && (
-        <div className="card-elevated confirm-sheet" style={{
-          background: 'rgba(255,255,255,0.98)',
-          borderTop: `3px solid ${selected.primaryColor || 'var(--ink)'}`,
-          padding: '16px 20px',
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-            <div>
-              <div className="font-display" style={{ fontSize: '1.25rem', fontWeight: 700 }}>
-                {selected.city} {selected.name}
+      {selected && (() => {
+        const isBigMarket = selTier <= 2;
+        const franchisePrice = selCash;
+        const downPayment = Math.round(franchisePrice * (downPct / 100));
+        const loanAmount = franchisePrice - downPayment;
+        const interestRate = calculateDynamicInterestRate(50, downPayment, loanAmount);
+        const termSeasons = 10;
+        const seasonalPayment = calculateDebtPayment({ principal: loanAmount, interestRate, termSeasons });
+
+        return (
+          <div className="card-elevated confirm-sheet" style={{
+            background: 'rgba(255,255,255,0.98)',
+            borderTop: `3px solid ${selected.primaryColor || 'var(--ink)'}`,
+            padding: '16px 20px',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <div className="font-display" style={{ fontSize: '1.25rem', fontWeight: 700 }}>
+                  {selected.city} {selected.name}
+                </div>
+                <div className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
+                  {selected.league === 'ngl' ? 'NGL Football' : 'ABL Basketball'} {'\u00b7'} Starting Cash ${selCash}M
+                </div>
               </div>
-              <div className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
-                {selected.league === 'ngl' ? 'NGL Football' : 'ABL Basketball'} \u00b7 Starting Cash ${selCash}M
-              </div>
+              <button
+                onClick={() => {
+                  if (leveraged && isBigMarket) {
+                    onCreate(selected, selected.league, {
+                      leveraged: true,
+                      downPayment,
+                      loanAmount,
+                      interestRate,
+                      termSeasons,
+                      seasonalPayment: Math.round(seasonalPayment * 10) / 10,
+                    });
+                  } else {
+                    onCreate(selected, selected.league);
+                  }
+                }}
+                style={{
+                  minHeight: 46, padding: '12px 28px', borderRadius: 4,
+                  border: 'none', cursor: 'pointer',
+                  fontFamily: 'var(--font-display)', textTransform: 'uppercase',
+                  letterSpacing: '0.06em', fontWeight: 700, fontSize: '0.88rem',
+                  background: selected.primaryColor || 'var(--ink)',
+                  color: getContrastText(selected.primaryColor || '#0E1117'),
+                  boxShadow: '0 6px 18px rgba(0,0,0,0.15)',
+                  transition: 'all 0.15s',
+                }}
+              >
+                Start Franchise
+              </button>
             </div>
-            <button
-              onClick={() => onCreate(selected, selected.league)}
-              style={{
-                minHeight: 46, padding: '12px 28px', borderRadius: 4,
-                border: 'none', cursor: 'pointer',
-                fontFamily: 'var(--font-display)', textTransform: 'uppercase',
-                letterSpacing: '0.06em', fontWeight: 700, fontSize: '0.88rem',
-                background: selected.primaryColor || 'var(--ink)',
-                color: getContrastText(selected.primaryColor || '#0E1117'),
-                boxShadow: '0 6px 18px rgba(0,0,0,0.15)',
-                transition: 'all 0.15s',
-              }}
-            >
-              Start Franchise
-            </button>
+
+            {/* Leveraged Purchase Option — Tier 1 & 2 only */}
+            {isBigMarket && (
+              <div style={{ marginTop: 14, padding: '12px 14px', background: 'var(--cream-dark)', borderRadius: 4, border: '1px solid var(--border)' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: leveraged ? 10 : 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={leveraged}
+                    onChange={e => setLeveraged(e.target.checked)}
+                    style={{ width: 16, height: 16 }}
+                  />
+                  <span className="font-display" style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Leveraged Purchase
+                  </span>
+                  <span className="font-mono" style={{ fontSize: '0.68rem', color: 'var(--ink-muted)' }}>
+                    Finance your franchise with debt
+                  </span>
+                </label>
+                {leveraged && (
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                      <span className="stat-label" style={{ fontSize: '0.72rem', minWidth: 90 }}>Down Payment</span>
+                      <input
+                        type="range"
+                        min="20"
+                        max="50"
+                        step="5"
+                        value={downPct}
+                        onChange={e => setDownPct(Number(e.target.value))}
+                        style={{ flex: 1, minWidth: 120 }}
+                      />
+                      <span className="font-mono" style={{ fontSize: '0.78rem', fontWeight: 700, minWidth: 40, textAlign: 'right' }}>
+                        {downPct}%
+                      </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8, fontSize: '0.72rem' }}>
+                      <div>
+                        <div className="stat-label">Down Payment</div>
+                        <div className="font-mono" style={{ fontWeight: 700, color: 'var(--green)' }}>${downPayment}M</div>
+                      </div>
+                      <div>
+                        <div className="stat-label">Loan Amount</div>
+                        <div className="font-mono" style={{ fontWeight: 700, color: 'var(--red)' }}>${loanAmount}M</div>
+                      </div>
+                      <div>
+                        <div className="stat-label">Interest Rate</div>
+                        <div className="font-mono" style={{ fontWeight: 700 }}>{(interestRate * 100).toFixed(1)}%</div>
+                      </div>
+                      <div>
+                        <div className="stat-label">Seasonal Payment</div>
+                        <div className="font-mono" style={{ fontWeight: 700, color: 'var(--amber)' }}>${Math.round(seasonalPayment * 10) / 10}M</div>
+                      </div>
+                      <div>
+                        <div className="stat-label">Term</div>
+                        <div className="font-mono" style={{ fontWeight: 700 }}>{termSeasons} seasons</div>
+                      </div>
+                    </div>
+                    <p className="font-body" style={{ fontSize: '0.68rem', color: 'var(--ink-muted)', marginTop: 8, fontStyle: 'italic' }}>
+                      Missing 2 consecutive payments triggers a forced sale. Pay off early to save on interest.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

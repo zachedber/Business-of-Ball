@@ -34,6 +34,64 @@ export const dramaEvents = [
   '[PLAYER_NAME] declined to join a pregame huddle, then delivered a short statement about "professional boundaries."',
 ];
 
+// ── Injury Names ─────────────────────────────────────────────
+export const shortTermInjuries = [
+  'Sprained Ankle',
+  'Hamstring Strain',
+  'Flu Like Symptoms',
+  'Bone Bruise',
+  'Minor Concussion',
+  'Turf Toe',
+  'Dislocated Finger',
+  'Quad Contusion',
+  'Calf Cramps',
+  'Mild Shoulder Subluxation',
+];
+
+export const longTermInjuries = [
+  'Torn ACL',
+  'Ruptured Achilles',
+  'Fractured Tibia',
+  'Torn Labrum',
+  'Spinal Disc Herniation',
+  'Compound Fracture',
+  'Torn Pectoral',
+  'Multiple Ligament Tear',
+  'Shattered Collarbone',
+  'Severe Lisfranc Sprain',
+];
+
+// ── Breakout Headlines ──────────────────────────────────────
+export const breakoutHeadlines = [
+  '[PLAYER_NAME] is taking the league by storm! Scouts have raised their ceiling following a string of dominant performances.',
+  '[PLAYER_NAME] has found another gear, exceeding all early season expectations.',
+  'A star is born. [PLAYER_NAME] redefines their potential with a massive developmental leap.',
+  'Scouts stunned by [PLAYER_NAME]\'s recent surge in production.',
+];
+
+// ── Missed Debt Payment Warnings ────────────────────────────
+export const missedDebtWarnings = [
+  'League Office Issues Warning: The league office is closely monitoring your finances after a missed debt payment.',
+  'Creditors Circling: Financial watchdogs have flagged your missed loan payment. Rectify this immediately.',
+  'Ownership Crisis: Whispers of insolvency are spreading after a failed debt obligation.',
+];
+
+// ── Sponsor Corporations ────────────────────────────────────
+export const sponsorCorporations = [
+  'OmniCorp Financial',
+  'Apex Dynamics',
+  'Horizon Airlines',
+  'Titan Energy',
+  'Pinnacle Health',
+  'Velocity Automotive',
+  'Quantum Tech',
+  'Vertex Telecommunications',
+  'Aegis Insurance',
+  'Nova Brewing Co',
+  'Zenith Logistics',
+  'Vanguard Holdings',
+];
+
 export const criminalEvents = [
   '[PLAYER_NAME] was cited after allegedly participating in an illegal late-night street race downtown.',
   '[PLAYER_NAME] is under investigation for a bar altercation that resulted in property damage and minor injuries.',

@@ -1,7 +1,7 @@
 // src/lib/events.ts — Random player events
 import type { Franchise, PlayerEvent, Quarter } from './types';
 // @ts-ignore — JS module without types
-import { charityEvents, dramaEvents, criminalEvents } from '@/data/eventFlavor';
+import { charityEvents, dramaEvents, criminalEvents, breakoutHeadlines } from '@/data/eventFlavor';
 
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -160,7 +160,8 @@ export function rollPlayerEvents(
     const boost = clamp(rand(2, 4), 1, maxBoost);
     player.rating = clamp(currentRating + boost, 40, potential);
 
-    const desc = `${player.name} is having a breakout ${quarter <= 2 ? 'start' : 'stretch'}! Their game has reached a new level, jumping ${boost} rating points to ${player.rating} OVR.`;
+    const headline = pick(breakoutHeadlines as string[]).replace('[PLAYER_NAME]', player.name);
+    const desc = `${headline} (+${boost} OVR to ${player.rating})`;
 
     events.push({
       type: 'breakout' as any,

@@ -20,9 +20,10 @@ import InfrastructureTab from '@/app/components/InfrastructureTab';
 import { FacilitiesSection } from '@/app/components/InfrastructureTab';
 import StadiumManagementSection from '@/app/components/StadiumManagementSection';
 import StaffTab from '@/app/components/StaffTab';
+import FrontOfficeTab from '@/app/components/FrontOfficeTab';
 import { MiniChart, RATING_TOOLTIP } from '@/app/components/SharedComponents';
 import TutorialOverlay from '@/app/components/TutorialOverlay';
-import { Home, Users, Brain, Briefcase, Building2, CreditCard, Trophy, BookOpen } from 'lucide-react';
+import { Home, Users, Brain, Briefcase, Building2, CreditCard, Trophy, BookOpen, Landmark } from 'lucide-react';
 
 /**
  * Masks hiddenPotential based on scouting/development staff level.
@@ -112,7 +113,7 @@ export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, eve
         </div>
       </div>
       <div className="tab-nav" style={{ marginBottom: 12 }}>
-        {[['home', 'Home', Home], ['slots', 'Slots', Users], ['staff', 'Coach', Brain], ['biz', 'Biz', Briefcase], ['stadium', 'Stadium', Building2], ['facilities', 'Facilities', Building2], ['finance', 'Finance', CreditCard], ['legacy', 'Legacy', Trophy], ['history', 'History', BookOpen]].map(([key, label, Icon]) => (
+        {[['home', 'Home', Home], ['slots', 'Slots', Users], ['staff', 'Coach', Brain], ['biz', 'Biz', Briefcase], ['frontoffice', 'Front Office', Landmark], ['stadium', 'Stadium', Building2], ['facilities', 'Facilities', Building2], ['finance', 'Finance', CreditCard], ['legacy', 'Legacy', Trophy], ['history', 'History', BookOpen]].map(([key, label, Icon]) => (
           <button key={key} className={`tab-btn ${tab === key ? 'active' : ''}`} onClick={() => setTab(key)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <Icon size={14} />
             {label}
@@ -123,6 +124,7 @@ export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, eve
       {tab === 'slots' && <SlotsTab fr={fr} setFr={setFr} gmRep={gmRep} offseasonFAPool={offseasonFAPool} />}
       {tab === 'staff' && <StaffTab fr={fr} setFr={setFr} gmRep={gmRep} />}
       {tab === 'biz' && <BizTab fr={fr} setFr={setFr} />}
+      {tab === 'frontoffice' && <FrontOfficeTab fr={fr} setFr={setFr} />}
       {tab === 'stadium' && <div className="fade-in"><StadiumManagementSection fr={fr} setFr={setFr} season={fr.season || 1} /></div>}
       {tab === 'facilities' && <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}><FacilitiesSection fr={fr} setFr={setFr} onCashChange={onCashChange} /></div>}
       {tab === 'finance' && <DashFinanceTab fr={fr} />}
@@ -396,8 +398,29 @@ function SlotsTab({ fr, setFr, gmRep, offseasonFAPool: frozenPool }) {
               <div className="font-display" style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-muted)', marginBottom: 8, letterSpacing: '0.08em' }}>{label}</div>
               {player ? (
                 <>
-                  <div className="font-display" style={{ fontSize: '1rem', fontWeight: 700 }}>{player.name || 'Unknown'}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div className="font-display" style={{ fontSize: '1rem', fontWeight: 700 }}>{player.name || 'Unknown'}</div>
+                    {player.injured && (
+                      <span style={{ color: 'var(--red)', fontSize: '1rem', lineHeight: 1 }} title={player.injuryName || 'Injured'}>+</span>
+                    )}
+                  </div>
                   <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginBottom: 4 }}>{player.position || '—'} · Age {player.age || '?'}</div>
+                  {/* Injury status */}
+                  {player.injured && player.injuryName && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6, padding: '4px 8px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 4 }}>
+                      <span style={{ color: 'var(--red)', fontWeight: 700, fontSize: '0.72rem' }}>+</span>
+                      <span className="font-mono" style={{ fontSize: '0.68rem', color: 'var(--red)' }}>{player.injuryName}</span>
+                      {player.gamesOut > 0 && <span className="font-mono" style={{ fontSize: '0.62rem', color: 'var(--ink-muted)' }}>({player.gamesOut}G out)</span>}
+                    </div>
+                  )}
+                  {/* Replacement indicator */}
+                  {player.replacingInjured && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6, padding: '4px 8px', background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.2)', borderRadius: 4 }}>
+                      <span className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--amber)' }}>
+                        Replacing {player.replacingInjured} ({player.replacingInjuryName})
+                      </span>
+                    </div>
+                  )}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
                     <div>
                       <span className="stat-label" style={{ fontSize: '0.7rem' }}>Rating</span>
