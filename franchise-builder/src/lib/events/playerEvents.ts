@@ -1,5 +1,5 @@
 // src/lib/events.ts — Random player events
-import type { Franchise, PlayerEvent, Quarter } from './types';
+import type { Franchise, PlayerEvent, Quarter } from '../types';
 // @ts-ignore — JS module without types
 import { charityEvents, dramaEvents, criminalEvents, breakoutHeadlines } from '@/data/eventFlavor';
 
