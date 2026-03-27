@@ -65,6 +65,67 @@ export function r1(n) {
   return Math.round(n * 10) / 10;
 }
 
+export const PLAYER_RATING_RANGES = Object.freeze({
+  cornerstone: [91, 95],
+  star: [83, 90],
+  solidStarter: [78, 82],
+  averageStarter: [74, 76],
+  taxiProspect: [55, 65],
+});
+
+function gaussianRandom(mean = 0, stdDev = 1) {
+  let u = 0;
+  let v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  const z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+  return z * stdDev + mean;
+}
+
+function weightedPick(weightMap) {
+  const entries = Object.entries(weightMap);
+  const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
+  let roll = Math.random() * total;
+  for (const [key, weight] of entries) {
+    roll -= weight;
+    if (roll <= 0) return key;
+  }
+  return entries[entries.length - 1][0];
+}
+
+function ratingFromBand([lo, hi]) {
+  return rand(lo, hi);
+}
+
+export function generateTieredRating(weightMap) {
+  const key = weightedPick(weightMap);
+  return ratingFromBand(PLAYER_RATING_RANGES[key]);
+}
+
+export function determineDevelopmentPhase(age) {
+  if (age < 27) return 'Rising';
+  if (age <= 31) return 'Peak';
+  return 'Declining';
+}
+
+export function generateHiddenPotential(age, rating) {
+  const phase = determineDevelopmentPhase(age);
+  if (phase !== 'Rising') return clamp(Math.round(rating), 40, 99);
+  const youthBoost = clamp(Math.round(gaussianRandom(8, 3)), 3, 15);
+  return clamp(Math.round(rating + youthBoost), Math.round(rating + 3), 99);
+}
+
+function generateRosterRating() {
+  // Bell-curve approximation centered near average starter quality (75 OVR)
+  return generateTieredRating({
+    taxiProspect: 0.20,
+    averageStarter: 0.30,
+    solidStarter: 0.28,
+    star: 0.18,
+    cornerstone: 0.04,
+  });
+}
+
 // ============================================================
 // TRAITS
 // ============================================================
@@ -154,13 +215,18 @@ export function repCostMultiplier(gmRep) {
  */
 export function generatePlayer(pos, lg, opts = {}) {
   const age = opts.age || rand(22, 32);
-  const rating = opts.rating || rand(55, 88);
+  const rating = opts.rating || generateRosterRating();
+  const clampedRating = clamp(rating, 40, 99);
+  const developmentPhase = determineDevelopmentPhase(age);
+  const hiddenPotential = opts.hiddenPotential != null
+    ? clamp(Math.round(opts.hiddenPotential), 40, 99)
+    : generateHiddenPotential(age, clampedRating);
   const trait = opts.trait !== undefined ? opts.trait : generateTrait();
   const yrs = opts.yearsLeft || rand(1, 4);
   const sp = opts.seasonsPlayed || Math.max(1, age - 21);
   const cap = lg === 'ngl' ? NGL_SALARY_CAP : ABL_SALARY_CAP;
   const rs = lg === 'ngl' ? NGL_ROSTER_SIZE : ABL_ROSTER_SIZE;
-  let sal = cap / rs * (rating / 72) * randFloat(0.7, 1.3);
+  let sal = cap / rs * (clampedRating / 72) * randFloat(0.7, 1.3);
   if (trait === 'mercenary') sal *= 1.4;
   if (trait === 'hometown') sal *= 0.8;
   return {
@@ -168,7 +234,9 @@ export function generatePlayer(pos, lg, opts = {}) {
     name: generatePlayerName(),
     position: pos,
     age,
-    rating: clamp(rating, 40, 99),
+    rating: clampedRating,
+    developmentPhase,
+    hiddenPotential,
     morale: rand(55, 85),
     trait,
     salary: r1(sal),
@@ -179,7 +247,7 @@ export function generatePlayer(pos, lg, opts = {}) {
     gamesOut: 0,
     isLocalLegend: false,
     seasonsWithTeam: opts.seasonsWithTeam || 1,
-    careerStats: { seasons: sp, bestRating: rating },
+    careerStats: { seasons: sp, bestRating: clampedRating },
   };
 }
 
@@ -495,10 +563,17 @@ export function calcDepthQuality(franchise) {
 
 /** Generate a named player for a specific slot type */
 export function generateSlotPlayer(slotType, league, gmRep = 50) {
-  const ratingRanges = { star1: [70, 90], star2: [64, 84], corePiece: [55, 78] };
-  const [lo, hi] = ratingRanges[slotType] || [55, 78];
+  const ratingRanges = {
+    star1: PLAYER_RATING_RANGES.cornerstone,
+    star2: PLAYER_RATING_RANGES.star,
+    corePiece: [PLAYER_RATING_RANGES.averageStarter[0], PLAYER_RATING_RANGES.solidStarter[1]],
+  };
+  const [lo, hi] = ratingRanges[slotType] || [PLAYER_RATING_RANGES.taxiProspect[0], PLAYER_RATING_RANGES.solidStarter[1]];
   const repBonus = gmRep > 70 ? 3 : gmRep < 35 ? -3 : 0;
   const rating = clamp(rand(lo, hi) + repBonus, lo - 2, hi + 3);
+  const age = rand(22, 31);
+  const developmentPhase = determineDevelopmentPhase(age);
+  const hiddenPotential = generateHiddenPotential(age, rating);
   const pos = pick(league === 'ngl' ? NGL_POSITIONS : ABL_POSITIONS);
   const budget = SLOT_BUDGET[league] || 80;
   const budgetShare = slotType === 'star1' ? 0.37 : slotType === 'star2' ? 0.25 : 0.14;
@@ -511,8 +586,10 @@ export function generateSlotPlayer(slotType, league, gmRep = 50) {
     id: generateId(),
     name: generatePlayerName(),
     position: pos,
-    age: rand(22, 31),
+    age,
     rating: clamp(rating, 40, 99),
+    developmentPhase,
+    hiddenPotential,
     morale: rand(60, 85),
     trait,
     salary: r1(clamp(baseSal * repCostMultiplier(gmRep), 2, maxSal)),
@@ -594,28 +671,38 @@ export function generateDraftProspects(lg, count, scoutLvl = 1, round = 1) {
   if (!count || count <= 0) return []; // Bugfix: draft generation now returns an empty board when no pick inventory remains.
   const pos = lg === 'ngl' ? NGL_POSITIONS : ABL_POSITIONS;
   const roundProfile = round === 1
-    ? { ratingMin: 68, ratingMax: 82, upsideWeights: ['high', 'high', 'mid', 'mid', 'low'] }
+    ? {
+      tierWeights: { cornerstone: 0.10, star: 0.38, solidStarter: 0.34, averageStarter: 0.16, taxiProspect: 0.02 },
+      upsideWeights: ['high', 'high', 'high', 'mid', 'mid', 'low'],
+    }
     : round === 2
-      ? { ratingMin: 62, ratingMax: 72, upsideWeights: ['high', 'mid', 'mid', 'mid', 'low', 'low', 'low', 'mid', 'high', 'mid'] }
+      ? {
+        tierWeights: { cornerstone: 0.02, star: 0.14, solidStarter: 0.34, averageStarter: 0.32, taxiProspect: 0.18 },
+        upsideWeights: ['high', 'high', 'mid', 'mid', 'mid', 'low', 'low'],
+      }
       : round === 3
-        ? { ratingMin: 58, ratingMax: 68, upsideWeights: ['high', 'mid', 'mid', 'mid', 'low', 'low', 'low', 'mid', 'high', 'mid'] }
-        : round === 4
-          ? { ratingMin: 54, ratingMax: 65, upsideWeights: ['high', 'mid', 'mid', 'mid', 'mid', 'low', 'low', 'low', 'low', 'low', 'low', 'mid', 'low', 'low', 'low', 'low', 'low', 'low', 'mid', 'low'] }
-          : { ratingMin: 50, ratingMax: 62, upsideWeights: ['high', 'mid', 'mid', 'mid', 'mid', 'low', 'low', 'low', 'low', 'low', 'low', 'mid', 'low', 'low', 'low', 'low', 'low', 'low', 'mid', 'low'] };
+        ? {
+          tierWeights: { cornerstone: 0.0, star: 0.04, solidStarter: 0.20, averageStarter: 0.36, taxiProspect: 0.40 },
+          upsideWeights: ['high', 'mid', 'mid', 'mid', 'low', 'low', 'low'],
+        }
+        : {
+          tierWeights: { cornerstone: 0.0, star: 0.0, solidStarter: 0.08, averageStarter: 0.20, taxiProspect: 0.72 },
+          upsideWeights: ['mid', 'mid', 'low', 'low', 'low', 'low'],
+        };
 
   return Array.from({ length: count }, () => {
     const p = pick(pos);
-    const br = rand(roundProfile.ratingMin, roundProfile.ratingMax);
+    const br = generateTieredRating(roundProfile.tierWeights);
     const acc = scoutLvl * 5;
-    const projMid = clamp(br + rand(-acc, acc), 45, 85);
+    const projMid = clamp(br + rand(-acc, acc), 50, 95);
     const spread = Math.max(3, 12 - scoutLvl * 2);
     return {
       id: generateId(),
       name: generatePlayerName(),
       position: p,
       age: rand(21, 23),
-      projectedRange: { low: clamp(projMid - spread, 40, 85), high: clamp(projMid + spread, 45, 95) },
-      trueRating: clamp(br, 45, 85),
+      projectedRange: { low: clamp(projMid - spread, 50, 92), high: clamp(projMid + spread, 55, 95) },
+      trueRating: clamp(br, 55, 95),
       upside: pick(roundProfile.upsideWeights),
       trait: generateTrait(),
       scoutReport: scoutLvl >= 3 ? 'Detailed' : scoutLvl >= 2 ? 'Standard' : 'Basic',
@@ -660,7 +747,11 @@ export function draftPlayer(p, lg) {
 export function generateFreeAgents(lg, n = 20) {
   const pos = lg === 'ngl' ? NGL_POSITIONS : ABL_POSITIONS;
   return Array.from({ length: n }, () =>
-    generatePlayer(pick(pos), lg, { age: rand(25, 34), rating: rand(55, 82), yearsLeft: 0 })
+    generatePlayer(pick(pos), lg, {
+      age: rand(25, 34),
+      rating: generateTieredRating({ star: 0.14, solidStarter: 0.30, averageStarter: 0.30, taxiProspect: 0.26 }),
+      yearsLeft: 0,
+    })
   ).sort((a, b) => b.rating - a.rating);
 }
 
@@ -673,18 +764,25 @@ export function generateFreeAgents(lg, n = 20) {
 export function generateDeadlineFreeAgents(lg, n = 5) {
   const pos = lg === 'ngl' ? NGL_POSITIONS : ABL_POSITIONS;
   return Array.from({ length: n }, () =>
-    generatePlayer(pick(pos), lg, { age: rand(26, 33), rating: rand(52, 70), yearsLeft: rand(1, 2) })
+    generatePlayer(pick(pos), lg, {
+      age: rand(26, 33),
+      rating: generateTieredRating({ solidStarter: 0.12, averageStarter: 0.28, taxiProspect: 0.60 }),
+      yearsLeft: rand(1, 2),
+    })
   ).sort((a, b) => b.rating - a.rating);
 }
 
 /** Generate offseason free agent pool gated by GM rep */
 export function generateOffseasonFAPool(league, gmRep = 50, n = 10) {
   const pos = league === 'ngl' ? NGL_POSITIONS : ABL_POSITIONS;
-  const maxRating = gmRep < 35 ? 72 : gmRep < 60 ? 80 : 87;
-  const minRating = gmRep < 35 ? 55 : 57;
+  const ratingWeights = gmRep < 35
+    ? { star: 0.03, solidStarter: 0.15, averageStarter: 0.28, taxiProspect: 0.54 }
+    : gmRep < 60
+      ? { star: 0.10, solidStarter: 0.26, averageStarter: 0.30, taxiProspect: 0.34 }
+      : { cornerstone: 0.03, star: 0.20, solidStarter: 0.32, averageStarter: 0.25, taxiProspect: 0.20 };
   const costMult = repCostMultiplier(gmRep);
   return Array.from({ length: n }, () => {
-    const rating = rand(minRating, maxRating);
+    const rating = generateTieredRating(ratingWeights);
     const p = generatePlayer(pick(pos), league, { age: rand(23, 33), rating, yearsLeft: rand(1, 3) });
     p.salary = r1(p.salary * costMult);
     return p;
