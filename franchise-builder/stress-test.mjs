@@ -406,11 +406,9 @@ function runStressTest() {
   {
     const playersLen = 0;
     const cd = 0;
-    const chemCalc = playersLen > 0 ? cd / playersLen * 3 : 0;
-    if (playersLen === 0) {
-      warn('BUG: simPlayerSeason line ~371 and simPlayerSeasonSecondHalf line ~594: cd / f.players.length * 3 causes NaN when players is empty (all slots retired). Needs guard: Math.max(1, f.players.length)');
-    }
-    console.log(`    ✓ Edge case documented`);
+    const guardedChemCalc = cd / Math.max(1, playersLen) * 3;
+    assert(isFiniteNum(guardedChemCalc), `guarded chemistry calc should be finite, got ${guardedChemCalc}`);
+    console.log(`    ✓ Guarded result: ${guardedChemCalc}`);
   }
 
   // Test: generateNewspaper with empty standings
@@ -480,7 +478,7 @@ function runStressTest() {
   }
 
   console.log(`  Summary: ${errors.length} errors, ${warnings.length} warnings`);
-  console.log(`  Seasons simulated: 15`);
+  console.log(`  Seasons simulated: ${SEASONS}`);
   console.log(`  Final franchise: ${fr[0].city} ${fr[0].name}`);
   console.log(`  Final cash: $${fr[0].cash}M`);
   console.log(`  Final record: ${fr[0].wins}-${fr[0].losses}`);

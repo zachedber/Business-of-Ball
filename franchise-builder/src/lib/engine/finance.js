@@ -51,6 +51,28 @@ export function calculateDebtPayment(debtObject) {
  * @param {number} cash
  * @returns {{ debt: Object, cash: number, paymentMade: number, unpaidRemainder: number }}
  */
+
+
+export function buildMandatoryDebt(askingPrice, market) {
+  const tier = getMarketTier(Number(market) || 0);
+  const baseCapital = 30;
+  const isBottomTier = tier >= 5;
+  const principal = isBottomTier ? Math.max(0, askingPrice - baseCapital) : Math.max(1, askingPrice - baseCapital);
+  const debtObject = principal > 0 ? {
+    principal,
+    interestRate: DEBT_INTEREST,
+    termSeasons: 10,
+    seasonsRemaining: 10,
+    seasonalPayment: 0,
+    consecutiveMissedPayments: 0,
+  } : null;
+
+  return {
+    debt: principal,
+    debtObject,
+    cash: Math.max(0, baseCapital - askingPrice),
+  };
+}
 export function applyDebtPenalty(debtObject, cash) {
   const debt = { ...(debtObject || {}) };
   const availableCash = Math.max(0, Number(cash) || 0);
