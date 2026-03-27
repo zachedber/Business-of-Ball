@@ -1,5 +1,47 @@
 import { initLeagueHistory } from '@/lib/engine';
 
+const DEFAULT_FEATURES = {
+  debt: 0,
+  debtInterestRate: 0.08,
+  debtObject: null,
+  pricing: {
+    ticketPrice: 80,
+    concessionsPrice: 15,
+    merchPrice: 40,
+    parkingPrice: 25,
+  },
+  investments: {
+    sportsScienceDept: 0,
+    advancedScouting: 0,
+    globalMarketing: 0,
+    recoveryCenter: false,
+    privateJetFleet: false,
+    nutritionStaff: false,
+    stadiumDistrict: 0,
+    overseasStakes: 0,
+  },
+  facilityMaintenance: 1,
+};
+
+function normalizeFranchiseState(franchise) {
+  const safe = franchise && typeof franchise === 'object' ? { ...franchise } : {};
+  const basePricing = { ...DEFAULT_FEATURES.pricing, ...(safe.pricing || {}) };
+  const investments = safe.investments || {};
+  return {
+    ...DEFAULT_FEATURES,
+    ...safe,
+    pricing: basePricing,
+    investments: {
+      ...DEFAULT_FEATURES.investments,
+      ...investments,
+      overseasStakes: Array.isArray(investments.overseasStakes)
+        ? investments.overseasStakes.length
+        : Math.max(0, Number(investments.overseasStakes) || 0),
+    },
+    debtObject: safe.debtObject ?? safe.debtDetails ?? null,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────
 // INITIAL STATE
 // Mirrors every useState initial value from App().
@@ -191,13 +233,14 @@ export function gameReducer(state, action) {
     /** Restores full saved state from localStorage. */
     case 'LOAD_SAVE': {
       const saved = action.payload;
+      const migratedFranchises = (saved.franchises || []).map(normalizeFranchiseState);
       return {
         ...state,
         cash: saved.cash ?? 0,
         gmRep: saved.gmReputation || 50,
         dynasty: saved.dynastyHistory || [],
         lt: saved.leagueTeams || { ngl: [], abl: [] },
-        fr: saved.franchises || [],
+        fr: migratedFranchises,
         stakes: saved.stakes || [],
         season: saved.season || 1,
         freeAg: saved.freeAgents || { ngl: [], abl: [] },
@@ -240,7 +283,7 @@ export function gameReducer(state, action) {
       return {
         ...state,
         lt,
-        fr: frArray,
+        fr: (frArray || []).map(normalizeFranchiseState),
         cash,
         stakes: [],
         season: 1,

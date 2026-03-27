@@ -36,8 +36,8 @@ export function calculateDebtPayment(debtObject) {
   const principal = Math.max(0, Number(debtObject?.principal) || 0);
   const interestRate = Math.max(0, Number(debtObject?.interestRate) || 0);
   const termSeasons = Math.max(1, Number(debtObject?.termSeasons) || 1);
-  if (interestRate === 0) return principal / termSeasons;
-  return (principal * interestRate) / (1 - Math.pow(1 + interestRate, -termSeasons));
+  if (interestRate === 0) return r1(principal / termSeasons);
+  return r1((principal * interestRate) / (1 - Math.pow(1 + interestRate, -termSeasons)));
 }
 
 /**
@@ -65,8 +65,8 @@ export function applyDebtPenalty(debtObject, cash) {
     };
   }
 
-  const unpaidRemainder = seasonalPayment - availableCash;
-  const newPrincipal = Math.max(0, Number(debt.principal) || 0) + unpaidRemainder;
+  const unpaidRemainder = r1(seasonalPayment - availableCash);
+  const newPrincipal = r1(Math.max(0, Number(debt.principal) || 0) + unpaidRemainder);
   const dynamicRate = calculateDynamicInterestRate(
     Number(debt.gmRep) || 50,
     0,
@@ -76,14 +76,14 @@ export function applyDebtPenalty(debtObject, cash) {
   const updatedDebt = {
     ...debt,
     principal: newPrincipal,
-    interestRate: dynamicRate + 0.05,
+    interestRate: r1(dynamicRate + 0.05),
     consecutiveMissedPayments: (Number(debt.consecutiveMissedPayments) || 0) + 1,
   };
 
   return {
     debt: updatedDebt,
     cash: 0,
-    paymentMade: availableCash,
+    paymentMade: r1(availableCash),
     unpaidRemainder,
   };
 }
@@ -104,17 +104,17 @@ export function calculateMatchdayRevenue(franchise, fanRating, attendance) {
   const merchPrice = Number(pricing.merchPrice) || 0;
   const parkingPrice = Number(pricing.parkingPrice) || 0;
 
-  const revenue = (Number(attendance) || 0) * (concessionsPrice + merchPrice + parkingPrice);
+  const revenue = r1((Number(attendance) || 0) * (concessionsPrice + merchPrice + parkingPrice));
 
   const concessionsPenalty = concessionsPrice > 15 ? (concessionsPrice - 15) * 0.5 : 0;
   const merchPenalty = merchPrice > 40 ? (merchPrice - 40) * 0.5 : 0;
   const parkingPenalty = parkingPrice > 25 ? (parkingPrice - 25) * 0.5 : 0;
-  const fanRatingPenalty = concessionsPenalty + merchPenalty + parkingPenalty;
+  const fanRatingPenalty = r1(concessionsPenalty + merchPenalty + parkingPenalty);
 
   return {
     revenue,
     fanRatingPenalty,
-    adjustedFanRating: clamp((Number(fanRating) || 0) - fanRatingPenalty, 0, 100),
+    adjustedFanRating: r1(clamp((Number(fanRating) || 0) - fanRatingPenalty, 0, 100)),
   };
 }
 
@@ -132,8 +132,8 @@ export function calculateFacilityUpkeep(franchise) {
   const maintenanceCost = numericTier * 2000000;
   const currentCash = Number(franchise?.cash) || 0;
   return {
-    maintenanceCost,
-    updatedCash: currentCash - maintenanceCost,
+    maintenanceCost: r1(maintenanceCost),
+    updatedCash: r1(currentCash - maintenanceCost),
   };
 }
 
