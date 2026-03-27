@@ -245,6 +245,11 @@ export function generatePlayer(pos, lg, opts = {}) {
     injured: false,
     injurySeverity: null,
     gamesOut: 0,
+    injuryProne: trait === 'injury_prone',
+    injuryStatus: {
+      duration: 0,
+      severity: null,
+    },
     isLocalLegend: false,
     seasonsWithTeam: opts.seasonsWithTeam || 1,
     careerStats: { seasons: sp, bestRating: clampedRating },

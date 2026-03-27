@@ -68,6 +68,46 @@ export function predictInjury(age, seasons, medStaff, trait, rating) {
   return clamp(r + randFloat(-0.02, 0.02), 0.02, 0.65);
 }
 
+/**
+ * Rolls quarter-level injuries for a roster using investment-based modifiers.
+ * Base chance: 0.05, injury-prone chance: 0.15.
+ * Final chance multiplier: (1 - sportsScienceTier * 0.1).
+ * Severity odds: 80% short term (1 quarter), 20% long term (season = 4 quarters).
+ * Recovery center reduces resulting duration by 1 quarter.
+ * @param {Object[]} roster
+ * @param {number} sportsScienceTier
+ * @param {boolean} recoveryCenter
+ * @returns {{ playerId: string, severity: 'short_term'|'long_term', duration: number }[]}
+ */
+export function rollForInjuries(roster, sportsScienceTier, recoveryCenter) {
+  const players = Array.isArray(roster) ? roster : [];
+  const tier = clamp(Number(sportsScienceTier) || 0, 0, 3);
+  const modifier = 1 - (tier * 0.1);
+  const injuries = [];
+
+  players.forEach((p) => {
+    const activeDuration = Number(p?.injuryStatus?.duration) || 0;
+    if (activeDuration > 0) return;
+
+    const baseChance = p?.injuryProne ? 0.15 : 0.05;
+    const finalChance = baseChance * modifier;
+    if (Math.random() >= finalChance) return;
+
+    const severityRoll = Math.random();
+    const isLongTerm = severityRoll >= 0.80;
+    let duration = isLongTerm ? 4 : 1;
+    if (recoveryCenter) duration = Math.max(1, duration - 1);
+
+    injuries.push({
+      playerId: p.id,
+      severity: isLongTerm ? 'long_term' : 'short_term',
+      duration,
+    });
+  });
+
+  return injuries;
+}
+
 /** Helper: total staff salary expense for coordinators */
 function calcCoordSalaries(f) {
   let total = 0;
@@ -531,23 +571,33 @@ export function simQuarter(f, season, quarter) {
   if (f.corePiece?.id) f.corePiece = f.players.find(pp => pp.id === f.corePiece.id) || f.corePiece;
 
   f.players.forEach(p => {
-    let risk = predictInjury(p.age, p.seasonsPlayed, f.medicalStaff, p.trait, p.rating);
-    // Conditioning training camp bonus: point-based injury reduction for Q1 and Q2
-    const condReduction = Math.min(0.50, (f.trainingCampAllocation?.conditioning || 0) * 0.05);
-    if (condReduction > 0 && (quarter === 1 || quarter === 2)) {
-      risk *= (1 - condReduction);
-    }
-    if (Math.random() < risk) {
+    const curDuration = Number(p.injuryStatus?.duration) || 0;
+    const nextDuration = Math.max(0, curDuration - 1);
+    if (nextDuration > 0) {
       p.injured = true;
-      const sr = Math.random();
-      if (sr < 0.5) { p.injurySeverity = 'minor'; p.gamesOut = rand(2, 4); }
-      else if (sr < 0.85) { p.injurySeverity = 'moderate'; p.gamesOut = rand(6, 10); }
-      else { p.injurySeverity = 'severe'; p.gamesOut = totalGames; }
-    } else {
-      p.injured = false;
-      p.injurySeverity = null;
-      p.gamesOut = 0;
+      p.injuryStatus = { ...(p.injuryStatus || {}), duration: nextDuration };
+      p.injurySeverity = p.injuryStatus.severity === 'long_term' ? 'severe' : 'minor';
+      p.gamesOut = Math.max(1, Math.ceil((nextDuration / 4) * totalGames));
+      return;
     }
+    p.injured = false;
+    p.injurySeverity = null;
+    p.gamesOut = 0;
+    p.injuryStatus = { duration: 0, severity: null };
+  });
+
+  const quarterInjuries = rollForInjuries(
+    f.players,
+    f.investments?.sportsScienceDept || 0,
+    Boolean(f.investments?.recoveryCenter)
+  );
+  quarterInjuries.forEach((injury) => {
+    const player = f.players.find((p) => p.id === injury.playerId);
+    if (!player) return;
+    player.injured = true;
+    player.injuryStatus = { duration: injury.duration, severity: injury.severity };
+    player.injurySeverity = injury.severity === 'long_term' ? 'severe' : 'minor';
+    player.gamesOut = Math.max(1, Math.ceil((injury.duration / 4) * totalGames));
   });
 
   // ── WIN PROBABILITY — use stored Q1 base with minor variance ─────
@@ -1499,6 +1549,31 @@ export function createPlayerFranchise(tmpl, lg) {
     cash: startingCash,
     debt: startingDebt,
     debtInterestRate: DEBT_INTEREST,
+    debtDetails: {
+      principal: startingDebt,
+      interestRate: DEBT_INTEREST,
+      termSeasons: 10,
+      seasonsRemaining: 10,
+      seasonalPayment: 0,
+      consecutiveMissedPayments: 0,
+    },
+    pricing: {
+      ticketPrice: TICKET_BASE_PRICE,
+      concessionsPrice: 15,
+      merchPrice: 40,
+      parkingPrice: 25,
+    },
+    investments: {
+      sportsScienceDept: 0,
+      advancedScouting: 0,
+      globalMarketing: 0,
+      recoveryCenter: false,
+      privateJetFleet: false,
+      nutritionStaff: false,
+      stadiumRealEstate: 0,
+      overseasStakes: [],
+    },
+    facilityMaintenance: 1,
     askingPrice,
 
     // 3-slot roster model
