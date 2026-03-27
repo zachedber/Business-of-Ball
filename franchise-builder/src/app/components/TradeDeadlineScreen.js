@@ -186,7 +186,7 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid var(--cream-darker)' }}>
-                {['Player', 'Pos', 'Age', 'Rtg', '$M/yr', 'Yrs', 'Trait', ''].map(h => (
+                {['Player', 'Pos', 'Age', 'Rtg', 'Dev', '$M/yr', 'Yrs', 'Trait', ''].map(h => (
                   <th key={h} className="stat-label" style={{ padding: '10px 12px', textAlign: 'left' }}>{h}</th>
                 ))}
               </tr>
@@ -212,6 +212,7 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
                   }} title={RATING_TOOLTIP}>
                     {player.rating}
                   </td>
+                  <td style={{ padding: '10px 12px' }}>{player.developmentPhase && <span style={{ fontSize: '0.65rem', color: player.developmentPhase === 'Rising' ? 'var(--green)' : player.developmentPhase === 'Peak' ? 'var(--amber)' : 'var(--red)' }}>{player.developmentPhase}</span>}</td>
                   <td className="font-mono" style={{ padding: '10px 12px' }}>{player.salary}</td>
                   <td className="font-mono" style={{
                     padding: '10px 12px',

@@ -206,8 +206,9 @@ export default function DraftFlowScreen({ fr, lt, draftPicks, draftProspects, on
               <span className="font-body" style={{ fontSize: '0.85rem' }}>
                 R{p.round} P{p.pick} — {p.name} ({p.position})
               </span>
-              <span className="font-mono" title={RATING_TOOLTIP} style={{ fontSize: '0.75rem', color: p.rating >= 75 ? 'var(--green)' : 'var(--ink-muted)', cursor: 'help' }}>
-                {p.rating} rtg
+              <span className="font-mono" title={RATING_TOOLTIP} style={{ fontSize: '0.75rem', cursor: 'help', display: 'flex', gap: 6, alignItems: 'center' }}>
+                <span style={{ color: p.rating >= 75 ? 'var(--green)' : 'var(--ink-muted)' }}>{p.rating} rtg</span>
+                {p.developmentPhase && <span style={{ fontSize: '0.65rem', color: p.developmentPhase === 'Rising' ? 'var(--green)' : p.developmentPhase === 'Peak' ? 'var(--amber)' : 'var(--red)' }}>{p.developmentPhase}</span>}
               </span>
             </div>
           ))}

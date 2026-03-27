@@ -24,6 +24,28 @@ import { MiniChart, RATING_TOOLTIP } from '@/app/components/SharedComponents';
 import TutorialOverlay from '@/app/components/TutorialOverlay';
 import { Home, Users, Brain, Briefcase, Building2, CreditCard, Trophy, BookOpen } from 'lucide-react';
 
+/**
+ * Masks hiddenPotential based on scouting/development staff level.
+ * Staff 1: "?" — Staff 2: wide 10-point range — Staff 3: exact value
+ */
+function maskPotential(hiddenPotential, staffLevel) {
+  if (!hiddenPotential) return '?';
+  const sl = staffLevel || 1;
+  if (sl >= 3) return String(hiddenPotential);
+  if (sl === 2) {
+    const lo = Math.max(40, Math.floor(hiddenPotential / 10) * 10);
+    const hi = Math.min(99, lo + 9);
+    return `${lo}–${hi}`;
+  }
+  return '?';
+}
+
+const DEV_PHASE_STYLE = {
+  Rising: { color: 'var(--green)', bg: 'rgba(34,197,94,0.12)' },
+  Peak: { color: 'var(--amber)', bg: 'rgba(234,179,8,0.12)' },
+  Declining: { color: 'var(--red)', bg: 'rgba(239,68,68,0.12)' },
+};
+
 function hexToRgba(hex, alpha) {
   const r = parseInt(hex.slice(1,3),16);
   const g = parseInt(hex.slice(3,5),16);
@@ -390,11 +412,26 @@ function SlotsTab({ fr, setFr, gmRep, offseasonFAPool: frozenPool }) {
                       <div className="font-mono" style={{ fontSize: '0.85rem', color: (player.yearsLeft || 0) <= 1 ? 'var(--red)' : 'var(--ink)' }}>{player.yearsLeft || 0}yr</div>
                     </div>
                   </div>
-                  {player.trait && (
-                    <span className={`badge ${player.trait === 'leader' ? 'badge-green' : player.trait === 'mercenary' ? 'badge-amber' : ['volatile', 'injury_prone'].includes(player.trait) ? 'badge-red' : 'badge-ink'}`} style={{ marginBottom: 8, display: 'inline-block' }}>
-                      {formatLabel(player.trait)}
-                    </span>
-                  )}
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+                    {player.trait && (
+                      <span className={`badge ${player.trait === 'leader' ? 'badge-green' : player.trait === 'mercenary' ? 'badge-amber' : ['volatile', 'injury_prone'].includes(player.trait) ? 'badge-red' : 'badge-ink'}`}>
+                        {formatLabel(player.trait)}
+                      </span>
+                    )}
+                    {player.developmentPhase && (
+                      <span className="badge" style={{ color: DEV_PHASE_STYLE[player.developmentPhase]?.color || 'var(--ink)', background: DEV_PHASE_STYLE[player.developmentPhase]?.bg || 'transparent', border: `1px solid ${DEV_PHASE_STYLE[player.developmentPhase]?.color || 'var(--ink)'}` }}>
+                        {player.developmentPhase}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                    <div>
+                      <span className="stat-label" style={{ fontSize: '0.65rem' }}>Potential</span>
+                      <div className="font-mono" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>
+                        {maskPotential(player.hiddenPotential, Math.max(fr.scoutingStaff || 1, fr.developmentStaff || 1))}
+                      </div>
+                    </div>
+                  </div>
                   <div style={{ marginTop: 6 }}>
                     <button
                       className="btn-secondary"
@@ -441,7 +478,7 @@ function SlotsTab({ fr, setFr, gmRep, offseasonFAPool: frozenPool }) {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid var(--cream-darker)' }}>
-                  {['Name', 'Pos', 'Age', 'Rtg', '$M', 'Trait', 'Sign To'].map(h => (
+                  {['Name', 'Pos', 'Age', 'Rtg', 'Dev', '$M', 'Trait', 'Sign To'].map(h => (
                     <th key={h} className="stat-label" style={{ padding: '6px 8px', textAlign: 'left' }}>{h}</th>
                   ))}
                 </tr>
@@ -456,6 +493,7 @@ function SlotsTab({ fr, setFr, gmRep, offseasonFAPool: frozenPool }) {
                       <td className="font-mono" style={{ padding: '6px 8px' }}>{p.position}</td>
                       <td className="font-mono" style={{ padding: '6px 8px' }}>{p.age}</td>
                       <td className="font-mono" title={RATING_TOOLTIP} style={{ padding: '6px 8px', fontWeight: 600, cursor: 'help', color: p.rating >= 85 ? 'var(--green)' : p.rating >= 70 ? 'var(--ink)' : 'var(--ink-muted)' }}>{p.rating}</td>
+                      <td style={{ padding: '6px 8px' }}>{p.developmentPhase && <span className="badge" style={{ fontSize: '0.65rem', color: DEV_PHASE_STYLE[p.developmentPhase]?.color || 'var(--ink)', background: DEV_PHASE_STYLE[p.developmentPhase]?.bg || 'transparent', border: `1px solid ${DEV_PHASE_STYLE[p.developmentPhase]?.color || 'var(--ink)'}` }}>{p.developmentPhase}</span>}</td>
                       <td className="font-mono" style={{ padding: '6px 8px' }}>${p.salary}M</td>
                       <td>{p.trait && <span className="badge badge-ink">{p.trait}</span>}</td>
                       <td style={{ padding: '6px 8px' }}>
@@ -504,7 +542,14 @@ function SlotsTab({ fr, setFr, gmRep, offseasonFAPool: frozenPool }) {
                   Year {(r.seasonsOnTaxi || 0) + 1} of 2
                 </div>
                 {r.draftRound && <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>R{r.draftRound} P{r.draftPick}</div>}
-                {r.trait && <span className="badge badge-ink" style={{ fontSize: '0.7rem', marginTop: 4 }}>{r.trait}</span>}
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                  {r.trait && <span className="badge badge-ink" style={{ fontSize: '0.7rem' }}>{r.trait}</span>}
+                  {r.developmentPhase && (
+                    <span className="badge" style={{ fontSize: '0.7rem', color: DEV_PHASE_STYLE[r.developmentPhase]?.color || 'var(--ink)', background: DEV_PHASE_STYLE[r.developmentPhase]?.bg || 'transparent', border: `1px solid ${DEV_PHASE_STYLE[r.developmentPhase]?.color || 'var(--ink)'}` }}>
+                      {r.developmentPhase}
+                    </span>
+                  )}
+                </div>
                 <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                   <button
                     className="btn-primary"
@@ -552,7 +597,14 @@ function SlotsTab({ fr, setFr, gmRep, offseasonFAPool: frozenPool }) {
                   {r.position || '—'} · Age {r.age || '?'} · {r.rating || 0} rtg
                 </div>
                 {r.draftRound && <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>R{r.draftRound} P{r.draftPick}</div>}
-                {r.trait && <span className="badge badge-ink" style={{ fontSize: '0.7rem', marginTop: 4 }}>{r.trait}</span>}
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                  {r.trait && <span className="badge badge-ink" style={{ fontSize: '0.7rem' }}>{r.trait}</span>}
+                  {r.developmentPhase && (
+                    <span className="badge" style={{ fontSize: '0.7rem', color: DEV_PHASE_STYLE[r.developmentPhase]?.color || 'var(--ink)', background: DEV_PHASE_STYLE[r.developmentPhase]?.bg || 'transparent', border: `1px solid ${DEV_PHASE_STYLE[r.developmentPhase]?.color || 'var(--ink)'}` }}>
+                      {r.developmentPhase}
+                    </span>
+                  )}
+                </div>
                 <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                   {slotDefs.map(({ key, label }) => (
                     <button

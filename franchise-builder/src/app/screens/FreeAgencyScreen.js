@@ -77,7 +77,7 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
               {player ? (
                 <>
                   <div className="font-display" style={{ fontSize: '0.95rem', fontWeight: 700 }}>{player.name}</div>
-                  <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>{player.position} · {player.rating} rtg · ${player.salary}M</div>
+                  <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>{player.position} · {player.rating} rtg · ${player.salary}M{player.developmentPhase ? ` · ${player.developmentPhase}` : ''}</div>
                   <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '3px 8px', marginTop: 6, borderColor: 'var(--red)', color: 'var(--red)' }} onClick={() => doRelease(key)}>
                     Release
                   </button>
@@ -116,7 +116,7 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid var(--cream-darker)' }}>
-                  {['Name', 'Pos', 'Age', 'Rtg', '$M', 'Trait', 'Sign To'].map(h => (
+                  {['Name', 'Pos', 'Age', 'Rtg', 'Dev', '$M', 'Trait', 'Sign To'].map(h => (
                     <th key={h} className="stat-label" style={{ padding: '6px 8px', textAlign: 'left' }}>{h}</th>
                   ))}
                 </tr>
@@ -131,6 +131,7 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
                       <td className="font-mono" style={{ padding: '6px 8px' }}>{p.position}</td>
                       <td className="font-mono" style={{ padding: '6px 8px' }}>{p.age}</td>
                       <td className="font-mono" title={RATING_TOOLTIP} style={{ padding: '6px 8px', fontWeight: 600, cursor: 'help', color: p.rating >= 85 ? 'var(--green)' : p.rating >= 70 ? 'var(--ink)' : 'var(--ink-muted)' }}>{p.rating}</td>
+                      <td style={{ padding: '6px 8px' }}>{p.developmentPhase && <span style={{ fontSize: '0.65rem', color: p.developmentPhase === 'Rising' ? 'var(--green)' : p.developmentPhase === 'Peak' ? 'var(--amber)' : 'var(--red)' }}>{p.developmentPhase}</span>}</td>
                       <td className="font-mono" style={{ padding: '6px 8px' }}>${p.salary}M</td>
                       <td>{p.trait && <span className="badge badge-ink">{p.trait}</span>}</td>
                       <td style={{ padding: '6px 8px' }}>

@@ -965,31 +965,89 @@ export function generateExtensionDemands(f, gmRep) {
 /**
  * Shared aging/development logic for a single player.
  * Applies rating development and morale shift based on win percentage.
+ *
+ * Development is driven by coach level (1–4) and development phase:
+ *   - 'Rising': gains tied to coach level (L1 → +1–2, L4 → +3–4), capped at hiddenPotential
+ *   - 'Peak': small fluctuation only
+ *   - 'Declining': loses 1–3 pts/season, accelerating in mid-30s
+ *
+ * Also updates developmentPhase based on age thresholds (27 → Peak, 32 → Declining).
+ *
  * @param {Object} player - Shallow-copied player object to update in place
  * @param {number} devStaff - Development staff level
  * @param {number} winPct - Season win percentage (0–1)
- * @param {number} ps - Peak age start
- * @param {number} pe - Peak age end
+ * @param {number} ps - Peak age start (legacy, kept for compat)
+ * @param {number} pe - Peak age end (legacy, kept for compat)
+ * @param {number} coachLevel - Head coach level (1–4)
  */
-function processPlayerAging(player, devStaff, winPct, ps, pe) {
+function processPlayerAging(player, devStaff, winPct, ps, pe, coachLevel) {
   const rating = player.rating || 50;
   const morale = player.morale || 60;
+  const cl = clamp(coachLevel || 1, 1, 4);
+
+  // ── Update developmentPhase based on age ──────────────────────────
+  if (player.age >= 32) {
+    player.developmentPhase = 'Declining';
+  } else if (player.age >= 27) {
+    player.developmentPhase = 'Peak';
+  } else {
+    player.developmentPhase = 'Rising';
+  }
+
+  const phase = player.developmentPhase || 'Peak';
+  const potential = player.hiddenPotential || 99;
 
   // Development rating change
   if (!player.injured || player.injurySeverity !== 'severe') {
-    const ageFactor = player.age < ps
-      ? (ps - player.age) * 0.6
-      : player.age <= pe ? 0.3 : -(player.age - pe) * 0.8;
-    let traitBonus = 0;
-    if (player.trait === 'hometown') traitBonus = 0.3;
-    else if (player.trait === 'volatile') traitBonus = randFloat(-1, 1.5);
-    else if (player.trait === 'leader') traitBonus = 0.2;
-    const ceilingPenalty = rating > 85 ? -(rating - 85) * 0.15 : 0;
-    const delta = Math.round(clamp(
-      ageFactor + devStaff * 0.5 + (morale - 50) * 0.015 + traitBonus + ceilingPenalty + randFloat(-1.5, 1.5),
-      -5, 8
-    ));
-    player.rating = clamp(rating + delta, 40, 99);
+    let delta = 0;
+
+    if (phase === 'Rising') {
+      // Coach-driven growth: L1 → +1–2, L2 → +1–3, L3 → +2–3, L4 → +3–4
+      const lo = cl <= 2 ? 1 : cl === 3 ? 2 : 3;
+      const hi = cl === 1 ? 2 : cl <= 3 ? 3 : 4;
+      delta = rand(lo, hi);
+
+      // Development staff & morale bonuses (smaller, additive)
+      delta += (devStaff - 1) * 0.3;
+      delta += (morale - 50) * 0.01;
+
+      // Trait bonuses
+      if (player.trait === 'volatile') delta += randFloat(-1, 1.5);
+      else if (player.trait === 'leader') delta += 0.3;
+
+      // Ceiling drag near potential
+      if (rating >= potential - 3) delta *= 0.4;
+
+      delta = Math.round(clamp(delta, 0, 6));
+
+      // Hard cap at hiddenPotential
+      player.rating = clamp(rating + delta, 40, Math.min(potential, 99));
+
+    } else if (phase === 'Peak') {
+      // Small fluctuation during peak years
+      let traitBonus = 0;
+      if (player.trait === 'volatile') traitBonus = randFloat(-1, 1.5);
+      else if (player.trait === 'leader') traitBonus = 0.2;
+      const ceilingPenalty = rating > 85 ? -(rating - 85) * 0.15 : 0;
+      delta = Math.round(clamp(
+        0.3 + devStaff * 0.3 + (morale - 50) * 0.015 + traitBonus + ceilingPenalty + randFloat(-1.5, 1.5),
+        -2, 3
+      ));
+      player.rating = clamp(rating + delta, 40, Math.min(potential, 99));
+
+    } else {
+      // Declining: lose 1–3 pts, accelerating in mid-30s
+      const baseDecline = rand(1, 3);
+      const ageAccel = player.age >= 35 ? rand(0, 2) : 0;
+      delta = -(baseDecline + ageAccel);
+
+      // Trait modifiers: iron_man declines slower, volatile faster
+      if (player.trait === 'iron_man') delta = Math.min(delta + 1, 0);
+      if (player.trait === 'volatile') delta -= rand(0, 1);
+
+      player.rating = clamp(rating + delta, 40, 99);
+    }
+
     player.careerStats = {
       ...player.careerStats,
       seasons: (player.careerStats?.seasons || 0) + 1,
@@ -1027,6 +1085,7 @@ export function endOfSeasonAging(franchise, winPct) {
   let fr = { ...franchise };
   const lg = fr.league;
   const devStaff = fr.developmentStaff || 1;
+  const coachLevel = fr.coach?.level || 1;
 
   // ── Step 1: Collect all unique players from slots AND fr.players[] ──────
   const seen = new Set();
@@ -1051,7 +1110,7 @@ export function endOfSeasonAging(franchise, winPct) {
     aged.seasonsWithTeam = (p.seasonsWithTeam || 0) + 1;
 
     // Development rating change + morale shift
-    processPlayerAging(aged, devStaff, winPct, ps, pe);
+    processPlayerAging(aged, devStaff, winPct, ps, pe, coachLevel);
 
     // Retirement flag
     if (aged.age >= 35 && Math.random() < 0.3) {
@@ -1116,7 +1175,7 @@ export function endOfSeasonAging(franchise, winPct) {
     aged.seasonsPlayed = (p.seasonsPlayed || 0) + 1;
 
     // Development + morale shift
-    processPlayerAging(aged, devStaff, winPct, ps, pe);
+    processPlayerAging(aged, devStaff, winPct, ps, pe, coachLevel);
 
     return aged;
   }).filter(Boolean);
@@ -1152,7 +1211,7 @@ export function endOfSeasonAging(franchise, winPct) {
     aged.seasonsWithTeam = (p.seasonsWithTeam || 0) + 1;
 
     // Development + morale shift
-    processPlayerAging(aged, devStaff, winPct, ps, pe);
+    processPlayerAging(aged, devStaff, winPct, ps, pe, coachLevel);
 
     return aged;
   }).filter(Boolean);

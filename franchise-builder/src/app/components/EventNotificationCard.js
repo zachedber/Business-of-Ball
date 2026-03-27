@@ -4,12 +4,14 @@ const accentClasses = {
   charity: 'border-l-4 border-green-500 bg-green-50/60',
   drama: 'border-l-4 border-amber-500 bg-amber-50/60',
   criminal: 'border-l-4 border-red-500 bg-red-50/60',
+  breakout: 'border-l-4 border-blue-500 bg-blue-50/60',
 };
 
 const typeLabelClasses = {
   charity: 'text-green-700 bg-green-100',
   drama: 'text-amber-800 bg-amber-100',
   criminal: 'text-red-700 bg-red-100',
+  breakout: 'text-blue-700 bg-blue-100',
 };
 
 export default function EventNotificationCard({
