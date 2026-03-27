@@ -6,6 +6,137 @@ import {
 } from '@/data/leagues';
 import { rand, randFloat, pick, clamp, r1, generateId } from './roster';
 
+/**
+ * Calculates a dynamic interest rate from GM reputation and current cash risk.
+ * Formula:
+ * baseRate = 0.08
+ * repModifier = (50 - gmRep) * 0.001
+ * riskModifier = cash < (principal * 0.2) ? 0.03 : 0
+ * finalRate = clamp(baseRate + repModifier + riskModifier, 0.04, 0.15)
+ * @param {number} gmRep
+ * @param {number} cash
+ * @param {number} principal
+ * @returns {number}
+ */
+export function calculateDynamicInterestRate(gmRep, cash, principal) {
+  const baseRate = 0.08;
+  const repModifier = (50 - (Number(gmRep) || 0)) * 0.001;
+  const normalizedPrincipal = Math.max(0, Number(principal) || 0);
+  const riskModifier = (Number(cash) || 0) < normalizedPrincipal * 0.2 ? 0.03 : 0;
+  return clamp(baseRate + repModifier + riskModifier, 0.04, 0.15);
+}
+
+/**
+ * Calculates seasonal debt payment using an amortizing loan formula.
+ * seasonalPayment = (Principal * InterestRate) / (1 - Math.pow(1 + InterestRate, -TermSeasons))
+ * @param {Object} debtObject
+ * @returns {number}
+ */
+export function calculateDebtPayment(debtObject) {
+  const principal = Math.max(0, Number(debtObject?.principal) || 0);
+  const interestRate = Math.max(0, Number(debtObject?.interestRate) || 0);
+  const termSeasons = Math.max(1, Number(debtObject?.termSeasons) || 1);
+  if (interestRate === 0) return principal / termSeasons;
+  return (principal * interestRate) / (1 - Math.pow(1 + interestRate, -termSeasons));
+}
+
+/**
+ * Applies missed-payment debt penalty logic.
+ * If cash is less than seasonal payment:
+ * - deduct all available cash
+ * - add unpaid remainder to principal
+ * - set interestRate to dynamicRate + 0.05 penalty
+ * - increment consecutiveMissedPayments
+ * @param {Object} debtObject
+ * @param {number} cash
+ * @returns {{ debt: Object, cash: number, paymentMade: number, unpaidRemainder: number }}
+ */
+export function applyDebtPenalty(debtObject, cash) {
+  const debt = { ...(debtObject || {}) };
+  const availableCash = Math.max(0, Number(cash) || 0);
+  const seasonalPayment = Math.max(0, Number(debt.seasonalPayment) || 0);
+
+  if (availableCash >= seasonalPayment) {
+    return {
+      debt,
+      cash: r1(availableCash - seasonalPayment),
+      paymentMade: seasonalPayment,
+      unpaidRemainder: 0,
+    };
+  }
+
+  const unpaidRemainder = seasonalPayment - availableCash;
+  const newPrincipal = Math.max(0, Number(debt.principal) || 0) + unpaidRemainder;
+  const dynamicRate = calculateDynamicInterestRate(
+    Number(debt.gmRep) || 50,
+    0,
+    newPrincipal
+  );
+
+  const updatedDebt = {
+    ...debt,
+    principal: newPrincipal,
+    interestRate: dynamicRate + 0.05,
+    consecutiveMissedPayments: (Number(debt.consecutiveMissedPayments) || 0) + 1,
+  };
+
+  return {
+    debt: updatedDebt,
+    cash: 0,
+    paymentMade: availableCash,
+    unpaidRemainder,
+  };
+}
+
+/**
+ * Calculates matchday revenue from non-ticket pricing plus fan-rating penalty.
+ * Base revenue = attendance * (concessions + merch + parking)
+ * Sweet spots: concessions 15, merch 40, parking 25
+ * For any price above sweet spot, fan penalty += (difference * 0.5)
+ * @param {Object} franchise
+ * @param {number} fanRating
+ * @param {number} attendance
+ * @returns {{ revenue: number, fanRatingPenalty: number, adjustedFanRating: number }}
+ */
+export function calculateMatchdayRevenue(franchise, fanRating, attendance) {
+  const pricing = franchise?.pricing || {};
+  const concessionsPrice = Number(pricing.concessionsPrice) || 0;
+  const merchPrice = Number(pricing.merchPrice) || 0;
+  const parkingPrice = Number(pricing.parkingPrice) || 0;
+
+  const revenue = (Number(attendance) || 0) * (concessionsPrice + merchPrice + parkingPrice);
+
+  const concessionsPenalty = concessionsPrice > 15 ? (concessionsPrice - 15) * 0.5 : 0;
+  const merchPenalty = merchPrice > 40 ? (merchPrice - 40) * 0.5 : 0;
+  const parkingPenalty = parkingPrice > 25 ? (parkingPrice - 25) * 0.5 : 0;
+  const fanRatingPenalty = concessionsPenalty + merchPenalty + parkingPenalty;
+
+  return {
+    revenue,
+    fanRatingPenalty,
+    adjustedFanRating: clamp((Number(fanRating) || 0) - fanRatingPenalty, 0, 100),
+  };
+}
+
+/**
+ * Deducts seasonal practice facility maintenance.
+ * Cost = stadiumTier * 2,000,000
+ * @param {Object} franchise
+ * @returns {{ maintenanceCost: number, updatedCash: number }}
+ */
+export function calculateFacilityUpkeep(franchise) {
+  const rawTier = franchise?.stadiumTier;
+  const numericTier = typeof rawTier === 'number'
+    ? rawTier
+    : Number(String(rawTier || '').replace(/[^\d.]/g, '')) || 0;
+  const maintenanceCost = numericTier * 2000000;
+  const currentCash = Number(franchise?.cash) || 0;
+  return {
+    maintenanceCost,
+    updatedCash: currentCash - maintenanceCost,
+  };
+}
+
 // ============================================================
 // TICKET DEMAND CURVE
 // ============================================================
