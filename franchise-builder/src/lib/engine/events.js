@@ -1102,7 +1102,7 @@ export function generateSponsorDeal() {
   };
 }
 
-import { applyExtension, clamp, r1 } from './roster';
+import { applyExtension } from './roster';
 
 export function resolveEventChoice(franchise, event, choice) {
   let updated = { ...franchise };
