@@ -138,5 +138,48 @@ export function rollPlayerEvents(
     }
   }
 
+  // ── Breakout events: only for 'Rising' players in active roster slots ──
+  const activeSlotPlayers: any[] = [];
+  for (const key of ['star1', 'star2', 'corePiece'] as const) {
+    const p = (franchise as any)[key];
+    if (p) activeSlotPlayers.push(p);
+  }
+
+  for (const player of activeSlotPlayers) {
+    if (player.developmentPhase !== 'Rising') continue;
+
+    const potential = player.hiddenPotential || 99;
+    const currentRating = player.rating || 50;
+    // No room to break out if already at or near ceiling
+    if (currentRating >= potential) continue;
+
+    // ~12% chance per eligible player per event roll
+    if (Math.random() >= 0.12) continue;
+
+    const maxBoost = potential - currentRating;
+    const boost = clamp(rand(2, 4), 1, maxBoost);
+    player.rating = clamp(currentRating + boost, 40, potential);
+
+    const desc = `${player.name} is having a breakout ${quarter <= 2 ? 'start' : 'stretch'}! Their game has reached a new level, jumping ${boost} rating points to ${player.rating} OVR.`;
+
+    events.push({
+      type: 'breakout' as any,
+      severity: 'success' as any,
+      playerName: player.name,
+      playerId: player.id,
+      trait: player.trait,
+      description: desc,
+      effects: {
+        ratingBoost: boost,
+        fanRating: 2,
+        lockerRoomChemistry: 1,
+      },
+    });
+
+    // Apply franchise-level effects
+    franchise.fanRating = clamp((franchise.fanRating || 50) + 2, 0, 100);
+    franchise.lockerRoomChemistry = clamp((franchise.lockerRoomChemistry || 65) + 1, 0, 100);
+  }
+
   return events;
 }

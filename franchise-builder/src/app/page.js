@@ -414,9 +414,17 @@ export default function App() {
 
     // Roll player events after Q1
     const af1 = r1Result.franchises[activeIdx];
-    const events1 = rollPlayerEvents({ ...af1 }, season, 1);
+    const af1Copy = { ...af1, star1: af1.star1 ? { ...af1.star1 } : null, star2: af1.star2 ? { ...af1.star2 } : null, corePiece: af1.corePiece ? { ...af1.corePiece } : null };
+    const events1 = rollPlayerEvents(af1Copy, season, 1);
     if (events1.length > 0) {
       dispatch({ type: 'SET_PLAYER_EVENTS', payload: events1 });
+    }
+    // Sync breakout rating boosts back into franchise state
+    if (events1.some(e => e.type === 'breakout')) {
+      af1Copy.players = [af1Copy.star1, af1Copy.star2, af1Copy.corePiece].filter(Boolean);
+      af1Copy.rosterQuality = af1Copy.players.length > 0 ? Math.round(af1Copy.players.reduce((s, p) => s + (p.rating || 0), 0) / af1Copy.players.length) : 0;
+      const updatedFr1 = r1Result.franchises.map((f, i) => i === activeIdx ? af1Copy : f);
+      dispatch({ type: 'SET_FRANCHISE', payload: updatedFr1 });
     }
 
     // Pause after Q1 — yield control back to React render cycle
@@ -459,9 +467,17 @@ export default function App() {
 
     // Roll player events after Q3
     const af3 = r3Result.franchises[activeIdx];
-    const events3 = rollPlayerEvents({ ...af3 }, season, 3);
+    const af3Copy = { ...af3, star1: af3.star1 ? { ...af3.star1 } : null, star2: af3.star2 ? { ...af3.star2 } : null, corePiece: af3.corePiece ? { ...af3.corePiece } : null };
+    const events3 = rollPlayerEvents(af3Copy, season, 3);
     if (events3.length > 0) {
       dispatch({ type: 'SET_PLAYER_EVENTS', payload: [...(playerEvents || []), ...events3] });
+    }
+    // Sync breakout rating boosts back into franchise state
+    if (events3.some(e => e.type === 'breakout')) {
+      af3Copy.players = [af3Copy.star1, af3Copy.star2, af3Copy.corePiece].filter(Boolean);
+      af3Copy.rosterQuality = af3Copy.players.length > 0 ? Math.round(af3Copy.players.reduce((s, p) => s + (p.rating || 0), 0) / af3Copy.players.length) : 0;
+      const updatedFr3 = r3Result.franchises.map((f, i) => i === activeIdx ? af3Copy : f);
+      dispatch({ type: 'SET_FRANCHISE', payload: updatedFr3 });
     }
 
     // Pause after Q3 for mid-quarter waiver/roster adjustments

@@ -117,7 +117,8 @@ export interface TradeOffer {
 }
 
 export interface PlayerEvent {
-  type: 'charity' | 'social_media_drama' | 'criminal';
+  type: 'charity' | 'social_media_drama' | 'criminal' | 'breakout';
+  severity?: 'success' | 'info' | 'warning' | 'danger';
   playerName: string;
   playerId: string;
   trait: PlayerTrait | null;
@@ -127,6 +128,7 @@ export interface PlayerEvent {
     lockerRoomChemistry?: number;
     mediaRep?: number;
     fanRating?: number;
+    ratingBoost?: number;
   };
 }
 
