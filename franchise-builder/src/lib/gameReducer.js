@@ -229,6 +229,7 @@ export const initialState = {
  */
 export function gameReducer(state, action) {
   switch (action.type) {
+    // ── UI Navigation & App Lifecycle ───────────────────────────────
 
     /** Restores full saved state from localStorage. */
     case 'LOAD_SAVE': {
@@ -485,6 +486,7 @@ export function gameReducer(state, action) {
       return { ...state, slotDecisionActive: false };
     }
 
+    // ── Financial / Franchise / Roster Mutations ───────────────────
     /** Replaces the events array. */
     case 'SET_EVENTS': {
       return { ...state, events: action.payload };
@@ -551,7 +553,7 @@ export function gameReducer(state, action) {
       return { ...state, rosterFullAlert: action.payload };
     }
 
-    // ── V4 Quarterly Flow Actions ─────────────────────────────────
+    // ── Simulation Sequencing ─────────────────────────────────────
 
     /** Opens training camp screen before Q1. */
     case 'TRAINING_CAMP_OPEN': {

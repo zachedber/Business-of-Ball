@@ -17,11 +17,14 @@ import {
   updateStaffChemistry, calculateSchemeFit,
   endOfSeasonAging,
 } from './roster';
-import { calcAttendance, calculateValuation, getFranchiseAskingPrice, calculateEndSeasonFinances } from './finance';
+import { calcAttendance, calculateValuation, getFranchiseAskingPrice, calculateEndSeasonFinances, buildMandatoryDebt } from './finance';
 import {
   updateCityEconomy, advanceStadiumProject,
   initFranchiseRecords, initHeadToHead, initRivalry,
 } from './events';
+import { predictInjury, rollForInjuries } from './injuries';
+
+const PLAYER_HISTORY_LIMIT = 15;
 
 // ============================================================
 // ML MODELS
@@ -29,83 +32,27 @@ import {
 
 /**
  * Predicts player rating development delta for a season.
- * @param {number} age - Player age
- * @param {number} rating - Current rating
- * @param {number} morale - Player morale (0–100)
- * @param {number} devStaff - Development staff level
- * @param {string|null} trait - Player trait
- * @param {string} league - League identifier ('ngl' or 'abl')
- * @returns {number} Rating change (can be negative)
+ * @param {number} age
+ * @param {number} rating
+ * @param {number} morale
+ * @param {number} devStaff
+ * @param {string|null} trait
+ * @param {string} league
+ * @returns {number}
  */
 export function predictDev(age, rating, morale, devStaff, trait, league) {
-  const [ps, pe] = PEAK_AGES[league] || [26, 30];
-  let af = age < ps ? (ps - age) * 0.6 : age <= pe ? 0.3 : -(age - pe) * 0.8;
-  let tb = 0;
-  if (trait === 'hometown') tb = 0.3;
-  if (trait === 'volatile') tb = randFloat(-1, 1.5);
-  if (trait === 'leader') tb = 0.2;
-  const cp = rating > 85 ? -(rating - 85) * 0.15 : 0;
-  return Math.round(clamp(af + devStaff * 0.5 + (morale - 50) * 0.015 + tb + cp + randFloat(-1.5, 1.5), -5, 8));
-}
-
-/**
- * Predicts a player's injury probability for the season.
- * @param {number} age - Player age
- * @param {number} seasons - Seasons played (career wear)
- * @param {number} medStaff - Medical staff level
- * @param {string|null} trait - Player trait
- * @param {number} rating - Player rating
- * @returns {number} Injury probability clamped to [0.02, 0.65]
- */
-export function predictInjury(age, seasons, medStaff, trait, rating) {
-  let r = 0.08;
-  if (age > 30) r += (age - 30) * 0.02;
-  if (age > 34) r += (age - 34) * 0.03;
-  r += seasons * 0.005 - medStaff * 0.025;
-  if (trait === 'injury_prone') r *= 2;
-  if (trait === 'ironman') r *= 0.4;
-  if (rating > 85) r *= 0.85;
-  return clamp(r + randFloat(-0.02, 0.02), 0.02, 0.65);
-}
-
-/**
- * Rolls quarter-level injuries for a roster using investment-based modifiers.
- * Base chance: 0.05, injury-prone chance: 0.15.
- * Final chance multiplier: (1 - sportsScienceTier * 0.1).
- * Severity odds: 80% short term (1 quarter), 20% long term (season = 4 quarters).
- * Recovery center reduces resulting duration by 1 quarter.
- * @param {Object[]} roster
- * @param {number} sportsScienceTier
- * @param {boolean} recoveryCenter
- * @returns {{ playerId: string, severity: 'short_term'|'long_term', duration: number }[]}
- */
-export function rollForInjuries(roster, sportsScienceTier, recoveryCenter) {
-  const players = Array.isArray(roster) ? roster : [];
-  const tier = clamp(Number(sportsScienceTier) || 0, 0, 3);
-  const modifier = 1 - (tier * 0.1);
-  const injuries = [];
-
-  players.forEach((p) => {
-    const activeDuration = Number(p?.injuryStatus?.duration) || 0;
-    if (activeDuration > 0) return;
-
-    const baseChance = p?.injuryProne ? 0.15 : 0.05;
-    const finalChance = baseChance * modifier;
-    if (Math.random() >= finalChance) return;
-
-    const severityRoll = Math.random();
-    const isLongTerm = severityRoll >= 0.80;
-    let duration = isLongTerm ? 4 : 1;
-    if (recoveryCenter) duration = Math.max(1, duration - 1);
-
-    injuries.push({
-      playerId: p.id,
-      severity: isLongTerm ? 'long_term' : 'short_term',
-      duration,
-    });
-  });
-
-  return injuries;
+  const [peakStart, peakEnd] = PEAK_AGES[league] || [26, 30];
+  let ageFactor = age < peakStart ? (peakStart - age) * 0.6 : age <= peakEnd ? 0.3 : -(age - peakEnd) * 0.8;
+  let traitBonus = 0;
+  if (trait === 'hometown') traitBonus = 0.3;
+  if (trait === 'volatile') traitBonus = randFloat(-1, 1.5);
+  if (trait === 'leader') traitBonus = 0.2;
+  const ceilingPenalty = rating > 85 ? -(rating - 85) * 0.15 : 0;
+  return Math.round(clamp(
+    ageFactor + devStaff * 0.5 + (morale - 50) * 0.015 + traitBonus + ceilingPenalty + randFloat(-1.5, 1.5),
+    -5,
+    8
+  ));
 }
 
 /** Helper: total staff salary expense for coordinators */
@@ -462,6 +409,7 @@ export function simPlayerSeason(f, season) {
     economy: f.economyCycle,
     injuries: f.players.filter(p => p.injured).map(p => ({ name: p.name, severity: p.injurySeverity })),
   });
+  if (f.history.length > PLAYER_HISTORY_LIMIT) f.history = f.history.slice(-PLAYER_HISTORY_LIMIT);
   return f;
 }
 
@@ -1111,6 +1059,7 @@ export function simPlayerSeasonSecondHalf(f, season) {
     economy: f.economyCycle,
     injuries: f.players.filter(p => p.injured).map(p => ({ name: p.name, severity: p.injurySeverity })),
   });
+  if (f.history.length > PLAYER_HISTORY_LIMIT) f.history = f.history.slice(-PLAYER_HISTORY_LIMIT);
 
   // Clean up half-season fields
   delete f.halfWins;
@@ -1551,9 +1500,7 @@ export function initializeLeague() {
 export function createPlayerFranchise(tmpl, lg) {
   const base = initTeam(tmpl, lg);
   const askingPrice = getFranchiseAskingPrice(tmpl);
-  const startingCapital = 30; // always $30M starting capital
-  const startingDebt = Math.max(0, askingPrice - startingCapital);
-  const startingCash = Math.max(0, startingCapital - askingPrice);
+  const debtPackage = buildMandatoryDebt(askingPrice, tmpl.market);
 
   // Generate 3 initial slot players
   const { star1, star2, corePiece } = generateInitialSlots(lg, tmpl.market, 50);
@@ -1567,17 +1514,10 @@ export function createPlayerFranchise(tmpl, lg) {
     ...base,
     isPlayerOwned: true,
     ownershipPct: 100,
-    cash: startingCash,
-    debt: startingDebt,
+    cash: debtPackage.cash,
+    debt: debtPackage.debt,
     debtInterestRate: DEBT_INTEREST,
-    debtObject: {
-      principal: startingDebt,
-      interestRate: DEBT_INTEREST,
-      termSeasons: 10,
-      seasonsRemaining: 10,
-      seasonalPayment: 0,
-      consecutiveMissedPayments: 0,
-    },
+    debtObject: debtPackage.debtObject,
     pricing: {
       ticketPrice: TICKET_BASE_PRICE,
       concessionsPrice: 15,
