@@ -1485,6 +1485,27 @@ function initTeam(td, lg) {
     rivalryIntensity: 50,
     playoffTeam: false,
     cityEconomy: CITY_ECONOMY[td.city] || 65,
+    // Keep AI and player team schemas aligned so feature code can assume these keys exist.
+    debt: 0,
+    debtInterestRate: DEBT_INTEREST,
+    debtObject: null,
+    pricing: {
+      ticketPrice: TICKET_BASE_PRICE,
+      concessionsPrice: 15,
+      merchPrice: 40,
+      parkingPrice: 25,
+    },
+    investments: {
+      sportsScienceDept: 0,
+      advancedScouting: 0,
+      globalMarketing: 0,
+      recoveryCenter: false,
+      privateJetFleet: false,
+      nutritionStaff: false,
+      stadiumDistrict: 0,
+      overseasStakes: 0,
+    },
+    facilityMaintenance: 1,
   };
 }
 
@@ -1549,7 +1570,7 @@ export function createPlayerFranchise(tmpl, lg) {
     cash: startingCash,
     debt: startingDebt,
     debtInterestRate: DEBT_INTEREST,
-    debtDetails: {
+    debtObject: {
       principal: startingDebt,
       interestRate: DEBT_INTEREST,
       termSeasons: 10,
@@ -1570,8 +1591,8 @@ export function createPlayerFranchise(tmpl, lg) {
       recoveryCenter: false,
       privateJetFleet: false,
       nutritionStaff: false,
-      stadiumRealEstate: 0,
-      overseasStakes: [],
+      stadiumDistrict: 0,
+      overseasStakes: 0,
     },
     facilityMaintenance: 1,
     askingPrice,

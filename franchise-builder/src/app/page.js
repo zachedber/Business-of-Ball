@@ -720,6 +720,16 @@ export default function App() {
       }
     }
 
+    // Facility upkeep should be deducted before draft/free-agency affordability checks run.
+    if (af) {
+      const upkeepLevel = Math.max(0, Number(af.facilityMaintenance) || 0);
+      const facilityUpkeepCost = r1(upkeepLevel * 1.5);
+      if (facilityUpkeepCost > 0) {
+        newCash = r1(newCash - facilityUpkeepCost);
+        newFr = newFr.map((f, i) => i === activeIdx ? { ...f, cash: newCash } : f);
+      }
+    }
+
     // ── Front Office investment seasonal effects ──────────────
     if (af) {
       const inv = af.investments || {};
