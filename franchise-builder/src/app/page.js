@@ -16,7 +16,8 @@ import {
   generateOffseasonEvents, setNarrativeApiKey,
 } from '@/lib/narrative';
 import { gameReducer, initialState } from '@/lib/gameReducer';
-import { draftPlayer } from '@/lib/engine/roster';
+import { draftPlayer, processDraftSelection } from '@/lib/engine/roster';
+import { resolveEventChoice } from '@/lib/engine/events';
 import TradeDeadlineScreen from '@/app/components/TradeDeadlineScreen';
 import TrainingCampScreen from '@/app/components/TrainingCampScreen';
 import EventNotificationCard from '@/app/components/EventNotificationCard';
@@ -185,61 +186,18 @@ export default function App() {
     if (!event) return;
     const choice = event.choices[choiceIdx];
 
-    // Compute franchise update
     dispatch({
       type: 'SET_FRANCHISE',
       payload: prev => prev.map((f, i) => {
         if (i !== activeIdx) return f;
-
-        // Extension demand events
-        if (event.type === 'extension_demand') {
-          if (choice.action === 'sign') {
-            return applyExtension(f, event.slotKey, event.extSalary, event.extYears);
-          } else if (choice.action === 'release') {
-            const updated = { ...f, [event.slotKey]: null };
-            updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
-            updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
-            return updated;
-          }
-          // play_out: no change
-          return f;
-        }
-
-        // Pressure events
-        if (event.type === 'pressure') {
-          let updated = { ...f };
-          if (event.fanRatingDelta) updated.fanRating = clamp(updated.fanRating + event.fanRatingDelta, 0, 100);
-          if (event.sponsorPenalty) updated.sponsorLevel = Math.max(0, (updated.sponsorLevel || 1) * event.sponsorPenalty);
-          if (choice.action === 'fine') updated.cash = r1((updated.cash || 0) - (choice.cost || 10)); // Round event cash updates before they hit shared state.
-          if (choice.action === 'audit') {
-            const slots = ['corePiece'];
-            for (const slot of slots) {
-              if (updated[slot]) { updated = { ...updated, [slot]: null }; break; }
-            }
-            updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
-            updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
-          }
-          return updated;
-        }
-
-        // Default: standard event handling
-        const updated = { ...f };
-        if (choice.cost) updated.cash = r1((updated.cash || 0) - choice.cost); // Round event cash updates before they hit shared state.
-        if (choice.revenue) updated.cash = r1((updated.cash || 0) + choice.revenue); // Round event cash updates before they hit shared state.
-        if (choice.communityBonus) updated.communityRating = clamp((updated.communityRating || 50) + choice.communityBonus, 0, 100);
-        if (choice.mediaBonus) updated.mediaRep = clamp((updated.mediaRep || 50) + choice.mediaBonus, 0, 100);
-        if (choice.stadiumBonus) updated.stadiumCondition = clamp(updated.stadiumCondition + choice.stadiumBonus, 0, 100);
-        if (choice.coachBonus && updated.coach.level < 4) updated.coach = { ...updated.coach, level: updated.coach.level + 1 };
-        return updated;
+        return resolveEventChoice(f, event, choice);
       }),
     });
 
-    // GM rep side-effect for pressure events
     if (event.type === 'pressure' && event.gmRepDelta) {
       dispatch({ type: 'SET_GM_REP', payload: clamp(gmRep + event.gmRepDelta, 0, 100) });
     }
 
-    // Mark event resolved
     dispatch({
       type: 'SET_EVENTS',
       payload: events.map(e => e.id === eventId ? { ...e, resolved: true } : e),
@@ -303,46 +261,17 @@ export default function App() {
   // ── Draft handlers ───────────────────────────────────────────
   function handleDraftPickMade(player, usedPick) {
     if (!player) return;
-    // NOTE: Do NOT dispatch SET_DRAFT_PROSPECTS here — DraftFlowScreen already
-    // removes the prospect locally in handlePick via setAvailableProspects.
-    // Dispatching here would update the draftProspects prop, triggering the
-    // useEffect in DraftFlowScreen that resets all local state (reset loop).
     dispatch({
       type: 'SET_FRANCHISE',
       payload: prev => {
-        try {
-          return prev.map((f, i) => {
-            if (i !== activeIdx) return f;
-            // Null guard: ensure franchise has required fields
-            if (!f || typeof f !== 'object') return f;
-            const updated = {
-              ...f,
-              rookieSlots: f.rookieSlots || [],
-              taxiSquad: f.taxiSquad || [],
-              players: f.players || [],
-            };
-            const validPlayer = draftPlayer(player, f.league);
-            const draftedPlayer = { ...validPlayer, isRookie: true, draftRound: usedPick?.round, draftPick: usedPick?.pickPos ?? usedPick?.pick, seasonsOnTaxi: 0 };
-            const taxi = [...updated.taxiSquad];
-            if (taxi.length < 4) {
-              // Route to taxi squad (max 4)
-              taxi.push(draftedPlayer);
-              return { ...updated, taxiSquad: taxi };
-            }
-            // Overflow: taxi squad full, route to rookieSlots
-            const rookies = [...updated.rookieSlots];
-            if (rookies.length < 3) {
-              rookies.push(draftedPlayer);
-              return { ...updated, rookieSlots: rookies };
-            }
-            // All slots full — signal roster full alert instead of silently discarding
-            setTimeout(() => dispatch({ type: 'SET_ROSTER_FULL_ALERT', payload: draftedPlayer }), 0);
-            return updated;
-          });
-        } catch (e) {
-          console.error('handleDraftPickMade error:', e);
-          return prev;
-        }
+        return prev.map((f, i) => {
+          if (i !== activeIdx) return f;
+          const { updated, alert } = processDraftSelection(f, player, usedPick);
+          if (alert) {
+            setTimeout(() => dispatch({ type: 'SET_ROSTER_FULL_ALERT', payload: alert }), 0);
+          }
+          return updated;
+        });
       },
     });
   }

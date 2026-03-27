@@ -1246,3 +1246,30 @@ export function applyExtension(f, slotKey, extSalary, extYears) {
   updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
   return updated;
 }
+
+export function processDraftSelection(franchise, player, usedPick) {
+  if (!franchise || typeof franchise !== 'object') return { updated: franchise, alert: null };
+
+  const validPlayer = draftPlayer(player, franchise.league);
+  const draftedPlayer = {
+    ...validPlayer,
+    isRookie: true,
+    draftRound: usedPick?.round,
+    draftPick: usedPick?.pickPos ?? usedPick?.pick,
+    seasonsOnTaxi: 0
+  };
+
+  const taxi = [...(franchise.taxiSquad || [])];
+  if (taxi.length < 4) {
+    taxi.push(draftedPlayer);
+    return { updated: { ...franchise, taxiSquad: taxi }, alert: null };
+  }
+
+  const rookies = [...(franchise.rookieSlots || [])];
+  if (rookies.length < 3) {
+    rookies.push(draftedPlayer);
+    return { updated: { ...franchise, rookieSlots: rookies }, alert: null };
+  }
+
+  return { updated: franchise, alert: draftedPlayer };
+}
