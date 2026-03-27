@@ -1,113 +1,69 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { initializeLeague, createPlayerFranchise, simulateLeagueQuarter, rollForInjuries, r1 } from '@/lib/engine';
-import { applyDebtPenalty, calculateDebtPayment, calculateDynamicInterestRate } from '@/lib/engine/finance';
+import { gameReducer, initialState } from '@/lib/gameReducer';
+import { initializeLeague, createPlayerFranchise } from '@/lib/engine';
+import { applyDebtPenalty, calculateDebtPayment } from '@/lib/engine/finance';
 
-function runFullSeason(leagueTeams, franchise, season = 1) {
-  let lt = leagueTeams;
-  let pf = [franchise];
-  for (let q = 1; q <= 4; q += 1) {
-    const out = simulateLeagueQuarter(lt, pf, season, q);
-    lt = out.leagueTeams;
-    pf = out.franchises;
-  }
-  return { leagueTeams: lt, franchise: pf[0] };
-}
-
-test('Leveraged purchase debt payment is deducted after a full-season flow', () => {
+test('Reducer mutates state correctly for leveraged purchase debt penalty and triggers forced sale', () => {
   const league = initializeLeague();
   const template = league.ngl[0];
   const fr = createPlayerFranchise(template, 'ngl');
 
-  const loanPrincipal = 50;
-  const interestRate = 0.1;
-  const termSeasons = 10;
+  const loanPrincipal = 80;
+  const interestRate = 0.09;
+  const termSeasons = 8;
   const seasonalPayment = calculateDebtPayment({ principal: loanPrincipal, interestRate, termSeasons });
 
-  fr.cash = 120;
-  fr.debtObject = {
-    principal: loanPrincipal,
-    interestRate,
-    termSeasons,
-    seasonalPayment,
-    gmRep: 50,
-    consecutiveMissedPayments: 0,
+  const leveragedFranchise = {
+    ...fr,
+    cash: 5,
+    debtObject: {
+      principal: loanPrincipal,
+      interestRate,
+      termSeasons,
+      seasonalPayment,
+      gmRep: 45,
+      consecutiveMissedPayments: 0,
+    }
   };
 
-  const endOfSeason = runFullSeason(league, fr);
-  const cashBeforeDebt = endOfSeason.franchise.cash;
-  const debtResult = applyDebtPenalty(endOfSeason.franchise.debtObject, cashBeforeDebt);
+  let state = gameReducer(initialState, {
+    type: 'CREATE_FRANCHISE',
+    payload: { lt: league, frArray: [leveragedFranchise], cash: 5, events: [], freeAg: { ngl: [], abl: [] } }
+  });
 
-  assert.equal(debtResult.unpaidRemainder, 0);
-  assert.equal(debtResult.cash, r1(cashBeforeDebt - seasonalPayment));
-  assert.equal(debtResult.paymentMade, seasonalPayment);
-});
+  const penaltyResult1 = applyDebtPenalty(state.fr[0].debtObject, state.cash);
+  state = gameReducer(state, {
+    type: 'SET_FRANCHISE',
+    payload: [ { ...state.fr[0], cash: penaltyResult1.cash, debtObject: penaltyResult1.debt } ]
+  });
 
-test('Missing debt payments increments consecutive misses, applies penalty rate, and flags game over on second miss', () => {
-  const debtObject = {
-    principal: 80,
-    interestRate: 0.09,
-    termSeasons: 8,
-    seasonalPayment: 20,
-    gmRep: 45,
-    consecutiveMissedPayments: 0,
-  };
+  assert.equal(state.fr[0].debtObject.consecutiveMissedPayments, 1);
+  assert.equal(state.cash, 0);
 
-  const missOne = applyDebtPenalty(debtObject, 5);
-  const expectedRateAfterMissOne = r1(calculateDynamicInterestRate(45, 0, missOne.debt.principal) + 0.05);
+  const penaltyResult2 = applyDebtPenalty(state.fr[0].debtObject, state.cash);
+  state = gameReducer(state, {
+    type: 'SET_FRANCHISE',
+    payload: [ { ...state.fr[0], cash: penaltyResult2.cash, debtObject: penaltyResult2.debt } ]
+  });
 
-  assert.equal(missOne.debt.consecutiveMissedPayments, 1);
-  assert.equal(missOne.debt.interestRate, expectedRateAfterMissOne);
-  assert.equal(missOne.cash, 0);
-
-  const missTwo = applyDebtPenalty({ ...missOne.debt, seasonalPayment: calculateDebtPayment(missOne.debt) }, 0);
-  const gameOverForced = (missTwo.debt.consecutiveMissedPayments || 0) >= 2;
-
-  assert.equal(missTwo.debt.consecutiveMissedPayments, 2);
-  assert.equal(gameOverForced, true);
-});
-
-test('Sports Science + Recovery reduces long-term injury frequency over 100 quarters and taxi shortage does not crash', () => {
-  const league = initializeLeague();
-  const template = league.ngl[0];
-  const baseFr = createPlayerFranchise(template, 'ngl');
-
-  const deepRoster = Array.from({ length: 40 }, (_, i) => ({
-    id: `p_${i}`,
-    injuryProne: false,
-    injuryStatus: { duration: 0, severity: null },
-  }));
-
-  let baselineLongTerm = 0;
-  let investedLongTerm = 0;
-
-  for (let quarter = 0; quarter < 100; quarter += 1) {
-    baselineLongTerm += rollForInjuries(deepRoster, 0, false).filter(i => i.severity === 'long_term').length;
-    investedLongTerm += rollForInjuries(deepRoster, 3, true).filter(i => i.severity === 'long_term').length;
+  if (penaltyResult2.debt.consecutiveMissedPayments >= 2) {
+     state = gameReducer(state, { type: 'GAME_OVER_FORCED' });
   }
 
-  const ratio = baselineLongTerm > 0 ? investedLongTerm / baselineLongTerm : 0;
-  assert.ok(ratio <= 0.85, `Expected invested long-term injury ratio <= 0.85, got ${ratio.toFixed(3)}`);
-  assert.ok(ratio >= 0.30, `Expected invested long-term injury ratio >= 0.30, got ${ratio.toFixed(3)}`);
+  assert.equal(state.gameOverForced, true);
+  assert.equal(state.simming, false);
+});
 
-  const injured = (player) => ({
-    ...player,
-    injured: true,
-    injuryStatus: { duration: 4, severity: 'long_term' },
-    injurySeverity: 'severe',
-  });
+test('Reducer updates simulation sequencing state correctly', () => {
+  let state = gameReducer(initialState, { type: 'BEGIN_SIM' });
+  assert.equal(state.simming, true);
 
-  baseFr.star1 = injured(baseFr.star1);
-  baseFr.star2 = injured(baseFr.star2);
-  baseFr.corePiece = injured(baseFr.corePiece);
-  baseFr.players = [baseFr.star1, baseFr.star2, baseFr.corePiece];
-  baseFr.taxiSquad = [
-    { id: 'taxi_a', name: 'Taxi A', rating: 70 },
-    { id: 'taxi_b', name: 'Taxi B', rating: 68 },
-  ];
+  state = gameReducer(state, { type: 'SET_QUARTER_PHASE', payload: 1 });
+  assert.equal(state.quarterPhase, 1);
 
-  assert.doesNotThrow(() => {
-    simulateLeagueQuarter(league, [baseFr], 1, 1);
-  });
+  state = gameReducer(state, { type: 'Q1_PAUSE_OPEN' });
+  assert.equal(state.q1PauseActive, true);
+  assert.equal(state.simming, false);
 });

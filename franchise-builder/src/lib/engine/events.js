@@ -1101,3 +1101,45 @@ export function generateSponsorDeal() {
     description: `${pick(sponsors)} wants to become the official team sponsor. Base payout of $5M per season with a $2M playoff bonus.`,
   };
 }
+
+import { applyExtension, clamp, r1 } from './roster';
+
+export function resolveEventChoice(franchise, event, choice) {
+  let updated = { ...franchise };
+
+  if (event.type === 'extension_demand') {
+    if (choice.action === 'sign') {
+      return applyExtension(updated, event.slotKey, event.extSalary, event.extYears);
+    } else if (choice.action === 'release') {
+      updated[event.slotKey] = null;
+      updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
+      updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
+      return updated;
+    }
+    return updated;
+  }
+
+  if (event.type === 'pressure') {
+    if (event.fanRatingDelta) updated.fanRating = clamp(updated.fanRating + event.fanRatingDelta, 0, 100);
+    if (event.sponsorPenalty) updated.sponsorLevel = Math.max(0, (updated.sponsorLevel || 1) * event.sponsorPenalty);
+    if (choice.action === 'fine') updated.cash = r1((updated.cash || 0) - (choice.cost || 10));
+    if (choice.action === 'audit') {
+      const slots = ['corePiece'];
+      for (const slot of slots) {
+        if (updated[slot]) { updated = { ...updated, [slot]: null }; break; }
+      }
+      updated.players = [updated.star1, updated.star2, updated.corePiece].filter(Boolean);
+      updated.totalSalary = r1(updated.players.reduce((s, p) => s + p.salary, 0));
+    }
+    return updated;
+  }
+
+  if (choice.cost) updated.cash = r1((updated.cash || 0) - choice.cost);
+  if (choice.revenue) updated.cash = r1((updated.cash || 0) + choice.revenue);
+  if (choice.communityBonus) updated.communityRating = clamp((updated.communityRating || 50) + choice.communityBonus, 0, 100);
+  if (choice.mediaBonus) updated.mediaRep = clamp((updated.mediaRep || 50) + choice.mediaBonus, 0, 100);
+  if (choice.stadiumBonus) updated.stadiumCondition = clamp(updated.stadiumCondition + choice.stadiumBonus, 0, 100);
+  if (choice.coachBonus && updated.coach.level < 4) updated.coach = { ...updated.coach, level: updated.coach.level + 1 };
+
+  return updated;
+}
