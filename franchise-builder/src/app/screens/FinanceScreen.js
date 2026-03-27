@@ -1,11 +1,12 @@
 'use client';
-import { calculateValuation, calcStakeValue, calcStakeIncome, projectRevenue } from '@/lib/engine';
+import { calculateValuation, calcStakeValue, calcStakeIncome, projectRevenue, r1 } from '@/lib/engine';
+import { calculateDebtPayment } from '@/lib/engine/finance';
 import { MiniSparkline } from '@/app/components/SharedComponents';
 
 // ============================================================
 // EMPIRE FINANCE SCREEN
 // ============================================================
-export default function EmpireFinanceScreen({ af, fr, stakes, lt, season }) {
+export default function EmpireFinanceScreen({ af, fr, stakes, lt, season, onPayOffDebt }) {
   const ltSafe = lt || { ngl: [], abl: [] };
 
   // Empire summary
@@ -217,6 +218,82 @@ export default function EmpireFinanceScreen({ af, fr, stakes, lt, season }) {
           </div>
         )}
       </div>
+
+      {/* Section 5: Debt Meter */}
+      {af.debtObject && af.debtObject.principal > 0 && (() => {
+        const debtObj = af.debtObject;
+        const missed = debtObj.consecutiveMissedPayments || 0;
+        const meterColor = missed === 0 ? 'var(--green)' : missed === 1 ? 'var(--amber)' : 'var(--red)';
+        const meterLabel = missed === 0 ? 'HEALTHY' : missed === 1 ? 'WARNING' : 'CRITICAL';
+        const principal = debtObj.principal || 0;
+        const payment = calculateDebtPayment(debtObj);
+        const canPayOff = (af.cash || 0) >= principal;
+
+        return (
+          <div className="card" style={{ padding: 16, marginBottom: 12, borderLeft: `4px solid ${meterColor}` }}>
+            <h3 className="font-display" style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.1em', color: meterColor }}>
+              Debt Meter
+            </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10, marginBottom: 12 }}>
+              <div>
+                <div className="stat-label" style={{ fontSize: '0.68rem' }}>Principal</div>
+                <div className="font-mono" style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--red)' }}>${r1(principal)}M</div>
+              </div>
+              <div>
+                <div className="stat-label" style={{ fontSize: '0.68rem' }}>Rate</div>
+                <div className="font-mono" style={{ fontSize: '0.85rem', fontWeight: 700 }}>{(debtObj.interestRate * 100).toFixed(1)}%</div>
+              </div>
+              <div>
+                <div className="stat-label" style={{ fontSize: '0.68rem' }}>Seasonal Payment</div>
+                <div className="font-mono" style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--amber)' }}>${r1(payment)}M</div>
+              </div>
+              <div>
+                <div className="stat-label" style={{ fontSize: '0.68rem' }}>Remaining Term</div>
+                <div className="font-mono" style={{ fontSize: '0.85rem', fontWeight: 700 }}>{debtObj.termSeasons} seasons</div>
+              </div>
+              <div>
+                <div className="stat-label" style={{ fontSize: '0.68rem' }}>Status</div>
+                <div className="font-mono" style={{ fontSize: '0.85rem', fontWeight: 700, color: meterColor }}>{meterLabel}</div>
+              </div>
+              <div>
+                <div className="stat-label" style={{ fontSize: '0.68rem' }}>Missed Payments</div>
+                <div className="font-mono" style={{ fontSize: '0.85rem', fontWeight: 700, color: missed > 0 ? 'var(--red)' : 'var(--ink)' }}>{missed}</div>
+              </div>
+            </div>
+            {/* Debt health bar */}
+            <div style={{ height: 8, background: 'var(--cream-darker)', borderRadius: 4, overflow: 'hidden', marginBottom: 10 }}>
+              <div style={{
+                height: '100%',
+                width: `${Math.min(100, (missed / 2) * 100)}%`,
+                background: meterColor,
+                borderRadius: 4,
+                transition: 'width 0.3s, background 0.3s',
+              }} />
+            </div>
+            {onPayOffDebt && (
+              <button
+                className="btn-secondary"
+                style={{
+                  fontSize: '0.75rem',
+                  padding: '6px 16px',
+                  opacity: canPayOff ? 1 : 0.4,
+                  borderColor: 'var(--green)',
+                  color: 'var(--green)',
+                }}
+                disabled={!canPayOff}
+                onClick={() => onPayOffDebt(principal)}
+              >
+                Pay Off Early (${r1(principal)}M)
+              </button>
+            )}
+            {!canPayOff && (
+              <p className="font-body" style={{ fontSize: '0.68rem', color: 'var(--ink-muted)', marginTop: 4 }}>
+                Insufficient cash to pay off the full principal of ${r1(principal)}M.
+              </p>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

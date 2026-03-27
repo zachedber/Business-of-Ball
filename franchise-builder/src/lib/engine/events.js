@@ -1076,3 +1076,28 @@ export function getRivalryPlayoffNarrative(intensity, teamName) {
   if (intensity >= 26) return `Conference rivals meet again in the playoffs. The ${teamName} matchup is circled on every calendar.`;
   return `An emerging rivalry takes shape as ${teamName} stands in the way of a playoff run.`;
 }
+
+// ============================================================
+// SPONSOR DEAL EVENT
+// ============================================================
+
+/**
+ * Generates a Sponsor Deal event with a random corporate sponsor.
+ * @returns {Object} Sponsor deal event with base payout, playoff bonus, and sponsor name
+ */
+export function generateSponsorDeal() {
+  const sponsors = [
+    'OmniCorp Financial', 'Apex Dynamics', 'Horizon Airlines', 'Titan Energy',
+    'Pinnacle Health', 'Velocity Automotive', 'Quantum Tech', 'Vertex Telecommunications',
+    'Aegis Insurance', 'Nova Brewing Co', 'Zenith Logistics', 'Vanguard Holdings',
+  ];
+  return {
+    id: 'sponsor_' + generateId(),
+    type: 'sponsor_deal',
+    sponsor: pick(sponsors),
+    basePayout: 5,
+    playoffBonus: 2,
+    title: 'Sponsorship Offer',
+    description: `${pick(sponsors)} wants to become the official team sponsor. Base payout of $5M per season with a $2M playoff bonus.`,
+  };
+}
