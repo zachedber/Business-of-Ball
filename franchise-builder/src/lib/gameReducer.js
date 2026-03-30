@@ -1,4 +1,10 @@
 import { initLeagueHistory } from '@/lib/engine';
+import { resolveOffseasonEvent, getGMRepAfterEvent, resolvePressConference } from '@/lib/events/handlers';
+import { applyCBAChoice } from '@/lib/economy/handlers';
+import { acceptNamingRights } from '@/lib/economy';
+import { processTradeAcceptance, processWaiverSigning, processDraftTradeUp } from '@/lib/league/handlers';
+import { processDraftSelection, r1 } from '@/lib/engine/roster';
+import { selectCurrentFranchise } from '@/lib/types';
 
 const DEFAULT_FEATURES = {
   debt: 0,
@@ -40,6 +46,16 @@ function normalizeFranchiseState(franchise) {
     },
     debtObject: safe.debtObject ?? safe.debtDetails ?? null,
   };
+}
+
+// ─── Helper: update active franchise in fr array ───────────
+function updateActiveFr(state, updater) {
+  const next = state.fr.map((f, i) =>
+    i === state.activeIdx ? (typeof updater === 'function' ? updater(f) : updater) : f
+  );
+  const af = next[state.activeIdx];
+  const newCash = af?.cash !== undefined ? af.cash : state.cash;
+  return { ...state, fr: next, cash: newCash };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -117,119 +133,72 @@ export const initialState = {
 /**
  * gameReducer(state, action)
  *
- * Action types:
- *
+ * ── UI Navigation & App Lifecycle ──────────────────────────
  * LOAD_SAVE            — Restores full saved state from localStorage.
- *                        payload: the saved state object from loadGame()
- *
  * FINISH_LOADING       — Marks loading complete when no save is found.
- *                        payload: (none)
- *
  * SET_SCREEN           — Changes the active screen.
- *                        payload: screen name string
+ * RESET                — Clears all state back to initialState.
  *
- * CREATE_FRANCHISE     — Initialises lt, fr, stakes, season after
- *                        the player picks a franchise.
- *                        payload: { lt, frArray, cash, events, freeAg }
+ * ── Franchise Creation ─────────────────────────────────────
+ * CREATE_FRANCHISE     — Initialises lt, fr, stakes, season.
  *
- * SET_FRANCHISE        — Replaces the entire fr array (covers all
- *                        franchise mutations). Also auto-syncs cash
- *                        from fr[activeIdx].cash.
- *                        payload: new fr array  OR  updater function (fr => fr)
- *
- * SET_LEAGUE_TEAMS     — Replaces the lt object.
- *                        payload: new lt object
- *
- * SET_CASH             — Updates cash AND syncs fr[activeIdx].cash
- *                        atomically — the single source of truth for cash.
- *                        payload: new cash number
- *
+ * ── Core State Setters (low-level) ─────────────────────────
+ * SET_FRANCHISE        — Replaces entire fr array, syncs cash.
+ * SET_LEAGUE_TEAMS     — Replaces lt object.
+ * SET_CASH             — Updates cash AND syncs fr[activeIdx].cash.
  * SET_GM_REP           — Updates gmRep.
- *                        payload: new gmRep number
- *
- * SET_SEASON           — Sets season to a specific value.
- *                        payload: new season number
- *
- * SET_STAKES           — Replaces the stakes array.
- *                        payload: new stakes array
- *
- * SET_FREE_AG          — Replaces the freeAg pool.
- *                        payload: { ngl, abl } object
- *
- * SET_DYNASTY          — Replaces the dynasty history array.
- *                        payload: new dynasty array
- *
+ * SET_SEASON           — Sets season number.
+ * SET_STAKES           — Replaces stakes array.
+ * SET_FREE_AG          — Replaces freeAg pool.
+ * SET_DYNASTY          — Replaces dynasty history.
  * SET_LEAGUE_HISTORY   — Replaces leagueHistory.
- *                        payload: new leagueHistory object
  *
- * BEGIN_SIM            — Sets simming = true.
- *                        payload: (none)
+ * ── Game Logic Actions (high-level) ────────────────────────
+ * RESOLVE_EVENT        — Resolves an offseason event choice.
+ * RESOLVE_PRESS_CONF   — Resolves a press conference option.
+ * RESOLVE_CBA          — Resolves a CBA event choice.
+ * ACCEPT_NAMING_RIGHTS — Accepts naming rights offer.
+ * DECLINE_NAMING_RIGHTS — Declines naming rights offer.
+ * SIGN_PLAYER          — Signs a player to the active franchise.
+ * RELEASE_PLAYER       — Releases a player from the active franchise.
+ * EXECUTE_TRADE        — Accepts a trade offer at the trade deadline.
+ * RESOLVE_TRADE_OFFER  — Removes a declined trade offer.
+ * SIGN_WAIVER          — Signs a waiver wire player.
+ * ADVANCE_DRAFT_PICK   — Processes a draft trade-up.
+ * SIMULATE_SEASON      — Placeholder for end-of-season batch update.
+ * UPGRADE_FACILITY     — Upgrades a facility level on active franchise.
+ * BUY_STAKE            — Buys a stake in another team.
+ * HIRE_COACH           — Hires a new head coach.
+ * FIRE_COACH           — Fires the current head coach.
+ * SET_TICKET_PRICE     — Sets ticket price on active franchise.
+ * ACCEPT_FA_OFFER      — Signs a free agent during offseason FA.
+ * DECLINE_FA_OFFER     — Passes on a free agent (no-op placeholder).
+ * PAY_OFF_DEBT         — Pays off franchise debt.
  *
- * END_SIM              — Sets simming = false.
- *                        payload: (none)
+ * ── Simulation Sequencing ──────────────────────────────────
+ * BEGIN_SIM / END_SIM
+ * TRADE_DEADLINE_OPEN / TRADE_DEADLINE_CLOSE
+ * PLAYOFF_OPEN / PLAYOFF_CLOSE
+ * DRAFT_OPEN / DRAFT_CLOSE
+ * FA_OPEN / FA_CLOSE
+ * SLOT_DECISION_OPEN / SLOT_DECISION_CLOSE
+ * TRAINING_CAMP_OPEN / TRAINING_CAMP_CLOSE
+ * Q1_PAUSE_OPEN / Q1_PAUSE_CLOSE
+ * Q3_PAUSE_OPEN / Q3_PAUSE_CLOSE
+ * WAIVER_WIRE_OPEN / WAIVER_WIRE_CLOSE
+ * SET_QUARTER_PHASE / SET_PLAYER_EVENTS
+ * SET_DRAFT_PICKS / SET_DRAFT_PROSPECTS / SET_TRADE_OFFERS
  *
- * TRADE_DEADLINE_OPEN  — Opens trade deadline, stores league snapshot,
- *                        clears simming.
- *                        payload: leagueTeams snapshot
- *
- * TRADE_DEADLINE_CLOSE — Closes trade deadline UI.
- *                        payload: (none)
- *
- * PLAYOFF_OPEN         — Opens playoff bracket UI, clears simming.
- *                        payload: { playoffResult, tradeDeadlineLeague }
- *
- * PLAYOFF_CLOSE        — Closes playoff bracket UI.
- *                        payload: (none)
- *
- * DRAFT_OPEN           — Opens draft UI with picks and prospects.
- *                        payload: { draftPicks, draftProspects }
- *
- * DRAFT_CLOSE          — Closes draft UI and marks draftDone = true.
- *                        payload: (none)
- *
- * FA_OPEN              — Opens free agency UI with pool and AI log.
- *                        payload: { offseasonFAPool, aiSigningsLog }
- *
- * FA_CLOSE             — Closes free agency UI and resets draftDone.
- *                        payload: (none)
- *
- * SET_EVENTS           — Replaces the events array.
- *                        payload: new events array
- *
- * SET_RECAP            — Sets recap narrative and grade together.
- *                        payload: { recap, grade }
- *
- * SET_NEWSPAPER        — Sets newspaper content and dismissed flag.
- *                        payload: { newspaper, newspaperDismissed }
- *
- * SET_PRESS_CONF       — Sets or clears the press conference array.
- *                        payload: pressConf array or null
- *
- * SET_NOTIFICATIONS    — Replaces the notifications array.
- *                        payload: new notifications array
- *
- * DISMISS_NOTIF        — Removes a single notification by id.
- *                        payload: notification id string
- *
- * SET_CBA              — Sets or clears the CBA event.
- *                        payload: cbaEvent object or null
- *
- * SET_NAMING           — Sets or clears the naming rights offer.
- *                        payload: namingOffer object or null
- *
- * SET_SAVE_STATUS      — Updates the save status indicator.
- *                        payload: 'saving' | 'saved'
- *
- * SET_HELP             — Sets helpOpen flag.
- *                        payload: boolean
- *
- * RESET                — Clears all state back to initialState with
- *                        loading: false (used on delete save).
- *                        payload: (none)
+ * ── UI / Event State ───────────────────────────────────────
+ * SET_EVENTS / SET_RECAP / SET_NEWSPAPER / SET_PRESS_CONF
+ * SET_NOTIFICATIONS / DISMISS_NOTIF
+ * SET_CBA / SET_NAMING
+ * SET_SAVE_STATUS / SET_HELP / SET_ROSTER_FULL_ALERT
+ * GAME_OVER_FORCED
  */
 export function gameReducer(state, action) {
   switch (action.type) {
-    // ── UI Navigation & App Lifecycle ───────────────────────────────
+    // ── UI Navigation & App Lifecycle ───────────────────────────
 
     /** Restores full saved state from localStorage. */
     case 'LOAD_SAVE': {
@@ -323,6 +292,8 @@ export function gameReducer(state, action) {
       };
     }
 
+    // ── Core State Setters ─────────────────────────────────────
+
     /**
      * Replaces the entire fr array.
      * Accepts either a new array or an updater function (fr => fr[]).
@@ -386,6 +357,276 @@ export function gameReducer(state, action) {
     case 'SET_LEAGUE_HISTORY': {
       return { ...state, leagueHistory: action.payload };
     }
+
+    // ── Game Logic Actions ─────────────────────────────────────
+
+    /**
+     * Resolves an offseason event choice.
+     * payload: { eventId, choiceIdx }
+     */
+    case 'RESOLVE_EVENT': {
+      const { eventId, choiceIdx } = action.payload;
+      const event = state.events.find(e => e.id === eventId);
+      if (!event) return state;
+      const choice = event.choices[choiceIdx];
+      const updated = updateActiveFr(state, f => resolveOffseasonEvent(f, event, choice));
+      return {
+        ...updated,
+        gmRep: getGMRepAfterEvent(state.gmRep, event),
+        events: state.events.map(e => e.id === eventId ? { ...e, resolved: true } : e),
+      };
+    }
+
+    /**
+     * Resolves a press conference option.
+     * payload: { pcId, optionIdx }
+     */
+    case 'RESOLVE_PRESS_CONF': {
+      const { pcId, optionIdx } = action.payload;
+      const pc = (state.pressConf || []).find(x => x.id === pcId);
+      let next = state;
+      if (pc) {
+        const option = pc.options[optionIdx];
+        next = updateActiveFr(state, f => resolvePressConference(f, option));
+      }
+      return {
+        ...next,
+        pressConf: (state.pressConf || []).filter(x => x.id !== pcId),
+      };
+    }
+
+    /**
+     * Resolves a CBA event choice.
+     * payload: { choiceIdx, strikeOccurred }
+     */
+    case 'RESOLVE_CBA': {
+      const { choiceIdx, strikeOccurred } = action.payload;
+      if (!state.cbaEvent?.choices?.[choiceIdx]) return state;
+      const choice = state.cbaEvent.choices[choiceIdx];
+      let next = updateActiveFr(state, f => applyCBAChoice(f, choice));
+      if (strikeOccurred) {
+        next = {
+          ...next,
+          recap: (state.recap || '') + ' A labour strike shortened the season, devastating gate revenue.',
+        };
+      }
+      return { ...next, cbaEvent: null };
+    }
+
+    /**
+     * Accepts a naming rights offer.
+     * payload: namingOffer object
+     */
+    case 'ACCEPT_NAMING_RIGHTS': {
+      const offer = action.payload;
+      if (!offer) return { ...state, namingOffer: null };
+      return {
+        ...updateActiveFr(state, f => acceptNamingRights(f, offer)),
+        namingOffer: null,
+      };
+    }
+
+    /** Declines a naming rights offer. */
+    case 'DECLINE_NAMING_RIGHTS': {
+      return { ...state, namingOffer: null };
+    }
+
+    /**
+     * Signs a draft pick to the active franchise.
+     * payload: { player, usedPick }
+     */
+    case 'SIGN_PLAYER': {
+      const { player, usedPick } = action.payload;
+      if (!player) return state;
+      let alertToSet = null;
+      const next = updateActiveFr(state, f => {
+        const { updated, alert } = processDraftSelection(f, player, usedPick);
+        if (alert) alertToSet = alert;
+        return updated;
+      });
+      // Alert is set via a deferred SET_ROSTER_FULL_ALERT dispatch from caller
+      // since reducers must be synchronous. We store it so caller can check.
+      return alertToSet ? { ...next, rosterFullAlert: alertToSet } : next;
+    }
+
+    /**
+     * Releases a player from the active franchise.
+     * payload: { playerId } — placeholder for future screen migration.
+     */
+    case 'RELEASE_PLAYER': {
+      return state; // Screen components use setFr for now
+    }
+
+    /**
+     * Executes a trade deadline trade.
+     * payload: { offer, tradeOffers }
+     */
+    case 'EXECUTE_TRADE': {
+      const { offer, tradeOffers } = action.payload;
+      let next = updateActiveFr(state, f => processTradeAcceptance(f, offer));
+      if (offer.cashComponent && offer.cashComponent !== 0) {
+        const af = next.fr[next.activeIdx];
+        const currentCash = af?.cash ?? next.cash;
+        const newCash = r1(currentCash + offer.cashComponent);
+        const newFr = next.fr.map((f, i) =>
+          i === next.activeIdx ? { ...f, cash: newCash } : f
+        );
+        next = { ...next, fr: newFr, cash: newCash };
+      }
+      return { ...next, tradeOffers: tradeOffers.filter(o => o.id !== offer.id) };
+    }
+
+    /**
+     * Removes a declined trade offer.
+     * payload: { offerId, tradeOffers }
+     */
+    case 'RESOLVE_TRADE_OFFER': {
+      const { offerId, tradeOffers } = action.payload;
+      return { ...state, tradeOffers: tradeOffers.filter(o => o.id !== offerId) };
+    }
+
+    /**
+     * Signs a waiver wire player.
+     * payload: { player, waiverPool }
+     */
+    case 'SIGN_WAIVER': {
+      const { player, waiverPool } = action.payload;
+      const af = selectCurrentFranchise(state);
+      if (!af) return state;
+      const result = processWaiverSigning(af, player);
+      if (!result) return state;
+      const next = updateActiveFr(state, () => result);
+      return {
+        ...next,
+        waiverWireActive: true,
+        waiverPool: waiverPool.filter(p => p.id !== player.id),
+      };
+    }
+
+    /**
+     * Processes a draft trade-up.
+     * payload: { offer, currentPick, incomingPick, draftPicks, tradeOffers }
+     */
+    case 'ADVANCE_DRAFT_PICK': {
+      const { offer, currentPick, incomingPick, draftPicks, tradeOffers } = action.payload;
+      let next = state;
+      if (offer.cashComponent) {
+        const newCash = state.cash + (offer.cashComponent || 0);
+        const newFr = state.fr.map((f, i) =>
+          i === state.activeIdx ? { ...f, cash: newCash } : f
+        );
+        next = { ...next, fr: newFr, cash: newCash };
+      }
+      if (currentPick && incomingPick) {
+        next = {
+          ...next,
+          draftPicks: draftPicks.map(p =>
+            p.id === currentPick.id
+              ? { ...incomingPick, pick: incomingPick.pickPos ?? incomingPick.pick }
+              : p
+          ),
+        };
+      }
+      if (offer.draftCompensation?.length > 0) {
+        next = updateActiveFr(next, f => processDraftTradeUp(f, offer));
+      }
+      return { ...next, tradeOffers: tradeOffers.filter(o => o.id !== offer.id) };
+    }
+
+    /**
+     * Placeholder for future end-of-season batch update.
+     * Currently the useSimulation hook dispatches multiple atomic actions.
+     */
+    case 'SIMULATE_SEASON': {
+      return state;
+    }
+
+    /**
+     * Upgrades a facility on the active franchise.
+     * payload: { field, cost }
+     */
+    case 'UPGRADE_FACILITY': {
+      const { field, cost } = action.payload;
+      return updateActiveFr(state, f => {
+        const current = f[field] || 0;
+        if (current >= 3) return f;
+        if ((f.cash || 0) < cost) return f;
+        return { ...f, [field]: current + 1, cash: r1((f.cash || 0) - cost) };
+      });
+    }
+
+    /**
+     * Buys a stake in another team.
+     * payload: { stake, cost } — currently handled in MarketScreen via SET_STAKES + SET_CASH.
+     * Placeholder for future migration.
+     */
+    case 'BUY_STAKE': {
+      return state;
+    }
+
+    /**
+     * Hires a new head coach.
+     * payload: { candidate } — currently handled via setFr prop in StaffTab.
+     * Placeholder for future migration.
+     */
+    case 'HIRE_COACH': {
+      return state;
+    }
+
+    /**
+     * Fires the current head coach.
+     * Currently handled via setFr prop in StaffTab.
+     * Placeholder for future migration.
+     */
+    case 'FIRE_COACH': {
+      return state;
+    }
+
+    /**
+     * Sets ticket price on the active franchise.
+     * payload: newPrice
+     */
+    case 'SET_TICKET_PRICE': {
+      return updateActiveFr(state, f =>
+        f.ticketPrice === action.payload ? f : { ...f, ticketPrice: action.payload }
+      );
+    }
+
+    /**
+     * Signs a free agent during offseason FA.
+     * Currently handled via setFr prop in FreeAgencyScreen.
+     * Placeholder for future migration.
+     */
+    case 'ACCEPT_FA_OFFER': {
+      return state;
+    }
+
+    /**
+     * Passes on a free agent (no-op).
+     * Placeholder for future migration.
+     */
+    case 'DECLINE_FA_OFFER': {
+      return state;
+    }
+
+    /**
+     * Pays off franchise debt.
+     * payload: { amount }
+     */
+    case 'PAY_OFF_DEBT': {
+      const { amount } = action.payload;
+      return updateActiveFr(state, f => {
+        if ((f.cash || 0) < amount) return f;
+        return {
+          ...f,
+          cash: r1((f.cash || 0) - amount),
+          debt: 0,
+          debtObject: null,
+        };
+      });
+    }
+
+    // ── Simulation Sequencing ─────────────────────────────────
 
     /** Sets simming = true. */
     case 'BEGIN_SIM': {
@@ -486,7 +727,8 @@ export function gameReducer(state, action) {
       return { ...state, slotDecisionActive: false };
     }
 
-    // ── Financial / Franchise / Roster Mutations ───────────────────
+    // ── UI / Event State ───────────────────────────────────────
+
     /** Replaces the events array. */
     case 'SET_EVENTS': {
       return { ...state, events: action.payload };
@@ -553,7 +795,7 @@ export function gameReducer(state, action) {
       return { ...state, rosterFullAlert: action.payload };
     }
 
-    // ── Simulation Sequencing ─────────────────────────────────────
+    // ── Simulation Sequencing ─────────────────────────────────
 
     /** Opens training camp screen before Q1. */
     case 'TRAINING_CAMP_OPEN': {
@@ -632,3 +874,6 @@ export function gameReducer(state, action) {
       return state;
   }
 }
+
+// ── Re-export selector for convenience ─────────────────────
+export { selectCurrentFranchise } from '@/lib/types';
