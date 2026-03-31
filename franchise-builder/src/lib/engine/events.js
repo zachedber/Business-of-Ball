@@ -7,6 +7,21 @@ import { rand, randFloat, pick, clamp, r1, generateId } from './roster';
 import { calculateCapSpace, calculateValuation } from './finance';
 
 // ============================================================
+// FRONT OFFICE LOG ENTRY
+// ============================================================
+
+/**
+ * @typedef {Object} LogEntry
+ * @property {string} id
+ * @property {number} season
+ * @property {number|null} quarter - null = offseason
+ * @property {'signing'|'release'|'trade'|'coaching'|'event'|'facility'|'naming'|'playoff'|'rivalry'|'injury'|'award'|'cba'|'media'} type
+ * @property {string} headline - one past-tense sentence, ≤ 80 chars
+ * @property {string|null} detail
+ * @property {'positive'|'negative'|'neutral'} impact
+ */
+
+// ============================================================
 // GM REPUTATION TIERS
 // ============================================================
 

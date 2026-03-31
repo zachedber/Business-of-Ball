@@ -24,6 +24,7 @@ import FrontOfficeTab from '@/app/components/FrontOfficeTab';
 import { MiniChart, RATING_TOOLTIP } from '@/app/components/SharedComponents';
 import TutorialOverlay from '@/app/components/TutorialOverlay';
 import OwnerReport from '@/app/components/OwnerReport';
+import { appendLogEntry } from '@/lib/economy';
 import { Home, Users, Brain, Briefcase, Building2, CreditCard, Trophy, BookOpen, Landmark } from 'lucide-react';
 
 /**
@@ -130,7 +131,7 @@ export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, eve
       {tab === 'facilities' && <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}><FacilitiesSection fr={fr} setFr={setFr} onCashChange={onCashChange} /></div>}
       {tab === 'finance' && <DashFinanceTab fr={fr} />}
       {tab === 'legacy' && <LegacyTab fr={fr} leagueHistory={leagueHistory} />}
-      {tab === 'history' && <HistTab fr={fr} />}
+      {tab === 'history' && <HistoryWrapper fr={fr} />}
     </div>
   );
 }
@@ -342,13 +343,33 @@ function SlotsTab({ fr, setFr, gmRep, offseasonFAPool: frozenPool }) {
   const slotQ = calcSlotQuality(fr);
 
   function doRelease(slotName) {
-    setFr(prev => releaseSlot(prev, slotName));
+    setFr(prev => {
+      const player = prev[slotName];
+      const released = releaseSlot(prev, slotName);
+      if (!player) return released;
+      return appendLogEntry(released, {
+        season: prev.season || 1,
+        quarter: null,
+        type: 'release',
+        headline: `${player.name} released from ${slotName} slot`.slice(0, 80),
+        detail: null,
+        impact: 'neutral',
+      });
+    });
   }
 
   function doSign(player, slotName) {
     const signedFranchise = signToSlot(fr, slotName, player);
     if (!signedFranchise) return; // Bugfix: dashboard slot signings now ignore invalid FA moves instead of writing a null franchise.
-    setFr(() => signedFranchise);
+    const logged = appendLogEntry(signedFranchise, {
+      season: fr.season || 1,
+      quarter: null,
+      type: 'signing',
+      headline: `${player.name} signed to ${slotName} slot, ${player.yearsLeft || 1}yr/$${player.salary || 0}M`.slice(0, 80),
+      detail: null,
+      impact: 'positive',
+    });
+    setFr(() => logged);
     setSigningSlot(null);
   }
 
@@ -696,7 +717,7 @@ function CoachTab({ fr, setFr, gmRep }) {
           {!confirmFire
             ? <button className="btn-secondary" style={{ borderColor: 'var(--red)', color: 'var(--red)', fontSize: '0.7rem' }} onClick={() => setConfirmFire(true)}>Fire</button>
             : <div style={{ display: 'flex', gap: 6 }}>
-                <button className="btn-primary" style={{ fontSize: '0.7rem', padding: '5px 10px' }} onClick={() => { setFr(() => fireCoach(fr)); setCandidates(generateCoachCandidates(3)); setConfirmFire(false); }}>
+                <button className="btn-primary" style={{ fontSize: '0.7rem', padding: '5px 10px' }} onClick={() => { const fired = fireCoach(fr); setFr(() => appendLogEntry(fired, { season: fr.season || 1, quarter: null, type: 'coaching', headline: `${coach.name} fired, $${coach.level * 2}M dead cap`.slice(0, 80), detail: null, impact: 'negative' })); setCandidates(generateCoachCandidates(3)); setConfirmFire(false); }}>
                   Confirm (-${coach.level * 2}M)
                 </button>
                 <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '5px 10px' }} onClick={() => setConfirmFire(false)}>Cancel</button>
@@ -726,7 +747,7 @@ function CoachTab({ fr, setFr, gmRep }) {
                   style={{ fontSize: '0.7rem', padding: '5px 12px', opacity: repLocked ? 0.4 : 1 }}
                   disabled={repLocked}
                   title={repLocked ? `Need ${repRequired} GM Rep` : ''}
-                  onClick={() => { setFr(() => hireCoach(fr, cd)); setCandidates(null); }}
+                  onClick={() => { const hired = hireCoach(fr, cd); setFr(() => appendLogEntry(hired, { season: fr.season || 1, quarter: null, type: 'coaching', headline: `${cd.name} hired as Head Coach (Lv ${cd.level})`.slice(0, 80), detail: null, impact: 'positive' })); setCandidates(null); }}
                 >
                   Hire
                 </button>
@@ -1243,7 +1264,120 @@ function LegacyTab({ fr, leagueHistory }) {
 }
 
 // ============================================================
-// HISTORY TAB
+// HISTORY TAB — Sub-tab wrapper (Log + Stats)
+// ============================================================
+function HistoryWrapper({ fr }) {
+  const [subTab, setSubTab] = useState('log');
+  return (
+    <div className="fade-in">
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        <button className={`btn-secondary ${subTab === 'log' ? 'active' : ''}`} style={{ fontSize: '0.75rem', padding: '5px 14px', fontWeight: subTab === 'log' ? 700 : 400, borderBottom: subTab === 'log' ? '2px solid var(--red)' : 'none' }} onClick={() => setSubTab('log')}>Log</button>
+        <button className={`btn-secondary ${subTab === 'stats' ? 'active' : ''}`} style={{ fontSize: '0.75rem', padding: '5px 14px', fontWeight: subTab === 'stats' ? 700 : 400, borderBottom: subTab === 'stats' ? '2px solid var(--red)' : 'none' }} onClick={() => setSubTab('stats')}>Stats</button>
+      </div>
+      {subTab === 'log' && <FrontOfficeLogTab fr={fr} />}
+      {subTab === 'stats' && <HistTab fr={fr} />}
+    </div>
+  );
+}
+
+// ============================================================
+// FRONT OFFICE LOG TAB
+// ============================================================
+const LOG_FILTERS = {
+  All: null,
+  Roster: ['signing', 'release', 'trade', 'coaching', 'injury'],
+  Business: ['facility', 'naming', 'cba', 'media'],
+  Milestones: ['playoff', 'award', 'rivalry'],
+};
+
+const IMPACT_COLOR = { positive: 'var(--green)', negative: 'var(--red)', neutral: 'var(--ink-muted)' };
+
+const TYPE_BADGE = {
+  signing: 'badge-green', release: 'badge-ink', trade: 'badge-red',
+  coaching: 'badge-ink', event: 'badge-ink', facility: 'badge-green',
+  naming: 'badge-green', playoff: 'badge-red', rivalry: 'badge-red',
+  injury: 'badge-red', award: 'badge-green', cba: 'badge-ink', media: 'badge-ink',
+};
+
+function FrontOfficeLogTab({ fr }) {
+  const [filter, setFilter] = useState('All');
+  const [expandedSeason, setExpandedSeason] = useState(null);
+  const log = Array.isArray(fr?.frontOfficeLog) ? fr.frontOfficeLog : [];
+  const allowed = LOG_FILTERS[filter];
+  const filtered = allowed ? log.filter(e => allowed.includes(e.type)) : log;
+
+  // Group by season
+  const bySeason = {};
+  for (const entry of filtered) {
+    const s = entry.season || 1;
+    if (!bySeason[s]) bySeason[s] = [];
+    bySeason[s].push(entry);
+  }
+  const seasons = Object.keys(bySeason).map(Number).sort((a, b) => b - a);
+  const activeSeason = expandedSeason ?? (seasons[0] || null);
+
+  if (log.length === 0) {
+    return (
+      <div className="fade-in">
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+          {Object.keys(LOG_FILTERS).map(f => (
+            <button key={f} className={`btn-secondary`} style={{ fontSize: '0.72rem', padding: '4px 12px', fontWeight: filter === f ? 700 : 400, borderBottom: filter === f ? '2px solid var(--red)' : 'none' }} onClick={() => setFilter(f)}>{f}</button>
+          ))}
+        </div>
+        <div className="card" style={{ padding: 24, textAlign: 'center' }}>
+          <p className="font-body" style={{ fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
+            No front office moves recorded yet — decisions you make will appear here.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fade-in">
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+        {Object.keys(LOG_FILTERS).map(f => (
+          <button key={f} className={`btn-secondary`} style={{ fontSize: '0.72rem', padding: '4px 12px', fontWeight: filter === f ? 700 : 400, borderBottom: filter === f ? '2px solid var(--red)' : 'none' }} onClick={() => setFilter(f)}>{f}</button>
+        ))}
+      </div>
+      {seasons.map(s => {
+        const entries = bySeason[s];
+        const isOpen = s === activeSeason;
+        return (
+          <div key={s} className="card" style={{ padding: 0, marginBottom: 8, overflow: 'hidden' }}>
+            <button style={{ width: '100%', padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', borderBottom: isOpen ? '1px solid var(--cream-darker)' : 'none' }} onClick={() => setExpandedSeason(isOpen ? null : s)}>
+              <span className="font-display" style={{ fontSize: '0.85rem', fontWeight: 700 }}>Season {s}</span>
+              <span className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</span>
+            </button>
+            {isOpen && (
+              <div style={{ padding: '0 14px 10px' }}>
+                {entries.map(entry => (
+                  <div key={entry.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--cream-dark)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span className={`badge ${TYPE_BADGE[entry.type] || 'badge-ink'}`} style={{ fontSize: '0.62rem' }}>{entry.type}</span>
+                        <span className="font-body" style={{ fontSize: '0.78rem', color: IMPACT_COLOR[entry.impact] || 'var(--ink)' }}>{entry.headline}</span>
+                      </div>
+                      {entry.detail && (
+                        <div className="font-mono" style={{ fontSize: '0.68rem', color: 'var(--ink-muted)', marginTop: 2, marginLeft: 2 }}>{entry.detail}</div>
+                      )}
+                    </div>
+                    <span className="font-mono" style={{ fontSize: '0.65rem', color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
+                      {entry.quarter != null ? `Q${entry.quarter}` : 'Offseason'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================
+// SEASON STATS (formerly History Tab)
 // ============================================================
 function HistTab({ fr }) {
   const history = Array.isArray(fr?.history) ? fr.history : [];

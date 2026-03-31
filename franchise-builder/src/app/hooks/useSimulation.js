@@ -27,6 +27,7 @@ import { processQuarterInjuries } from '@/lib/engine/injuries';
 import { rollPlayerEvents } from '@/lib/events/playerEvents';
 import { missedDebtWarnings } from '@/data/eventFlavor';
 import { generateTradeOffers, generateWaiverWire, generateDraftTradeUpOffers } from '@/lib/tradeAI';
+import { appendLogEntry } from '@/lib/economy';
 import {
   generateSeasonRecap,
   generateGMGrade,
@@ -108,6 +109,21 @@ export function useSimulation({ state, dispatch, doSave, refs }) {
     const picks = generateDraftPickPositions(f, result.leagueTeams);
     const prospects = generateDraftProspects(f.league, 20, f.scoutingStaff, picks[0]?.round || 1).map(({ trueRating, ...rest }) => rest);
     newFr = newFr.map((x, i) => i === activeIdx ? { ...x, draftPickInventory: initDraftPickInventory(newSeason, x.id), trainingCampAllocation: undefined } : x);
+
+    // Append playoff log entry for the player's franchise
+    if (af) {
+      const pr = result.playoffResult;
+      const record = `${af.wins || 0}-${af.losses || 0}`;
+      let playoffEntry;
+      if (pr?.playerWonChampionship) {
+        playoffEntry = { season, quarter: null, type: 'playoff', headline: `Championship won — ${record} season`.slice(0, 80), detail: null, impact: 'positive' };
+      } else if (pr?.playerMadePlayoffs && pr?.playerEliminated) {
+        playoffEntry = { season, quarter: null, type: 'playoff', headline: `Eliminated in playoffs — ${record}`.slice(0, 80), detail: pr.playerEliminated.roundName ? `Lost in ${pr.playerEliminated.roundName}` : null, impact: 'neutral' };
+      } else {
+        playoffEntry = { season, quarter: null, type: 'playoff', headline: `Missed playoffs — ${record}`.slice(0, 80), detail: null, impact: 'negative' };
+      }
+      newFr = newFr.map((x, i) => i === activeIdx ? appendLogEntry(x, playoffEntry) : x);
+    }
 
     dispatch({ type: 'SET_GM_REP', payload: newRep });
     dispatch({ type: 'SET_LEAGUE_HISTORY', payload: newLeagueHistory });
