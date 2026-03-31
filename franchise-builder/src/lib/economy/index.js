@@ -30,6 +30,9 @@ export {
   calculateEndSeasonFinances,
 } from '@/lib/engine/finance';
 
+// Owner Report — post-season analysis
+export { buildOwnerReport } from './ownerReport';
+
 // Naming rights and CBA events from events module
 export {
   generateNamingRightsOffer,
