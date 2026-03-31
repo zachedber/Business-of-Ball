@@ -22,6 +22,16 @@ export async function generateSeasonRecap(f){
 }
 
 export async function generateGMGrade(f){
+  // Use the Owner Report verdict when history is available for richer grading
+  if(f.history&&f.history.length>0){
+    try{
+      const{buildOwnerReport}=await import('@/lib/economy/ownerReport');
+      const prev=f.history.length>1?f.history[f.history.length-2]:null;
+      const report=buildOwnerReport(f,prev);
+      return{grade:report.verdict.grade,analysis:report.verdict.gradeReason};
+    }catch{}
+  }
+  // Fallback to original logic if report unavailable
   const wp=f.wins/(f.wins+f.losses),pr=f.finances.profit;
   if(wp>0.65&&pr>0)return{grade:'A',analysis:'Outstanding. Winning and profitable.'};
   if(wp>0.55)return{grade:'B',analysis:'Solid management. Competitive and balanced.'};

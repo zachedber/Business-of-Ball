@@ -23,6 +23,7 @@ import StaffTab from '@/app/components/StaffTab';
 import FrontOfficeTab from '@/app/components/FrontOfficeTab';
 import { MiniChart, RATING_TOOLTIP } from '@/app/components/SharedComponents';
 import TutorialOverlay from '@/app/components/TutorialOverlay';
+import OwnerReport from '@/app/components/OwnerReport';
 import { Home, Users, Brain, Briefcase, Building2, CreditCard, Trophy, BookOpen, Landmark } from 'lucide-react';
 
 /**
@@ -192,18 +193,7 @@ function HomeTab({ fr, onSim, simming, recap, grade, events, onResolve, pressCon
         </div>
       )}
       {recap && (
-        <div className="card" style={{ background: 'linear-gradient(180deg,rgba(212,168,67,0.08),rgba(255,255,255,0.4))' }}>
-          <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Season Recap</h3>
-          <p className="font-body" style={{ lineHeight: 1.6, color: 'var(--ink-soft)', fontSize: '0.85rem' }}>{recap}</p>
-          {grade && (
-            <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 8, background: 'rgba(255,255,255,0.65)', border: '1px solid rgba(26,18,8,0.08)' }}>
-              <span className="font-display" style={{ fontSize: '2.6rem', lineHeight: 1, fontWeight: 700, color: grade.grade.startsWith('A') ? 'var(--green)' : grade.grade.startsWith('B') ? 'var(--amber)' : 'var(--red)' }}>
-                {grade.grade}
-              </span>
-              <span className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>{grade.analysis}</span>
-            </div>
-          )}
-        </div>
+        <OwnerReport fr={fr} recap={recap} grade={grade} />
       )}
       {pressConf && pressConf.length > 0 && (
         <div className="card" style={{ borderLeft: '5px solid var(--ink)', background: 'linear-gradient(180deg,rgba(26,18,8,0.03),rgba(255,255,255,0.4))' }}>
