@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { SLOT_BUDGET, signToSlot, releaseSlot } from '@/lib/engine';
+import { appendLogEntry } from '@/lib/economy';
 import { RATING_TOOLTIP } from '@/app/components/SharedComponents';
 
 // ============================================================
@@ -25,7 +26,15 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
   function doSign(player, slotName) {
     const signedFranchise = signToSlot(fr, slotName, player);
     if (!signedFranchise) return; // Bugfix: failed free-agency bids now stop before mutating the pool or slot state.
-    setFr(() => signedFranchise);
+    const logged = appendLogEntry(signedFranchise, {
+      season: fr.season || 1,
+      quarter: null,
+      type: 'signing',
+      headline: `${player.name} signed to ${slotName} slot, ${player.yearsLeft || 1}yr/$${player.salary || 0}M`.slice(0, 80),
+      detail: null,
+      impact: 'positive',
+    });
+    setFr(() => logged);
     setPool(prev => prev.filter(p => p.id !== player.id));
   }
 
@@ -56,7 +65,19 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
   }
 
   function doRelease(slotName) {
-    setFr(prev => releaseSlot(prev, slotName));
+    setFr(prev => {
+      const player = prev[slotName];
+      const released = releaseSlot(prev, slotName);
+      if (!player) return released;
+      return appendLogEntry(released, {
+        season: prev.season || 1,
+        quarter: null,
+        type: 'release',
+        headline: `${player.name} released from ${slotName} slot`.slice(0, 80),
+        detail: null,
+        impact: 'neutral',
+      });
+    });
   }
 
   return (

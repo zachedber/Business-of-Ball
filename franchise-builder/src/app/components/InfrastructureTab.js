@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { UPGRADE_COSTS } from '@/data/leagues';
 import { canAfford, r1 } from '@/lib/engine';
+import { appendLogEntry } from '@/lib/economy';
 import StadiumManagementSection from '@/app/components/StadiumManagementSection';
 
 // ============================================================
@@ -31,7 +32,15 @@ export function FacilitiesSection({ fr, setFr, onCashChange }) {
     const cost = UPGRADE_COSTS[current] || 15;
     if (!canAfford(fr.cash, cost)) return;
     const newCash = r1((fr.cash || 0) - cost); // Round facility spend before syncing both cash stores.
-    setFr(prev => ({ ...prev, [field]: current + 1, cash: newCash }));
+    const facilityLabel = field.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()).trim();
+    setFr(prev => appendLogEntry({ ...prev, [field]: current + 1, cash: newCash }, {
+      season: prev.season || 1,
+      quarter: null,
+      type: 'facility',
+      headline: `${facilityLabel} upgraded to Tier ${current + 1}`.slice(0, 80),
+      detail: null,
+      impact: 'positive',
+    }));
     if (onCashChange) onCashChange(newCash);
   }
 

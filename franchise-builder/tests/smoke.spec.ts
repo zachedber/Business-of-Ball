@@ -190,3 +190,195 @@ test('persistence: team name survives page reload', async ({ page }) => {
   const hasName = await page.getByText(teamName).isVisible().catch(() => false);
   expect(hasContinue || hasName).toBe(true);
 });
+
+// ─── Phase 2 — Owner Report & Front Office Log ──────────────
+
+async function simulateOneSeason(page: Page) {
+  // Click simulate/advance button and wait for the offseason flow
+  // to reach a stable resting state (draft, FA, or back to home).
+  // Use a generous timeout — the quarterly flow takes several seconds.
+  const simBtn = page.getByRole('button', { name: /simulate|advance|start q/i }).first();
+  await simBtn.click();
+  // Wait until sim button reappears OR offseason UI appears
+  await page.waitForFunction(() => {
+    const body = document.body.innerText;
+    return body.includes('Draft') || body.includes('Free Agency') ||
+           body.includes('Simulate') || body.includes('Start Q');
+  }, { timeout: 45000 });
+}
+
+// ─── Owner Report (Phase 2A) integration ───────────────────────
+
+test('owner report: does not appear before first simulation', async ({ page }) => {
+  await startNewGame(page);
+  // Navigate to home tab
+  await page.locator('.tab-nav').getByRole('button', { name: /home/i }).first().click();
+  await page.waitForTimeout(500);
+  const body = await page.locator('body').innerText();
+  for (const heading of ['On-Field Results', 'Fan Sentiment', 'Financial Performance', 'Valuation', 'Front Office Verdict']) {
+    expect(body).not.toContain(heading);
+  }
+});
+
+test('owner report: all five sections visible after season simulates', async ({ page }) => {
+  await startNewGame(page);
+  // Run through the full season flow: training camp → Q1 → Q2 → trade deadline → Q3 → Q4 → playoffs → offseason
+  // Keep clicking advance/sim/start buttons until we reach a resting offseason state
+  for (let i = 0; i < 20; i++) {
+    const btn = page.getByRole('button', { name: /simulate|advance|start q|continue|begin q|finish|done|skip|complete draft|end free agency/i }).first();
+    if (await btn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await btn.click();
+      await page.waitForTimeout(1500);
+    }
+    // Check if we've reached the offseason recap state (owner report is visible)
+    const hasRecap = await page.getByText(/on.?field results/i).isVisible({ timeout: 1000 }).catch(() => false);
+    if (hasRecap) break;
+  }
+  // Navigate to home tab in case we're not there
+  await page.locator('.tab-nav').getByRole('button', { name: /home/i }).first().click().catch(() => {});
+  await page.waitForTimeout(500);
+  for (const pattern of [/on.?field results/i, /fan sentiment/i, /financial performance/i, /valuation/i, /front office verdict/i]) {
+    await expect(page.getByText(pattern).first()).toBeVisible({ timeout: 10000 });
+  }
+});
+
+test('owner report: GM grade letter is one of A B C D F', async ({ page }) => {
+  await startNewGame(page);
+  for (let i = 0; i < 20; i++) {
+    const btn = page.getByRole('button', { name: /simulate|advance|start q|continue|begin q|finish|done|skip|complete draft|end free agency/i }).first();
+    if (await btn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await btn.click();
+      await page.waitForTimeout(1500);
+    }
+    const hasRecap = await page.getByText(/on.?field results/i).isVisible({ timeout: 1000 }).catch(() => false);
+    if (hasRecap) break;
+  }
+  await page.locator('.tab-nav').getByRole('button', { name: /home/i }).first().click().catch(() => {});
+  await page.waitForTimeout(500);
+  const gradeEl = page.getByText(/grade/i).first();
+  await expect(gradeEl).toBeVisible({ timeout: 10000 });
+  const text = await gradeEl.innerText();
+  expect(/[ABCDF]/.test(text)).toBe(true);
+});
+
+test('owner report: no JS errors during or after simulation', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', err => errors.push(err.message));
+  await startNewGame(page);
+  for (let i = 0; i < 20; i++) {
+    const btn = page.getByRole('button', { name: /simulate|advance|start q|continue|begin q|finish|done|skip|complete draft|end free agency/i }).first();
+    if (await btn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await btn.click();
+      await page.waitForTimeout(1500);
+    }
+    const hasRecap = await page.getByText(/on.?field results/i).isVisible({ timeout: 1000 }).catch(() => false);
+    if (hasRecap) break;
+  }
+  expect(errors).toHaveLength(0);
+});
+
+// ─── Front Office Log integration ──────────────────────────────
+
+test('front office log: history tab renders Log and Stats sub-tabs', async ({ page }) => {
+  await startNewGame(page);
+  await page.locator('.tab-nav').getByRole('button', { name: /history/i }).first().click();
+  await page.waitForTimeout(500);
+  await expect(page.getByRole('button', { name: /^Log$/i })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByRole('button', { name: /^Stats$/i })).toBeVisible({ timeout: 5000 });
+});
+
+test('front office log: empty state visible before any moves', async ({ page }) => {
+  await startNewGame(page);
+  await page.locator('.tab-nav').getByRole('button', { name: /history/i }).first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole('button', { name: /^Log$/i }).click();
+  await page.waitForTimeout(300);
+  await expect(page.locator('body')).toContainText(/no front office moves/i, { timeout: 5000 });
+});
+
+test('front office log: playoff entry appears after season completes', async ({ page }) => {
+  await startNewGame(page);
+  // Run through the full season
+  for (let i = 0; i < 30; i++) {
+    const btn = page.getByRole('button', { name: /simulate|advance|start q|continue|begin q|finish|done|skip|complete draft|end free agency|dismiss|continue to season/i }).first();
+    if (await btn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await btn.click();
+      await page.waitForTimeout(1500);
+    }
+    // Check if we're back at dashboard with simulate button visible
+    const simBtn = await page.getByRole('button', { name: /simulate season/i }).isVisible({ timeout: 1000 }).catch(() => false);
+    if (simBtn) break;
+  }
+  await page.locator('.tab-nav').getByRole('button', { name: /history/i }).first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole('button', { name: /^Log$/i }).click();
+  await page.waitForTimeout(500);
+  await expect(page.locator('body')).toContainText(/playoff|champion|eliminated/i, { timeout: 10000 });
+});
+
+test('front office log: filter pills are visible and clickable', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', err => errors.push(err.message));
+  await startNewGame(page);
+  await page.locator('.tab-nav').getByRole('button', { name: /history/i }).first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole('button', { name: /^Log$/i }).click();
+  await page.waitForTimeout(300);
+  for (const pill of ['All', 'Roster', 'Business', 'Milestones']) {
+    const btn = page.getByRole('button', { name: new RegExp(`^${pill}$`, 'i') });
+    await expect(btn).toBeVisible({ timeout: 5000 });
+    await btn.click();
+    await page.waitForTimeout(200);
+  }
+  expect(errors).toHaveLength(0);
+});
+
+test('front office log: Stats sub-tab still shows season data', async ({ page }) => {
+  await startNewGame(page);
+  // Run through the full season
+  for (let i = 0; i < 30; i++) {
+    const btn = page.getByRole('button', { name: /simulate|advance|start q|continue|begin q|finish|done|skip|complete draft|end free agency|dismiss|continue to season/i }).first();
+    if (await btn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await btn.click();
+      await page.waitForTimeout(1500);
+    }
+    const simBtn = await page.getByRole('button', { name: /simulate season/i }).isVisible({ timeout: 1000 }).catch(() => false);
+    if (simBtn) break;
+  }
+  await page.locator('.tab-nav').getByRole('button', { name: /history/i }).first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole('button', { name: /^Stats$/i }).click();
+  await page.waitForTimeout(500);
+  await expect(page.locator('body')).toContainText(/revenue|expenses|profit/i, { timeout: 10000 });
+});
+
+test('front office log: save round-trip preserves log entries', async ({ page }) => {
+  await startNewGame(page);
+  // Run through the full season
+  for (let i = 0; i < 30; i++) {
+    const btn = page.getByRole('button', { name: /simulate|advance|start q|continue|begin q|finish|done|skip|complete draft|end free agency|dismiss|continue to season/i }).first();
+    if (await btn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await btn.click();
+      await page.waitForTimeout(1500);
+    }
+    const simBtn = await page.getByRole('button', { name: /simulate season/i }).isVisible({ timeout: 1000 }).catch(() => false);
+    if (simBtn) break;
+  }
+  // Wait for auto-save
+  await page.waitForTimeout(2000);
+  // Reload page
+  await page.reload();
+  await page.waitForTimeout(2000);
+  // Click Continue if present
+  const continueBtn = page.getByRole('button', { name: /continue/i });
+  if (await continueBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await continueBtn.click();
+    await page.waitForTimeout(1000);
+  }
+  // Navigate to history tab, Log sub-tab
+  await page.locator('.tab-nav').getByRole('button', { name: /history/i }).first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole('button', { name: /^Log$/i }).click();
+  await page.waitForTimeout(500);
+  await expect(page.locator('body')).toContainText(/playoff|champion|eliminated/i, { timeout: 10000 });
+});

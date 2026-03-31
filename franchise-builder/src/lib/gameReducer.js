@@ -1,7 +1,7 @@
 import { initLeagueHistory } from '@/lib/engine';
 import { resolveOffseasonEvent, getGMRepAfterEvent, resolvePressConference } from '@/lib/events/handlers';
 import { applyCBAChoice } from '@/lib/economy/handlers';
-import { acceptNamingRights } from '@/lib/economy';
+import { acceptNamingRights, appendLogEntry } from '@/lib/economy';
 import { processTradeAcceptance, processWaiverSigning, processDraftTradeUp } from '@/lib/league/handlers';
 import { processDraftSelection, r1 } from '@/lib/engine/roster';
 import { selectCurrentFranchise } from '@/lib/types';
@@ -45,6 +45,7 @@ function normalizeFranchiseState(franchise) {
         : Math.max(0, Number(investments.overseasStakes) || 0),
     },
     debtObject: safe.debtObject ?? safe.debtDetails ?? null,
+    frontOfficeLog: Array.isArray(safe.frontOfficeLog) ? safe.frontOfficeLog : [],
   };
 }
 
@@ -403,7 +404,15 @@ export function gameReducer(state, action) {
       const { choiceIdx, strikeOccurred } = action.payload;
       if (!state.cbaEvent?.choices?.[choiceIdx]) return state;
       const choice = state.cbaEvent.choices[choiceIdx];
-      let next = updateActiveFr(state, f => applyCBAChoice(f, choice));
+      const cbaHelpful = (choice.moraleBonus || 0) > 0 || (choice.revenuePenalty || 0) >= 0;
+      let next = updateActiveFr(state, f => appendLogEntry(applyCBAChoice(f, choice), {
+        season: f.season || state.season,
+        quarter: null,
+        type: 'cba',
+        headline: `CBA: ${choice.label}${strikeOccurred ? ' — strike occurred' : ''}`.slice(0, 80),
+        detail: choice.desc || null,
+        impact: strikeOccurred ? 'negative' : cbaHelpful ? 'positive' : 'negative',
+      }));
       if (strikeOccurred) {
         next = {
           ...next,
@@ -421,7 +430,14 @@ export function gameReducer(state, action) {
       const offer = action.payload;
       if (!offer) return { ...state, namingOffer: null };
       return {
-        ...updateActiveFr(state, f => acceptNamingRights(f, offer)),
+        ...updateActiveFr(state, f => appendLogEntry(acceptNamingRights(f, offer), {
+          season: f.season || state.season,
+          quarter: null,
+          type: 'naming',
+          headline: `Naming rights deal signed: $${offer.annualPay}M/yr`.slice(0, 80),
+          detail: `${offer.company}, ${offer.years}yr deal`,
+          impact: 'positive',
+        })),
         namingOffer: null,
       };
     }
@@ -463,7 +479,22 @@ export function gameReducer(state, action) {
      */
     case 'EXECUTE_TRADE': {
       const { offer, tradeOffers } = action.payload;
-      let next = updateActiveFr(state, f => processTradeAcceptance(f, offer));
+      const isSell = offer.type === 'sell';
+      const playerName = isSell ? offer.playerOffered?.name : offer.playerWanted?.name;
+      let next = updateActiveFr(state, f => {
+        let updated = processTradeAcceptance(f, offer);
+        const detailParts = [];
+        if (offer.cashComponent && offer.cashComponent !== 0) detailParts.push(`$${Math.abs(offer.cashComponent)}M cash`);
+        if (offer.draftCompensation?.length > 0) detailParts.push(`${offer.draftCompensation.length} draft pick(s)`);
+        return appendLogEntry(updated, {
+          season: f.season || state.season,
+          quarter: null,
+          type: 'trade',
+          headline: `Trade: ${isSell ? 'acquired' : 'sent away'} ${playerName || 'player'}`.slice(0, 80),
+          detail: detailParts.length > 0 ? detailParts.join(', ') : null,
+          impact: offer.type === 'buy' ? 'positive' : 'neutral',
+        });
+      });
       if (offer.cashComponent && offer.cashComponent !== 0) {
         const af = next.fr[next.activeIdx];
         const currentCash = af?.cash ?? next.cash;
@@ -551,7 +582,16 @@ export function gameReducer(state, action) {
         const current = f[field] || 0;
         if (current >= 3) return f;
         if ((f.cash || 0) < cost) return f;
-        return { ...f, [field]: current + 1, cash: r1((f.cash || 0) - cost) };
+        const upgraded = { ...f, [field]: current + 1, cash: r1((f.cash || 0) - cost) };
+        const facilityLabel = field.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()).trim();
+        return appendLogEntry(upgraded, {
+          season: f.season || state.season,
+          quarter: null,
+          type: 'facility',
+          headline: `${facilityLabel} upgraded to Tier ${current + 1}`.slice(0, 80),
+          detail: null,
+          impact: 'positive',
+        });
       });
     }
 
