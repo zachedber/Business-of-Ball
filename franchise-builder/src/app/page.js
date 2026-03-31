@@ -3,16 +3,11 @@ import { useReducer, useEffect, useCallback, useRef } from 'react';
 import { useSimulation } from '@/app/hooks/useSimulation';
 import { initializeLeague, createPlayerFranchise } from '@/lib/simulation';
 import { generateFreeAgents } from '@/lib/freeAgency';
-import { acceptNamingRights } from '@/lib/economy';
-import { clamp, r1 } from '@/lib/roster';
 import { saveGame, loadGame, deleteSave } from '@/lib/storage';
 import { generateOffseasonEvents, setNarrativeApiKey } from '@/lib/narrative';
-import { gameReducer, initialState } from '@/lib/gameReducer';
-import { processDraftSelection } from '@/lib/draft';
-import { resolveOffseasonEvent, getGMRepAfterEvent, resolvePressConference } from '@/lib/events/handlers';
-import { applyLeveragedPurchase, applyCBAChoice, rollCBAStrike } from '@/lib/economy/handlers';
+import { gameReducer, initialState, selectCurrentFranchise } from '@/lib/gameReducer';
+import { applyLeveragedPurchase, rollCBAStrike } from '@/lib/economy/handlers';
 import { prepareOffseasonFAPool, needsSlotDecision } from '@/lib/freeAgency/handlers';
-import { processTradeAcceptance, processWaiverSigning, processDraftTradeUp } from '@/lib/league/handlers';
 import TradeDeadlineScreen from '@/app/components/TradeDeadlineScreen';
 import TrainingCampScreen from '@/app/components/TrainingCampScreen';
 import EventNotificationCard from '@/app/components/EventNotificationCard';
@@ -55,6 +50,9 @@ export default function App() {
     waiverWireActive, waiverPool, tradeOffers,
     gameOverForced,
   } = state;
+
+  // ── Derived: current franchise (replaces ad-hoc fr[activeIdx]) ──
+  const currentFranchise = selectCurrentFranchise(state);
 
   // Load API key from localStorage
   useEffect(() => {
@@ -116,7 +114,8 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [cash, gmRep, dynasty, lt, fr, stakes, season, freeAg, notifications, leagueHistory]);
 
-  // ── Helpers ──────────────────────────────────────────────────
+  // ── Legacy helper for screen components that still receive setFr ──
+  // Screens will be migrated to dispatch in a future phase.
   const setActiveFr = (updater) =>
     dispatch({
       type: 'SET_FRANCHISE',
@@ -162,56 +161,26 @@ export default function App() {
 
   // ── Event handlers ───────────────────────────────────────────
   function handleResolve(eventId, choiceIdx) {
-    const event = events.find(e => e.id === eventId);
-    if (!event) return;
-    const choice = event.choices[choiceIdx];
-
-    dispatch({
-      type: 'SET_FRANCHISE',
-      payload: prev => prev.map((f, i) => i !== activeIdx ? f : resolveOffseasonEvent(f, event, choice)),
-    });
-
-    dispatch({ type: 'SET_GM_REP', payload: getGMRepAfterEvent(gmRep, event) });
-
-    dispatch({
-      type: 'SET_EVENTS',
-      payload: events.map(e => e.id === eventId ? { ...e, resolved: true } : e),
-    });
+    dispatch({ type: 'RESOLVE_EVENT', payload: { eventId, choiceIdx } });
   }
 
   function handlePressConf(pcId, optionIdx) {
-    const pc = (pressConf || []).find(x => x.id === pcId);
-    if (pc) {
-      const option = pc.options[optionIdx];
-      dispatch({
-        type: 'SET_FRANCHISE',
-        payload: prev => prev.map((f, i) => i !== activeIdx ? f : resolvePressConference(f, option)),
-      });
-    }
-    dispatch({ type: 'SET_PRESS_CONF', payload: (pressConf || []).filter(x => x.id !== pcId) });
+    dispatch({ type: 'RESOLVE_PRESS_CONF', payload: { pcId, optionIdx } });
   }
 
   function handleCBA(choiceIdx) {
     if (!cbaEvent?.choices?.[choiceIdx]) return;
     const choice = cbaEvent.choices[choiceIdx];
-    if (rollCBAStrike(choice)) {
-      dispatch({ type: 'SET_RECAP', payload: { recap: (recap || '') + ' A labour strike shortened the season, devastating gate revenue.', grade } });
-    }
-    dispatch({
-      type: 'SET_FRANCHISE',
-      payload: prev => prev.map((f, i) => i !== activeIdx ? f : applyCBAChoice(f, choice)),
-    });
-    dispatch({ type: 'SET_CBA', payload: null });
+    const strikeOccurred = rollCBAStrike(choice);
+    dispatch({ type: 'RESOLVE_CBA', payload: { choiceIdx, strikeOccurred } });
   }
 
   function handleNaming(accept) {
     if (accept && namingOffer) {
-      dispatch({
-        type: 'SET_FRANCHISE',
-        payload: prev => prev.map((f, i) => i === activeIdx ? acceptNamingRights(f, namingOffer) : f),
-      });
+      dispatch({ type: 'ACCEPT_NAMING_RIGHTS', payload: namingOffer });
+    } else {
+      dispatch({ type: 'DECLINE_NAMING_RIGHTS' });
     }
-    dispatch({ type: 'SET_NAMING', payload: null });
   }
 
   async function handleDelete() {
@@ -221,25 +190,11 @@ export default function App() {
 
   // ── Draft handlers ───────────────────────────────────────────
   function handleDraftPickMade(player, usedPick) {
-    if (!player) return;
-    dispatch({
-      type: 'SET_FRANCHISE',
-      payload: prev => {
-        return prev.map((f, i) => {
-          if (i !== activeIdx) return f;
-          const { updated, alert } = processDraftSelection(f, player, usedPick);
-          if (alert) {
-            setTimeout(() => dispatch({ type: 'SET_ROSTER_FULL_ALERT', payload: alert }), 0);
-          }
-          return updated;
-        });
-      },
-    });
+    dispatch({ type: 'SIGN_PLAYER', payload: { player, usedPick } });
   }
 
   function handleDraftDone() {
-    const af = fr[activeIdx];
-    if (!af) {
+    if (!currentFranchise) {
       console.error('handleDraftDone: no active franchise');
       dispatch({ type: 'DRAFT_CLOSE' });
       dispatch({ type: 'SET_SCREEN', payload: 'dashboard' });
@@ -247,14 +202,14 @@ export default function App() {
     }
 
     const { playerPool, aiSigned } = prepareOffseasonFAPool({
-      league: af.league,
+      league: currentFranchise.league,
       gmRep,
       existingPool: offseasonFAPool,
       existingAILog: aiSigningsLog,
       leagueTeams: lt || { ngl: [], abl: [] },
     });
 
-    if (needsSlotDecision(af)) {
+    if (needsSlotDecision(currentFranchise)) {
       dispatch({ type: 'SLOT_DECISION_OPEN', payload: { offseasonFAPool: playerPool, aiSigningsLog: aiSigned } });
     } else {
       dispatch({ type: 'DRAFT_CLOSE' });
@@ -300,7 +255,7 @@ export default function App() {
     );
   }
 
-  const af = fr[activeIdx];
+  const af = currentFranchise;
   const notifCount = notifications.length;
 
   return (
@@ -404,27 +359,10 @@ export default function App() {
             onDismissRosterAlert={() => dispatch({ type: 'SET_ROSTER_FULL_ALERT', payload: null })}
             tradeUpOffers={tradeOffers}
             onAcceptTradeUp={(offer, currentPick, incomingPick) => {
-              if (offer.cashComponent) {
-                dispatch({ type: 'SET_CASH', payload: cash + (offer.cashComponent || 0) });
-              }
-              if (currentPick && incomingPick) {
-                dispatch({
-                  type: 'SET_DRAFT_PICKS',
-                  payload: draftPicks.map((p) => {
-                    if (p.id === currentPick.id) {
-                      return { ...incomingPick, pick: incomingPick.pickPos ?? incomingPick.pick };
-                    }
-                    return p;
-                  }),
-                });
-              }
-              if (offer.draftCompensation?.length > 0) {
-                dispatch({
-                  type: 'SET_FRANCHISE',
-                  payload: prev => prev.map((f, i) => i === activeIdx ? processDraftTradeUp(f, offer) : f),
-                });
-              }
-              dispatch({ type: 'SET_TRADE_OFFERS', payload: tradeOffers.filter(o => o.id !== offer.id) });
+              dispatch({
+                type: 'ADVANCE_DRAFT_PICK',
+                payload: { offer, currentPick, incomingPick, draftPicks, tradeOffers },
+              });
             }}
           />
         )}
@@ -507,23 +445,14 @@ export default function App() {
             setCash={newCash => dispatch({ type: 'SET_CASH', payload: newCash })}
             tradeOffers={tradeOffers}
             onDeclineTrade={(offerId) => {
-              dispatch({ type: 'SET_TRADE_OFFERS', payload: tradeOffers.filter(o => o.id !== offerId) });
+              dispatch({ type: 'RESOLVE_TRADE_OFFER', payload: { offerId, tradeOffers } });
             }}
             onAcceptTrade={(offer) => {
-              setActiveFr(prev => processTradeAcceptance(prev, offer));
-
-              if (offer.cashComponent && offer.cashComponent !== 0) {
-                const currentCash = fr[activeIdx]?.cash ?? cash;
-                dispatch({ type: 'SET_CASH', payload: r1(currentCash + offer.cashComponent) });
-              }
-              dispatch({ type: 'SET_TRADE_OFFERS', payload: tradeOffers.filter(o => o.id !== offer.id) });
+              dispatch({ type: 'EXECUTE_TRADE', payload: { offer, tradeOffers } });
             }}
             waiverPool={waiverPool}
             onSignWaiver={(player) => {
-              const result = processWaiverSigning(af, player);
-              if (!result) return;
-              setActiveFr(() => result);
-              dispatch({ type: 'WAIVER_WIRE_OPEN', payload: waiverPool.filter(p => p.id !== player.id) });
+              dispatch({ type: 'SIGN_WAIVER', payload: { player, waiverPool } });
             }}
           />
         )}
@@ -595,15 +524,7 @@ export default function App() {
             lt={lt}
             season={season}
             onPayOffDebt={(amount) => {
-              setActiveFr(prev => {
-                if ((prev.cash || 0) < amount) return prev;
-                return {
-                  ...prev,
-                  cash: r1((prev.cash || 0) - amount),
-                  debt: 0,
-                  debtObject: null,
-                };
-              });
+              dispatch({ type: 'PAY_OFF_DEBT', payload: { amount } });
             }}
           />
         )}
