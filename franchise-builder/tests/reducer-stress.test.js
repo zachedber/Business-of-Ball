@@ -462,6 +462,38 @@ test('20-season reducer stress test with all Phase 1B actions', async () => {
     if (count === 0) console.log(`  (info) ${action} did not fire (RNG-dependent)`);
   }
 
+  // ── Phase 3A assertions ────────────────────────────────────
+  const finalFr = selectCurrentFranchise(state);
+
+  // pendingEffects field exists and is an array (never corrupted to non-array)
+  assert.ok(Array.isArray(finalFr.pendingEffects),
+    'Phase 3A: pendingEffects is an array after 20 seasons');
+
+  // boardTrust is a number in valid range
+  assert.ok(typeof finalFr.boardTrust === 'number' && finalFr.boardTrust >= 0 && finalFr.boardTrust <= 100,
+    `Phase 3A: boardTrust in range after 20 seasons (${finalFr.boardTrust})`);
+
+  // franchiseIdentity is preserved (not mutated or dropped)
+  assert.ok(finalFr.franchiseIdentity !== null && typeof finalFr.franchiseIdentity === 'object',
+    'Phase 3A: franchiseIdentity object preserved after 20 seasons');
+  assert.ok(finalFr.franchiseIdentity.mediaPressureIndex >= 1 && finalFr.franchiseIdentity.mediaPressureIndex <= 10,
+    `Phase 3A: mediaPressureIndex still in range after 20 seasons (${finalFr.franchiseIdentity.mediaPressureIndex})`);
+
+  // No unresolved effects older than 2 seasons should remain (they must have been flushed)
+  const stalledEffects = (finalFr.pendingEffects || []).filter(
+    e => !e.resolved && e.triggerSeason < (finalFr.season - 2)
+  );
+  assert.strictEqual(stalledEffects.length, 0,
+    `Phase 3A: no stale pending effects (${stalledEffects.length} found)`);
+
+  // Simulation win probability must still be in valid range (identity/pressure fields didn't break calcWinProb)
+  // Verify by checking the last season's history entry
+  const lastHistory = finalFr.history?.[finalFr.history.length - 1];
+  if (lastHistory) {
+    assert.ok(lastHistory.winPct >= 0 && lastHistory.winPct <= 1,
+      `Phase 3A: winPct still valid after identity system (${lastHistory.winPct})`);
+  }
+
   // Print summary
   const totalDispatches = Object.values(actionCounts).reduce((a, b) => a + b, 0);
   console.log(`\n  Total dispatches: ${totalDispatches}`);

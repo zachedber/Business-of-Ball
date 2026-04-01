@@ -8,7 +8,7 @@ import {
   maxLoan, takeLoan, repayDebt, canAfford,
   getRivalryTier,
   generateCoachCandidates, fireCoach, hireCoach,
-  r1,
+  r1, addPendingEffect,
 } from '@/lib/engine';
 import { DEBT_INTEREST, STAFF_SALARIES } from '@/data/leagues';
 import { UPGRADE_COSTS } from '@/data/leagues';
@@ -347,7 +347,7 @@ function SlotsTab({ fr, setFr, gmRep, offseasonFAPool: frozenPool }) {
       const player = prev[slotName];
       const released = releaseSlot(prev, slotName);
       if (!player) return released;
-      return appendLogEntry(released, {
+      let result = appendLogEntry(released, {
         season: prev.season || 1,
         quarter: null,
         type: 'release',
@@ -355,13 +355,24 @@ function SlotsTab({ fr, setFr, gmRep, offseasonFAPool: frozenPool }) {
         detail: null,
         impact: 'neutral',
       });
+      // Phase 3A: fan backlash for releasing long-tenure or local legend players
+      if (player.isLocalLegend === true || (player.seasonsWithTeam || 0) >= 4) {
+        result = addPendingEffect(result, {
+          id: `cutFav_s${prev.season || 1}_${Date.now()}`,
+          triggerSeason: (prev.season || 1) + 1,
+          type: 'fanRating',
+          delta: player.isLocalLegend ? -15 : -8,
+          source: `Released ${player.name} (${player.seasonsWithTeam || 0} seasons) — fan backlash next year`,
+        });
+      }
+      return result;
     });
   }
 
   function doSign(player, slotName) {
     const signedFranchise = signToSlot(fr, slotName, player);
     if (!signedFranchise) return; // Bugfix: dashboard slot signings now ignore invalid FA moves instead of writing a null franchise.
-    const logged = appendLogEntry(signedFranchise, {
+    let logged = appendLogEntry(signedFranchise, {
       season: fr.season || 1,
       quarter: null,
       type: 'signing',
@@ -369,6 +380,16 @@ function SlotsTab({ fr, setFr, gmRep, offseasonFAPool: frozenPool }) {
       detail: null,
       impact: 'positive',
     });
+    // Phase 3A: marquee FA signing boosts sponsor interest
+    if ((player.rating || 0) >= 82) {
+      logged = addPendingEffect(logged, {
+        id: `bigSigning_s${fr.season || 1}_${Date.now()}`,
+        triggerSeason: (fr.season || 1) + 1,
+        type: 'sponsorInterest',
+        delta: 1,
+        source: `Signed ${player.name} (Rtg ${player.rating}) — sponsor visibility up next season`,
+      });
+    }
     setFr(() => logged);
     setSigningSlot(null);
   }
@@ -717,7 +738,7 @@ function CoachTab({ fr, setFr, gmRep }) {
           {!confirmFire
             ? <button className="btn-secondary" style={{ borderColor: 'var(--red)', color: 'var(--red)', fontSize: '0.7rem' }} onClick={() => setConfirmFire(true)}>Fire</button>
             : <div style={{ display: 'flex', gap: 6 }}>
-                <button className="btn-primary" style={{ fontSize: '0.7rem', padding: '5px 10px' }} onClick={() => { const fired = fireCoach(fr); setFr(() => appendLogEntry(fired, { season: fr.season || 1, quarter: null, type: 'coaching', headline: `${coach.name} fired, $${coach.level * 2}M dead cap`.slice(0, 80), detail: null, impact: 'negative' })); setCandidates(generateCoachCandidates(3)); setConfirmFire(false); }}>
+                <button className="btn-primary" style={{ fontSize: '0.7rem', padding: '5px 10px' }} onClick={() => { const fired = fireCoach(fr); let result = appendLogEntry(fired, { season: fr.season || 1, quarter: null, type: 'coaching', headline: `${coach.name} fired, $${coach.level * 2}M dead cap`.slice(0, 80), detail: null, impact: 'negative' }); if (coach.level >= 3) { result = addPendingEffect(result, { id: `fireCoach_s${fr.season || 1}_${Date.now()}`, triggerSeason: (fr.season || 1) + 1, type: 'mediaRep', delta: -10, source: `Fired ${coach.name} (Lvl ${coach.level} coach) — media scrutiny next season` }); } if (coach.level >= 2) { result = addPendingEffect(result, { id: `fireCoachBoard_s${fr.season || 1}_${Date.now()}`, triggerSeason: (fr.season || 1) + 1, type: 'boardTrust', delta: -5, source: 'Mid-season coaching change — board questions stability' }); } setFr(() => result); setCandidates(generateCoachCandidates(3)); setConfirmFire(false); }}>
                   Confirm (-${coach.level * 2}M)
                 </button>
                 <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '5px 10px' }} onClick={() => setConfirmFire(false)}>Cancel</button>

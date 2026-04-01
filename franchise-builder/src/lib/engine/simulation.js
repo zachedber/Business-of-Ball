@@ -250,7 +250,45 @@ export function simAITeam(team, season) {
     rosterQuality,
     coach,
     history,
+    tradePosture: computeTradePosture(
+      { ...team, wins: w, finances: { profit: r1(profit) } },
+      getSeasonGames(team.league)
+    ),
   };
+}
+
+/**
+ * Computes a trade deadline posture for any team (AI or player).
+ * Called before the trade deadline opens each season to generate buyer/seller signals.
+ *
+ * Posture rules (evaluated in order — first match wins):
+ *   'buyer'  — winPct > 0.62, OR (winPct > 0.50 AND riskTolerance === 'high')
+ *   'seller' — winPct < 0.38, OR (cash < 0 AND spendingTendency === 'small-market-patient')
+ *   'pat'    — all others
+ *
+ * For player franchise, cash comes from f.cash.
+ * For AI teams, cash is approximated as (finances.profit * 2) since AI teams
+ * don't track a running cash balance.
+ *
+ * @param {Object} team - Franchise or AI team state (must have wins, losses fields)
+ * @param {number} gamesPlayed - Number of games played so far this season (for winPct)
+ * @returns {'buyer' | 'seller' | 'pat'}
+ */
+export function computeTradePosture(team, gamesPlayed) {
+  const gp = Math.max(1, gamesPlayed);
+  const winPct = (team.wins || 0) / gp;
+  const identity = team.franchiseIdentity;
+  const riskTolerance = identity?.riskTolerance ?? 'medium';
+  const spendingTendency = identity?.spendingTendency ?? 'mid-market-opportunist';
+
+  // Cash: player franchise has team.cash; AI teams approximate from finances
+  const cash = typeof team.cash === 'number'
+    ? team.cash
+    : r1((team.finances?.profit ?? 0) * 2);
+
+  if (winPct > 0.62 || (winPct > 0.50 && riskTolerance === 'high')) return 'buyer';
+  if (winPct < 0.38 || (cash < 0 && spendingTendency === 'small-market-patient')) return 'seller';
+  return 'pat';
 }
 
 // ============================================================
@@ -273,6 +311,10 @@ export function simPlayerSeason(f, season) {
   if (f.deferredDeadCap > 0) {
     f = { ...f, capDeadMoney: r1((f.capDeadMoney || 0) + f.deferredDeadCap), deferredDeadCap: 0 };
   }
+
+  // Phase 3A: fire any pending delayed consequences before this season's sim runs
+  const { franchise: flushed, firedEffects: _firedEffects } = flushPendingEffects(f, season);
+  f = flushed;
 
   // Economy cycle
   f = updateCityEconomy(f);
@@ -410,6 +452,76 @@ export function simPlayerSeason(f, season) {
     injuries: f.players.filter(p => p.injured).map(p => ({ name: p.name, severity: p.injurySeverity })),
   });
   if (f.history.length > PLAYER_HISTORY_LIMIT) f.history = f.history.slice(-PLAYER_HISTORY_LIMIT);
+
+  // ── Phase 3A: Queue second-order consequences ──────────────────────────────
+
+  // 1. Consecutive winning seasons raise fan expectations (3+ win seasons in a row)
+  {
+    const hist = f.history || [];
+    const winSeasons = [...hist].reverse().findIndex(h => {
+      const wp2 = h.winPct ?? (h.wins / Math.max(1, h.wins + h.losses));
+      return wp2 < 0.5;
+    });
+    // winSeasons = number of consecutive winning seasons before this one
+    // If 2 consecutive already, add expectations pressure for next season
+    if (winSeasons >= 2 && !f.fanExpectationRaised) {
+      f = addPendingEffect(f, {
+        id: `dynExpect_s${season}_${generateId()}`,
+        triggerSeason: season + 1,
+        type: 'fanExpectations',
+        delta: 0,
+        source: `Dynasty run (${winSeasons + 1} winning seasons) — fans now expect playoffs`,
+      });
+    }
+  }
+
+  // 2. Rivalry win streak — merchandise bonus next season
+  {
+    const rivalry = f.rivalry;
+    if (rivalry?.active && (rivalry.playerWins || 0) > (rivalry.aiWins || 0)) {
+      const lead = (rivalry.playerWins || 0) - (rivalry.aiWins || 0);
+      if (lead >= 2) {
+        f = addPendingEffect(f, {
+          id: `rivalMerch_s${season}_${generateId()}`,
+          triggerSeason: season + 1,
+          type: 'fanRating',
+          delta: clamp(lead * 2, 2, 8),
+          source: `Rivalry dominance (${lead}-game lead) — merch and fan buzz carry over`,
+        });
+      }
+    }
+  }
+
+  // 3. Early playoff exit with high board trust → board trust penalty next season
+  {
+    const identity = f.franchiseIdentity;
+    const isChampionshipOrBust = identity?.fanExpectationProfile === 'championship-or-bust';
+    const existingBoardTrust = f.boardTrust ?? 60;
+    const madePlayoffs = f.playoffTeam;
+    const winPct2 = w / games;
+    if (isChampionshipOrBust && madePlayoffs && winPct2 < 0.65 && existingBoardTrust >= 55) {
+      f = addPendingEffect(f, {
+        id: `boardPressure_s${season}_${generateId()}`,
+        triggerSeason: season + 1,
+        type: 'boardTrust',
+        delta: -8,
+        source: `Playoff exit without title — board patience thinning (${identity.fanExpectationProfile} franchise)`,
+      });
+    }
+    // Missing playoffs entirely when board trust is already high hurts more
+    if (!madePlayoffs && existingBoardTrust >= 65) {
+      f = addPendingEffect(f, {
+        id: `missedPlayoffs_s${season}_${generateId()}`,
+        triggerSeason: season + 1,
+        type: 'boardTrust',
+        delta: isChampionshipOrBust ? -15 : -8,
+        source: `Missed playoffs — board confidence down${isChampionshipOrBust ? ' (championship-or-bust franchise)' : ''}`,
+      });
+    }
+  }
+
+  // ── End Phase 3A consequence queueing ──────────────────────────────────────
+
   return f;
 }
 
@@ -451,6 +563,9 @@ export function simQuarter(f, season, quarter) {
       f.capDeadMoney = r1((f.capDeadMoney || 0) + f.deferredDeadCap);
       f.deferredDeadCap = 0;
     }
+
+    // Phase 3A: fire any pending delayed consequences before this season's sim runs
+    { const { franchise: flushed3a } = flushPendingEffects(f, season); f = flushed3a; }
 
     // Economy cycle — ONLY in Q1
     f = updateCityEconomy(f);
@@ -775,6 +890,64 @@ export function simQuarter(f, season, quarter) {
     }
     if (f.leagueHistory?.notableSeasons?.length > MAX_HISTORY) {
       f.leagueHistory = { ...f.leagueHistory, notableSeasons: f.leagueHistory.notableSeasons.slice(-MAX_HISTORY) };
+    }
+
+    // ── Phase 3A: Queue second-order consequences (Q4 end-of-season) ──
+    {
+      const hist = f.history || [];
+      const winSeasons = [...hist].reverse().findIndex(h => {
+        const wp3 = h.winPct ?? (h.wins / Math.max(1, h.wins + h.losses));
+        return wp3 < 0.5;
+      });
+      if (winSeasons >= 2 && !f.fanExpectationRaised) {
+        f = addPendingEffect(f, {
+          id: `dynExpect_s${season}_${generateId()}`,
+          triggerSeason: season + 1,
+          type: 'fanExpectations',
+          delta: 0,
+          source: `Dynasty run (${winSeasons + 1} winning seasons) — fans now expect playoffs`,
+        });
+      }
+    }
+    {
+      const rivalry = f.rivalry;
+      if (rivalry?.active && (rivalry.playerWins || 0) > (rivalry.aiWins || 0)) {
+        const lead = (rivalry.playerWins || 0) - (rivalry.aiWins || 0);
+        if (lead >= 2) {
+          f = addPendingEffect(f, {
+            id: `rivalMerch_s${season}_${generateId()}`,
+            triggerSeason: season + 1,
+            type: 'fanRating',
+            delta: clamp(lead * 2, 2, 8),
+            source: `Rivalry dominance (${lead}-game lead) — merch and fan buzz carry over`,
+          });
+        }
+      }
+    }
+    {
+      const identity = f.franchiseIdentity;
+      const isChampionshipOrBust = identity?.fanExpectationProfile === 'championship-or-bust';
+      const existingBoardTrust = f.boardTrust ?? 60;
+      const madePlayoffs = f.playoffTeam;
+      const winPct3 = w / totalGames;
+      if (isChampionshipOrBust && madePlayoffs && winPct3 < 0.65 && existingBoardTrust >= 55) {
+        f = addPendingEffect(f, {
+          id: `boardPressure_s${season}_${generateId()}`,
+          triggerSeason: season + 1,
+          type: 'boardTrust',
+          delta: -8,
+          source: `Playoff exit without title — board patience thinning (${identity.fanExpectationProfile} franchise)`,
+        });
+      }
+      if (!madePlayoffs && existingBoardTrust >= 65) {
+        f = addPendingEffect(f, {
+          id: `missedPlayoffs_s${season}_${generateId()}`,
+          triggerSeason: season + 1,
+          type: 'boardTrust',
+          delta: isChampionshipOrBust ? -15 : -8,
+          source: `Missed playoffs — board confidence down${isChampionshipOrBust ? ' (championship-or-bust franchise)' : ''}`,
+        });
+      }
     }
 
     // Cleanup quarter fields
@@ -1391,6 +1564,204 @@ export function simulateAIFreeAgency(pool, leagueTeams, league) {
 }
 
 // ============================================================
+// PHASE 3A: FRANCHISE IDENTITY SYSTEM
+// ============================================================
+
+/**
+ * @typedef {Object} PendingEffect
+ * @property {string}  id           - Unique identifier (e.g. 'cutFanFave_s3_abc123')
+ * @property {number}  triggerSeason - Season number when this effect fires
+ * @property {'fanRating'|'mediaRep'|'lockerRoomChemistry'|'boardTrust'|'sponsorInterest'|'fanExpectations'} type
+ * @property {number}  delta        - Signed integer applied to the target field
+ * @property {string}  source       - Human-readable cause (shown in Front Office Log)
+ * @property {boolean} resolved     - Set to true after firing; filtered out post-flush
+ */
+
+/**
+ * Adds a pending effect to a franchise's pendingEffects array.
+ * Pure function — returns new franchise object, does not mutate.
+ * @param {Object} franchise
+ * @param {Omit<PendingEffect,'resolved'>} effect
+ * @returns {Object}
+ */
+export function addPendingEffect(franchise, effect) {
+  return {
+    ...franchise,
+    pendingEffects: [
+      ...(franchise.pendingEffects || []),
+      { ...effect, resolved: false },
+    ],
+  };
+}
+
+/**
+ * Fires all pending effects whose triggerSeason <= currentSeason.
+ * Applies deltas to franchise fields, clamps values, and appends a
+ * Front Office Log entry for each fired effect (so the player can trace
+ * cause-and-effect chains). Removes resolved effects from the array.
+ *
+ * Fields mutated (all clamped 0–100):
+ *   fanRating, mediaRep, lockerRoomChemistry, boardTrust, sponsorLevel
+ *
+ * 'fanExpectations' type does NOT directly mutate a field — it sets
+ *   f.fanExpectationRaised = true, which simExpectationPenalty reads.
+ *
+ * 'sponsorInterest' type adds delta to f.sponsorLevel (clamped 1–5).
+ *
+ * @param {Object} franchise
+ * @param {number} currentSeason
+ * @returns {{ franchise: Object, firedEffects: PendingEffect[] }}
+ */
+export function flushPendingEffects(franchise, currentSeason) {
+  const toFire = (franchise.pendingEffects || []).filter(
+    e => !e.resolved && e.triggerSeason <= currentSeason
+  );
+  if (toFire.length === 0) {
+    return { franchise, firedEffects: [] };
+  }
+
+  let f = { ...franchise };
+  const firedEffects = [];
+
+  for (const effect of toFire) {
+    switch (effect.type) {
+      case 'fanRating':
+        f.fanRating = clamp((f.fanRating || 50) + effect.delta, 0, 100);
+        break;
+      case 'mediaRep':
+        f.mediaRep = clamp((f.mediaRep || 50) + effect.delta, 0, 100);
+        break;
+      case 'lockerRoomChemistry':
+        f.lockerRoomChemistry = clamp((f.lockerRoomChemistry || 65) + effect.delta, 0, 100);
+        break;
+      case 'boardTrust': {
+        f.boardTrust = clamp((f.boardTrust ?? 60) + effect.delta, 0, 100);
+        // Enforce boardTrustFloor from franchiseIdentity
+        const floor = f.franchiseIdentity?.boardTrustFloor ?? 0;
+        f.boardTrust = Math.max(f.boardTrust, floor);
+        break;
+      }
+      case 'sponsorInterest':
+        f.sponsorLevel = clamp((f.sponsorLevel || 1) + effect.delta, 1, 5);
+        break;
+      case 'fanExpectations':
+        f.fanExpectationRaised = true;
+        break;
+    }
+    firedEffects.push({ ...effect, resolved: true });
+  }
+
+  // Remove fired effects; keep future/unresolved ones
+  f.pendingEffects = (f.pendingEffects || []).map(e =>
+    firedEffects.find(fe => fe.id === e.id) ? { ...e, resolved: true } : e
+  ).filter(e => !e.resolved);
+
+  return { franchise: f, firedEffects };
+}
+
+/** Default franchise identity for teams not in the lookup map */
+export const DEFAULT_FRANCHISE_IDENTITY = {
+  ownerPersonality: 'patient',
+  fanExpectationProfile: 'balanced',
+  mediaPressureIndex: 5,
+  spendingTendency: 'mid-market-opportunist',
+  historicCulture: 'underdog-identity',
+  riskTolerance: 'medium',
+  marketPrestige: 5,
+  injuryReputation: 'average',
+  boardTrustFloor: 10,
+};
+
+/**
+ * Franchise identity lookup map for all 62 NGL and ABL teams.
+ * Drives second-order consequences, trade posture, and media pressure scaling.
+ * @type {Record<string, FranchiseIdentity>}
+ */
+export const FRANCHISE_IDENTITIES = {
+  // ── NGL NORTHEAST ──────────────────────────────────────────
+  'ngl-bos': { ownerPersonality: 'patient', fanExpectationProfile: 'championship-or-bust', mediaPressureIndex: 8, spendingTendency: 'big-market-aggressive', historicCulture: 'winning-tradition', riskTolerance: 'medium', marketPrestige: 9, injuryReputation: 'well-run', boardTrustFloor: 20 },
+  'ngl-nyt': { ownerPersonality: 'media-hungry', fanExpectationProfile: 'championship-or-bust', mediaPressureIndex: 10, spendingTendency: 'big-market-aggressive', historicCulture: 'winning-tradition', riskTolerance: 'high', marketPrestige: 10, injuryReputation: 'average', boardTrustFloor: 25 },
+  'ngl-nye': { ownerPersonality: 'aggressive', fanExpectationProfile: 'championship-or-bust', mediaPressureIndex: 9, spendingTendency: 'big-market-aggressive', historicCulture: 'chaos-franchise', riskTolerance: 'high', marketPrestige: 9, injuryReputation: 'injury-mill', boardTrustFloor: 22 },
+  'ngl-phi': { ownerPersonality: 'aggressive', fanExpectationProfile: 'balanced', mediaPressureIndex: 7, spendingTendency: 'mid-market-opportunist', historicCulture: 'underdog-identity', riskTolerance: 'medium', marketPrestige: 7, injuryReputation: 'average', boardTrustFloor: 14 },
+  'ngl-bal': { ownerPersonality: 'patient', fanExpectationProfile: 'balanced', mediaPressureIndex: 5, spendingTendency: 'mid-market-opportunist', historicCulture: 'winning-tradition', riskTolerance: 'medium', marketPrestige: 6, injuryReputation: 'well-run', boardTrustFloor: 12 },
+  'ngl-buf': { ownerPersonality: 'patient', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 3, spendingTendency: 'small-market-patient', historicCulture: 'underdog-identity', riskTolerance: 'low', marketPrestige: 3, injuryReputation: 'average', boardTrustFloor: 5 },
+  'ngl-pit': { ownerPersonality: 'patient', fanExpectationProfile: 'balanced', mediaPressureIndex: 5, spendingTendency: 'mid-market-opportunist', historicCulture: 'winning-tradition', riskTolerance: 'low', marketPrestige: 6, injuryReputation: 'well-run', boardTrustFloor: 11 },
+  'ngl-wdc': { ownerPersonality: 'media-hungry', fanExpectationProfile: 'balanced', mediaPressureIndex: 7, spendingTendency: 'mid-market-opportunist', historicCulture: 'chaos-franchise', riskTolerance: 'high', marketPrestige: 7, injuryReputation: 'injury-mill', boardTrustFloor: 15 },
+
+  // ── NGL SOUTHEAST ──────────────────────────────────────────
+  'ngl-mia': { ownerPersonality: 'aggressive', fanExpectationProfile: 'balanced', mediaPressureIndex: 7, spendingTendency: 'mid-market-opportunist', historicCulture: 'winning-tradition', riskTolerance: 'high', marketPrestige: 7, injuryReputation: 'average', boardTrustFloor: 14 },
+  'ngl-atl': { ownerPersonality: 'patient', fanExpectationProfile: 'balanced', mediaPressureIndex: 6, spendingTendency: 'mid-market-opportunist', historicCulture: 'underdog-identity', riskTolerance: 'medium', marketPrestige: 7, injuryReputation: 'average', boardTrustFloor: 13 },
+  'ngl-car': { ownerPersonality: 'reclusive', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 5, spendingTendency: 'mid-market-opportunist', historicCulture: 'expansion-franchise', riskTolerance: 'low', marketPrestige: 6, injuryReputation: 'average', boardTrustFloor: 11 },
+  'ngl-tbb': { ownerPersonality: 'patient', fanExpectationProfile: 'balanced', mediaPressureIndex: 5, spendingTendency: 'mid-market-opportunist', historicCulture: 'underdog-identity', riskTolerance: 'medium', marketPrestige: 6, injuryReputation: 'well-run', boardTrustFloor: 12 },
+  'ngl-nol': { ownerPersonality: 'reclusive', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 4, spendingTendency: 'small-market-patient', historicCulture: 'underdog-identity', riskTolerance: 'low', marketPrestige: 4, injuryReputation: 'average', boardTrustFloor: 8 },
+  'ngl-nas': { ownerPersonality: 'patient', fanExpectationProfile: 'balanced', mediaPressureIndex: 6, spendingTendency: 'mid-market-opportunist', historicCulture: 'expansion-franchise', riskTolerance: 'medium', marketPrestige: 6, injuryReputation: 'average', boardTrustFloor: 12 },
+  'ngl-jax': { ownerPersonality: 'reclusive', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 2, spendingTendency: 'small-market-patient', historicCulture: 'expansion-franchise', riskTolerance: 'low', marketPrestige: 2, injuryReputation: 'injury-mill', boardTrustFloor: 3 },
+  'ngl-orl': { ownerPersonality: 'patient', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 4, spendingTendency: 'small-market-patient', historicCulture: 'expansion-franchise', riskTolerance: 'medium', marketPrestige: 4, injuryReputation: 'average', boardTrustFloor: 8 },
+
+  // ── NGL MIDWEST ────────────────────────────────────────────
+  'ngl-chi': { ownerPersonality: 'media-hungry', fanExpectationProfile: 'championship-or-bust', mediaPressureIndex: 8, spendingTendency: 'mid-market-opportunist', historicCulture: 'winning-tradition', riskTolerance: 'medium', marketPrestige: 8, injuryReputation: 'average', boardTrustFloor: 16 },
+  'ngl-grb': { ownerPersonality: 'patient', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 2, spendingTendency: 'small-market-patient', historicCulture: 'winning-tradition', riskTolerance: 'low', marketPrestige: 3, injuryReputation: 'well-run', boardTrustFloor: 5 },
+  'ngl-min': { ownerPersonality: 'patient', fanExpectationProfile: 'balanced', mediaPressureIndex: 5, spendingTendency: 'mid-market-opportunist', historicCulture: 'underdog-identity', riskTolerance: 'medium', marketPrestige: 6, injuryReputation: 'average', boardTrustFloor: 12 },
+  'ngl-det': { ownerPersonality: 'reclusive', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 4, spendingTendency: 'small-market-patient', historicCulture: 'chaos-franchise', riskTolerance: 'low', marketPrestige: 4, injuryReputation: 'injury-mill', boardTrustFloor: 6 },
+  'ngl-cle': { ownerPersonality: 'patient', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 4, spendingTendency: 'small-market-patient', historicCulture: 'underdog-identity', riskTolerance: 'medium', marketPrestige: 4, injuryReputation: 'average', boardTrustFloor: 7 },
+  'ngl-ind': { ownerPersonality: 'patient', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 4, spendingTendency: 'small-market-patient', historicCulture: 'underdog-identity', riskTolerance: 'medium', marketPrestige: 4, injuryReputation: 'average', boardTrustFloor: 8 },
+  'ngl-cin': { ownerPersonality: 'reclusive', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 4, spendingTendency: 'small-market-patient', historicCulture: 'chaos-franchise', riskTolerance: 'low', marketPrestige: 4, injuryReputation: 'average', boardTrustFloor: 6 },
+  'ngl-kc': { ownerPersonality: 'patient', fanExpectationProfile: 'balanced', mediaPressureIndex: 5, spendingTendency: 'mid-market-opportunist', historicCulture: 'winning-tradition', riskTolerance: 'medium', marketPrestige: 6, injuryReputation: 'well-run', boardTrustFloor: 11 },
+
+  // ── NGL WEST ───────────────────────────────────────────────
+  'ngl-dal': { ownerPersonality: 'media-hungry', fanExpectationProfile: 'championship-or-bust', mediaPressureIndex: 9, spendingTendency: 'big-market-aggressive', historicCulture: 'winning-tradition', riskTolerance: 'high', marketPrestige: 9, injuryReputation: 'average', boardTrustFloor: 20 },
+  'ngl-hou': { ownerPersonality: 'aggressive', fanExpectationProfile: 'balanced', mediaPressureIndex: 6, spendingTendency: 'mid-market-opportunist', historicCulture: 'expansion-franchise', riskTolerance: 'high', marketPrestige: 7, injuryReputation: 'average', boardTrustFloor: 14 },
+  'ngl-den': { ownerPersonality: 'patient', fanExpectationProfile: 'balanced', mediaPressureIndex: 6, spendingTendency: 'mid-market-opportunist', historicCulture: 'underdog-identity', riskTolerance: 'medium', marketPrestige: 6, injuryReputation: 'well-run', boardTrustFloor: 12 },
+  'ngl-sea': { ownerPersonality: 'aggressive', fanExpectationProfile: 'balanced', mediaPressureIndex: 7, spendingTendency: 'mid-market-opportunist', historicCulture: 'winning-tradition', riskTolerance: 'high', marketPrestige: 7, injuryReputation: 'well-run', boardTrustFloor: 15 },
+  'ngl-bay': { ownerPersonality: 'aggressive', fanExpectationProfile: 'championship-or-bust', mediaPressureIndex: 9, spendingTendency: 'big-market-aggressive', historicCulture: 'winning-tradition', riskTolerance: 'high', marketPrestige: 9, injuryReputation: 'well-run', boardTrustFloor: 22 },
+  'ngl-lac': { ownerPersonality: 'media-hungry', fanExpectationProfile: 'championship-or-bust', mediaPressureIndex: 10, spendingTendency: 'big-market-aggressive', historicCulture: 'winning-tradition', riskTolerance: 'high', marketPrestige: 10, injuryReputation: 'average', boardTrustFloor: 23 },
+  'ngl-las': { ownerPersonality: 'media-hungry', fanExpectationProfile: 'championship-or-bust', mediaPressureIndex: 8, spendingTendency: 'big-market-aggressive', historicCulture: 'chaos-franchise', riskTolerance: 'high', marketPrestige: 9, injuryReputation: 'injury-mill', boardTrustFloor: 18 },
+  'ngl-lvg': { ownerPersonality: 'aggressive', fanExpectationProfile: 'balanced', mediaPressureIndex: 7, spendingTendency: 'mid-market-opportunist', historicCulture: 'expansion-franchise', riskTolerance: 'high', marketPrestige: 7, injuryReputation: 'average', boardTrustFloor: 13 },
+
+  // ── ABL ATLANTIC ───────────────────────────────────────────
+  'abl-bos': { ownerPersonality: 'patient', fanExpectationProfile: 'championship-or-bust', mediaPressureIndex: 8, spendingTendency: 'mid-market-opportunist', historicCulture: 'winning-tradition', riskTolerance: 'medium', marketPrestige: 8, injuryReputation: 'well-run', boardTrustFloor: 17 },
+  'abl-bkn': { ownerPersonality: 'aggressive', fanExpectationProfile: 'championship-or-bust', mediaPressureIndex: 9, spendingTendency: 'big-market-aggressive', historicCulture: 'chaos-franchise', riskTolerance: 'high', marketPrestige: 9, injuryReputation: 'injury-mill', boardTrustFloor: 20 },
+  'abl-nyk': { ownerPersonality: 'media-hungry', fanExpectationProfile: 'championship-or-bust', mediaPressureIndex: 10, spendingTendency: 'big-market-aggressive', historicCulture: 'chaos-franchise', riskTolerance: 'high', marketPrestige: 10, injuryReputation: 'average', boardTrustFloor: 25 },
+  'abl-phi': { ownerPersonality: 'aggressive', fanExpectationProfile: 'balanced', mediaPressureIndex: 6, spendingTendency: 'mid-market-opportunist', historicCulture: 'underdog-identity', riskTolerance: 'medium', marketPrestige: 7, injuryReputation: 'injury-mill', boardTrustFloor: 13 },
+  'abl-tor': { ownerPersonality: 'patient', fanExpectationProfile: 'balanced', mediaPressureIndex: 7, spendingTendency: 'mid-market-opportunist', historicCulture: 'expansion-franchise', riskTolerance: 'medium', marketPrestige: 8, injuryReputation: 'average', boardTrustFloor: 15 },
+
+  // ── ABL CENTRAL ────────────────────────────────────────────
+  'abl-chi': { ownerPersonality: 'media-hungry', fanExpectationProfile: 'balanced', mediaPressureIndex: 7, spendingTendency: 'mid-market-opportunist', historicCulture: 'winning-tradition', riskTolerance: 'medium', marketPrestige: 7, injuryReputation: 'average', boardTrustFloor: 15 },
+  'abl-cle': { ownerPersonality: 'reclusive', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 3, spendingTendency: 'small-market-patient', historicCulture: 'underdog-identity', riskTolerance: 'low', marketPrestige: 3, injuryReputation: 'average', boardTrustFloor: 5 },
+  'abl-det': { ownerPersonality: 'reclusive', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 3, spendingTendency: 'small-market-patient', historicCulture: 'chaos-franchise', riskTolerance: 'low', marketPrestige: 3, injuryReputation: 'injury-mill', boardTrustFloor: 4 },
+  'abl-ind': { ownerPersonality: 'patient', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 4, spendingTendency: 'small-market-patient', historicCulture: 'underdog-identity', riskTolerance: 'medium', marketPrestige: 4, injuryReputation: 'average', boardTrustFloor: 7 },
+  'abl-mil': { ownerPersonality: 'patient', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 3, spendingTendency: 'small-market-patient', historicCulture: 'underdog-identity', riskTolerance: 'low', marketPrestige: 4, injuryReputation: 'well-run', boardTrustFloor: 6 },
+
+  // ── ABL SOUTHEAST ──────────────────────────────────────────
+  'abl-atl': { ownerPersonality: 'aggressive', fanExpectationProfile: 'balanced', mediaPressureIndex: 6, spendingTendency: 'mid-market-opportunist', historicCulture: 'expansion-franchise', riskTolerance: 'high', marketPrestige: 6, injuryReputation: 'average', boardTrustFloor: 12 },
+  'abl-cha': { ownerPersonality: 'reclusive', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 4, spendingTendency: 'small-market-patient', historicCulture: 'expansion-franchise', riskTolerance: 'low', marketPrestige: 4, injuryReputation: 'average', boardTrustFloor: 7 },
+  'abl-mia': { ownerPersonality: 'aggressive', fanExpectationProfile: 'balanced', mediaPressureIndex: 7, spendingTendency: 'mid-market-opportunist', historicCulture: 'winning-tradition', riskTolerance: 'high', marketPrestige: 7, injuryReputation: 'well-run', boardTrustFloor: 14 },
+  'abl-orl': { ownerPersonality: 'patient', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 4, spendingTendency: 'small-market-patient', historicCulture: 'expansion-franchise', riskTolerance: 'medium', marketPrestige: 5, injuryReputation: 'average', boardTrustFloor: 8 },
+  'abl-wdc': { ownerPersonality: 'media-hungry', fanExpectationProfile: 'balanced', mediaPressureIndex: 7, spendingTendency: 'mid-market-opportunist', historicCulture: 'chaos-franchise', riskTolerance: 'high', marketPrestige: 7, injuryReputation: 'average', boardTrustFloor: 14 },
+
+  // ── ABL SOUTHWEST ──────────────────────────────────────────
+  'abl-dal': { ownerPersonality: 'aggressive', fanExpectationProfile: 'balanced', mediaPressureIndex: 7, spendingTendency: 'mid-market-opportunist', historicCulture: 'winning-tradition', riskTolerance: 'high', marketPrestige: 8, injuryReputation: 'average', boardTrustFloor: 16 },
+  'abl-hou': { ownerPersonality: 'aggressive', fanExpectationProfile: 'balanced', mediaPressureIndex: 6, spendingTendency: 'mid-market-opportunist', historicCulture: 'underdog-identity', riskTolerance: 'high', marketPrestige: 7, injuryReputation: 'average', boardTrustFloor: 13 },
+  'abl-mem': { ownerPersonality: 'patient', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 3, spendingTendency: 'small-market-patient', historicCulture: 'underdog-identity', riskTolerance: 'low', marketPrestige: 3, injuryReputation: 'average', boardTrustFloor: 5 },
+  'abl-nol': { ownerPersonality: 'reclusive', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 4, spendingTendency: 'small-market-patient', historicCulture: 'underdog-identity', riskTolerance: 'low', marketPrestige: 4, injuryReputation: 'average', boardTrustFloor: 7 },
+  'abl-san': { ownerPersonality: 'patient', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 4, spendingTendency: 'small-market-patient', historicCulture: 'winning-tradition', riskTolerance: 'low', marketPrestige: 4, injuryReputation: 'well-run', boardTrustFloor: 8 },
+
+  // ── ABL NORTHWEST ──────────────────────────────────────────
+  'abl-den': { ownerPersonality: 'patient', fanExpectationProfile: 'balanced', mediaPressureIndex: 5, spendingTendency: 'mid-market-opportunist', historicCulture: 'underdog-identity', riskTolerance: 'medium', marketPrestige: 6, injuryReputation: 'well-run', boardTrustFloor: 12 },
+  'abl-min': { ownerPersonality: 'reclusive', fanExpectationProfile: 'balanced', mediaPressureIndex: 5, spendingTendency: 'mid-market-opportunist', historicCulture: 'underdog-identity', riskTolerance: 'medium', marketPrestige: 5, injuryReputation: 'average', boardTrustFloor: 10 },
+  'abl-okc': { ownerPersonality: 'patient', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 3, spendingTendency: 'small-market-patient', historicCulture: 'expansion-franchise', riskTolerance: 'medium', marketPrestige: 3, injuryReputation: 'well-run', boardTrustFloor: 4 },
+  'abl-por': { ownerPersonality: 'patient', fanExpectationProfile: 'balanced', mediaPressureIndex: 5, spendingTendency: 'mid-market-opportunist', historicCulture: 'underdog-identity', riskTolerance: 'medium', marketPrestige: 6, injuryReputation: 'injury-mill', boardTrustFloor: 11 },
+  'abl-uta': { ownerPersonality: 'patient', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 4, spendingTendency: 'small-market-patient', historicCulture: 'underdog-identity', riskTolerance: 'low', marketPrestige: 4, injuryReputation: 'average', boardTrustFloor: 7 },
+
+  // ── ABL PACIFIC ────────────────────────────────────────────
+  'abl-bay': { ownerPersonality: 'aggressive', fanExpectationProfile: 'championship-or-bust', mediaPressureIndex: 9, spendingTendency: 'big-market-aggressive', historicCulture: 'winning-tradition', riskTolerance: 'high', marketPrestige: 10, injuryReputation: 'well-run', boardTrustFloor: 23 },
+  'abl-lac': { ownerPersonality: 'media-hungry', fanExpectationProfile: 'championship-or-bust', mediaPressureIndex: 9, spendingTendency: 'big-market-aggressive', historicCulture: 'chaos-franchise', riskTolerance: 'high', marketPrestige: 9, injuryReputation: 'average', boardTrustFloor: 20 },
+  'abl-lal': { ownerPersonality: 'media-hungry', fanExpectationProfile: 'championship-or-bust', mediaPressureIndex: 10, spendingTendency: 'big-market-aggressive', historicCulture: 'winning-tradition', riskTolerance: 'high', marketPrestige: 10, injuryReputation: 'average', boardTrustFloor: 24 },
+  'abl-phx': { ownerPersonality: 'aggressive', fanExpectationProfile: 'balanced', mediaPressureIndex: 5, spendingTendency: 'mid-market-opportunist', historicCulture: 'expansion-franchise', riskTolerance: 'high', marketPrestige: 6, injuryReputation: 'average', boardTrustFloor: 12 },
+  'abl-sac': { ownerPersonality: 'reclusive', fanExpectationProfile: 'rebuild-tolerant', mediaPressureIndex: 4, spendingTendency: 'small-market-patient', historicCulture: 'underdog-identity', riskTolerance: 'low', marketPrestige: 4, injuryReputation: 'average', boardTrustFloor: 7 },
+};
+
+// ============================================================
 // TEAM & LEAGUE INIT
 // ============================================================
 
@@ -1455,6 +1826,7 @@ function initTeam(td, lg) {
       overseasStakes: 0,
     },
     facilityMaintenance: 1,
+    franchiseIdentity: FRANCHISE_IDENTITIES[td.id] ?? DEFAULT_FRANCHISE_IDENTITY,
   };
 }
 
@@ -1611,5 +1983,10 @@ export function createPlayerFranchise(tmpl, lg) {
 
     // Phase 1.5-taxi: taxi squad (max 4 players, develop but don't count against cap)
     taxiSquad: [],
+
+    // Phase 3A: board trust and identity-driven expectations
+    boardTrust: 60,
+    pendingEffects: [],        // PendingEffect[] — queued delayed consequences
+    fanExpectationRaised: false, // set true by flushPendingEffects when dynasty expectations climb
   };
 }

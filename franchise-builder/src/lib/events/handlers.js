@@ -41,14 +41,31 @@ export function getGMRepAfterEvent(gmRep, event) {
  */
 export function resolvePressConference(franchise, option) {
   let updated = { ...franchise };
-  if (option.fanBonus) updated.fanRating = clamp(updated.fanRating + option.fanBonus, 0, 100);
-  if (option.mediaBonus) updated.mediaRep = clamp((updated.mediaRep || 50) + option.mediaBonus, 0, 100);
-  if (option.communityBonus) updated.communityRating = clamp((updated.communityRating || 50) + option.communityBonus, 0, 100);
+
+  // Phase 3A: mediaPressureIndex scales fan and media impact (1–10 scale → 0.5–1.5x multiplier)
+  const mpi = updated.franchiseIdentity?.mediaPressureIndex ?? 5;
+  const pressureScale = 0.5 + (mpi / 10); // mpi=1 → 0.6x, mpi=5 → 1.0x, mpi=10 → 1.5x
+
+  if (option.fanBonus) {
+    const scaled = Math.round(option.fanBonus * pressureScale);
+    updated.fanRating = clamp(updated.fanRating + scaled, 0, 100);
+  }
+  if (option.mediaBonus) {
+    const scaled = Math.round(option.mediaBonus * pressureScale);
+    updated.mediaRep = clamp((updated.mediaRep || 50) + scaled, 0, 100);
+  }
+  if (option.communityBonus) {
+    updated.communityRating = clamp(
+      (updated.communityRating || 50) + option.communityBonus, 0, 100
+    );
+    // communityBonus is NOT scaled by mediaPressureIndex — community impact is independent of media
+  }
   if (option.moraleBonus) {
     updated.players = (updated.players || []).map(p => ({
       ...p,
       morale: clamp(p.morale + option.moraleBonus, 0, 100),
     }));
+    // moraleBonus is NOT scaled — locker room dynamics are independent of media pressure
   }
   return updated;
 }

@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { SLOT_BUDGET, signToSlot, releaseSlot } from '@/lib/engine';
+import { SLOT_BUDGET, signToSlot, releaseSlot, addPendingEffect } from '@/lib/engine';
 import { appendLogEntry } from '@/lib/economy';
 import { RATING_TOOLTIP } from '@/app/components/SharedComponents';
 
@@ -26,7 +26,7 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
   function doSign(player, slotName) {
     const signedFranchise = signToSlot(fr, slotName, player);
     if (!signedFranchise) return; // Bugfix: failed free-agency bids now stop before mutating the pool or slot state.
-    const logged = appendLogEntry(signedFranchise, {
+    let logged = appendLogEntry(signedFranchise, {
       season: fr.season || 1,
       quarter: null,
       type: 'signing',
@@ -34,6 +34,16 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
       detail: null,
       impact: 'positive',
     });
+    // Phase 3A: marquee FA signing boosts sponsor interest
+    if ((player.rating || 0) >= 82) {
+      logged = addPendingEffect(logged, {
+        id: `bigSigning_s${fr.season || 1}_${Date.now()}`,
+        triggerSeason: (fr.season || 1) + 1,
+        type: 'sponsorInterest',
+        delta: 1,
+        source: `Signed ${player.name} (Rtg ${player.rating}) — sponsor visibility up next season`,
+      });
+    }
     setFr(() => logged);
     setPool(prev => prev.filter(p => p.id !== player.id));
   }
@@ -69,7 +79,7 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
       const player = prev[slotName];
       const released = releaseSlot(prev, slotName);
       if (!player) return released;
-      return appendLogEntry(released, {
+      let result = appendLogEntry(released, {
         season: prev.season || 1,
         quarter: null,
         type: 'release',
@@ -77,6 +87,17 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
         detail: null,
         impact: 'neutral',
       });
+      // Phase 3A: fan backlash for releasing long-tenure or local legend players
+      if (player.isLocalLegend === true || (player.seasonsWithTeam || 0) >= 4) {
+        result = addPendingEffect(result, {
+          id: `cutFav_s${prev.season || 1}_${Date.now()}`,
+          triggerSeason: (prev.season || 1) + 1,
+          type: 'fanRating',
+          delta: player.isLocalLegend ? -15 : -8,
+          source: `Released ${player.name} (${player.seasonsWithTeam || 0} seasons) — fan backlash next year`,
+        });
+      }
+      return result;
     });
   }
 
