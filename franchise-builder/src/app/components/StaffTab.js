@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { STAFF_SALARIES } from '@/data/leagues';
 import {
   generateStaffCandidates, fireCoordinator, hireCoordinator, calculateSchemeFit,
-  generateCoachCandidates, fireCoach, hireCoach, canAfford,
+  generateCoachCandidates, fireCoach, hireCoach, canAfford, addPendingEffect,
 } from '@/lib/engine';
 
 const COACH_REP_GATE = { 3: 55, 4: 75 };
@@ -53,7 +53,10 @@ function HeadCoachCard({ fr, setFr, gmRep }) {
             ? <button className="btn-secondary" style={{ borderColor: 'var(--red)', color: 'var(--red)', fontSize: '0.65rem' }} onClick={() => setConfirmFire(true)}>Fire</button>
             : <>
                 <button className="btn-primary" style={{ fontSize: '0.65rem', padding: '4px 8px' }} onClick={() => {
-                  setFr(() => fireCoach(fr));
+                  let result = fireCoach(fr);
+                  if (coach.level >= 3) { result = addPendingEffect(result, { id: `fireCoach_s${fr.season || 1}_${Date.now()}`, triggerSeason: (fr.season || 1) + 1, type: 'mediaRep', delta: -10, source: `Fired ${coach.name} (Lvl ${coach.level} coach) — media scrutiny next season` }); }
+                  if (coach.level >= 2) { result = addPendingEffect(result, { id: `fireCoachBoard_s${fr.season || 1}_${Date.now()}`, triggerSeason: (fr.season || 1) + 1, type: 'boardTrust', delta: -5, source: 'Mid-season coaching change — board questions stability' }); }
+                  setFr(() => result);
                   setCandidates(generateCoachCandidates(3));
                   setConfirmFire(false);
                 }}>

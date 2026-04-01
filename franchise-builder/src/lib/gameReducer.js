@@ -1,4 +1,4 @@
-import { initLeagueHistory } from '@/lib/engine';
+import { initLeagueHistory, addPendingEffect, flushPendingEffects, computeTradePosture } from '@/lib/engine';
 import { resolveOffseasonEvent, getGMRepAfterEvent, resolvePressConference } from '@/lib/events/handlers';
 import { applyCBAChoice } from '@/lib/economy/handlers';
 import { acceptNamingRights, appendLogEntry } from '@/lib/economy';
@@ -620,6 +620,16 @@ export function gameReducer(state, action) {
      */
     case 'FIRE_COACH': {
       return state;
+    }
+
+    /**
+     * Queues a delayed consequence on the active franchise.
+     * payload: Omit<PendingEffect, 'resolved'>
+     * Used by UI screens (e.g. coaching hire, FA signing, cut player)
+     * to attach second-order effects at the moment of decision.
+     */
+    case 'ADD_PENDING_EFFECT': {
+      return updateActiveFr(state, f => addPendingEffect(f, action.payload));
     }
 
     /**
