@@ -59,7 +59,7 @@ function hexToRgba(hex, alpha) {
 // ============================================================
 // DASHBOARD
 // ============================================================
-export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve, pressConf, onPressConf, newspaper, newspaperDismissed, onDismissNewspaper, cbaEvent, onCBA, namingOffer, onNaming, gmRep, notifications, onDismissNotif, onCashChange, leagueHistory, offseasonFAPool, quarterPhase }) {
+export default function Dashboard({ fr, setFr, onSim, simming, recap, grade, events, onResolve, pressConf, onPressConf, newspaper, newspaperDismissed, onDismissNewspaper, cbaEvent, onCBA, namingOffer, onNaming, gmRep, notifications, onDismissNotif, onCashChange, leagueHistory, offseasonFAPool, quarterPhase, dispatch }) {
   const [tab, setTab] = useState('home');
   const [showTutorial, setShowTutorial] = useState(false);
   const cap = useMemo(() => calculateCapSpace(fr), [fr]);

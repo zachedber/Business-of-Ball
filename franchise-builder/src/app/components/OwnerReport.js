@@ -28,7 +28,7 @@ export default function OwnerReport({ fr, recap, grade }) {
 
       {/* Sub-tab nav */}
       <div className="tab-nav" style={{ marginBottom: 12 }}>
-        {[['summary', 'Summary'], ['analysis', 'Analysis']].map(([key, label]) => (
+        {[['summary', 'Summary'], ['analysis', 'Analysis'], ['coming', 'Coming']].map(([key, label]) => (
           <button
             key={key}
             className={`tab-btn${subTab === key ? ' active' : ''}`}
@@ -45,6 +45,10 @@ export default function OwnerReport({ fr, recap, grade }) {
 
       {subTab === 'analysis' && (
         <AnalysisTab report={report} />
+      )}
+
+      {subTab === 'coming' && (
+        <ComingConsequencesTab consequences={report.pendingConsequences} />
       )}
     </div>
   );
@@ -136,6 +140,114 @@ function AnalysisTab({ report }) {
           <span className="font-body" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>{verdict.gradeReason}</span>
         </div>
       </Section>
+    </div>
+  );
+}
+
+// ── Coming Consequences Sub-tab ───────────────────────────────────────
+
+function ComingConsequencesTab({ consequences }) {
+  if (!consequences) return (
+    <p className="font-body" style={{ fontSize: '0.82rem', color: 'var(--ink-muted)', fontStyle: 'italic' }}>
+      No pending effects data available.
+    </p>
+  );
+
+  const { items, boardTrust, boardTrustFloor } = consequences;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Board Trust meter */}
+      {boardTrust !== null && (
+        <div style={{ padding: '12px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(26,18,8,0.08)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span className="font-display" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Board Trust</span>
+            <span className="font-mono" style={{ fontSize: '0.8rem', color: boardTrust < 35 ? 'var(--red)' : boardTrust < 55 ? 'var(--amber, #D4A017)' : 'var(--green)' }}>
+              {boardTrust}/100
+            </span>
+          </div>
+          {/* Progress bar */}
+          <div style={{ height: 6, borderRadius: 3, background: 'rgba(26,18,8,0.1)', overflow: 'hidden' }}>
+            <div style={{
+              height: '100%',
+              width: `${boardTrust}%`,
+              borderRadius: 3,
+              background: boardTrust < 35 ? 'var(--red)' : boardTrust < 55 ? '#D4A017' : 'var(--green)',
+              transition: 'width 0.3s ease',
+            }} />
+          </div>
+          {boardTrustFloor > 0 && (
+            <p className="font-body" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', marginTop: 4 }}>
+              Minimum floor: {boardTrustFloor} (franchise identity protection)
+            </p>
+          )}
+          {boardTrust < 35 && (
+            <p className="font-body" style={{ fontSize: '0.75rem', color: 'var(--red)', marginTop: 6, fontWeight: 600 }}>
+              ⚠️ Board confidence is critically low. Another disappointing season risks a forced sale.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Pending effects list */}
+      {items.length === 0 ? (
+        <p className="font-body" style={{ fontSize: '0.82rem', color: 'var(--ink-muted)', fontStyle: 'italic' }}>
+          No delayed consequences queued. Clean slate heading into next season.
+        </p>
+      ) : (
+        <div>
+          {/* Next season effects */}
+          {items.filter(i => i.timing === 'next').length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <p className="font-display" style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 8, color: 'var(--ink)' }}>
+                Arriving Next Season
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {items.filter(i => i.timing === 'next').map((item, idx) => (
+                  <div key={idx} style={{
+                    padding: '8px 12px', borderRadius: 6,
+                    background: item.delta < 0 || item.type === 'fanExpectations' ? 'rgba(220,53,69,0.07)' : 'rgba(46,160,67,0.07)',
+                    border: `1px solid ${item.delta < 0 || item.type === 'fanExpectations' ? 'rgba(220,53,69,0.2)' : 'rgba(46,160,67,0.2)'}`,
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <span className="font-mono" style={{ fontSize: '0.78rem', fontWeight: 600, color: item.delta < 0 || item.type === 'fanExpectations' ? 'var(--red)' : 'var(--green)' }}>
+                        {item.label}
+                      </span>
+                    </div>
+                    <p className="font-body" style={{ fontSize: '0.72rem', color: 'var(--ink-muted)', marginTop: 3 }}>
+                      {item.source}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Future season effects */}
+          {items.filter(i => i.timing === 'future').length > 0 && (
+            <div>
+              <p className="font-display" style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 8, color: 'var(--ink)' }}>
+                On the Horizon
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {items.filter(i => i.timing === 'future').map((item, idx) => (
+                  <div key={idx} style={{
+                    padding: '8px 12px', borderRadius: 6,
+                    background: 'rgba(26,18,8,0.04)',
+                    border: '1px solid var(--cream-darker)',
+                  }}>
+                    <span className="font-mono" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
+                      {item.label}
+                    </span>
+                    <p className="font-body" style={{ fontSize: '0.72rem', color: 'var(--ink-muted)', marginTop: 3 }}>
+                      {item.source}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

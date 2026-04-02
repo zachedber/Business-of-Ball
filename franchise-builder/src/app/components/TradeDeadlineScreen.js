@@ -18,7 +18,7 @@ import { RATING_TOOLTIP } from '@/app/components/SharedComponents';
  * @param {number}   cash            - Global liquid cash
  * @param {function} setCash         - Global cash setter
  */
-export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCash, tradeOffers, onAcceptTrade, onDeclineTrade, waiverPool, onSignWaiver }) {
+export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCash, tradeOffers, onAcceptTrade, onDeclineTrade, waiverPool, onSignWaiver, leagueTeams }) {
   const [deadlineFAs] = useState(() => generateDeadlineFreeAgents(fr.league, 6));
   const [error, setError] = useState(null);
   const [released, setReleased] = useState([]);
@@ -76,12 +76,93 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
     [fr.players]
   );
 
+  // Phase 3B: compute posture for all teams in the same league as the player
+  const leaguePostureBoard = useMemo(() => {
+    if (!leagueTeams) return [];
+    const allTeams = (leagueTeams[fr.league] || []).filter(t => !t.isPlayerOwned);
+    return allTeams.map(team => {
+      const gp = Math.max(1, (team.wins || 0) + (team.losses || 0));
+      const winPct = (team.wins || 0) / gp;
+      const identity = team.franchiseIdentity;
+      const riskTolerance = identity?.riskTolerance ?? 'medium';
+      const spendingTendency = identity?.spendingTendency ?? 'mid-market-opportunist';
+      const teamCash = typeof team.cash === 'number'
+        ? team.cash
+        : ((team.finances?.profit ?? 0) * 2);
+      let posture;
+      if (winPct > 0.62 || (winPct > 0.50 && riskTolerance === 'high')) posture = 'buyer';
+      else if (winPct < 0.38 || (teamCash < 0 && spendingTendency === 'small-market-patient')) posture = 'seller';
+      else posture = 'pat';
+      return { id: team.id, city: team.city, name: team.name, wins: team.wins || 0, losses: team.losses || 0, posture };
+    }).sort((a, b) => {
+      const order = { buyer: 0, pat: 1, seller: 2 };
+      return (order[a.posture] ?? 1) - (order[b.posture] ?? 1);
+    });
+  }, [leagueTeams, fr.league]);
+
+  // Visibility gating: scouting staff level determines how many teams the player can see
+  const visiblePostureCount = fr.scoutingStaff >= 3 ? leaguePostureBoard.length
+    : fr.scoutingStaff >= 2 ? Math.min(12, leaguePostureBoard.length)
+    : Math.min(5, leaguePostureBoard.length);
+  const visiblePostureTeams = leaguePostureBoard.slice(0, visiblePostureCount);
+  const hasHiddenTeams = visiblePostureCount < leaguePostureBoard.length;
+
   const availableFAs = deadlineFAs.filter(
     fa => !fr.players.some(p => p.id === fa.id)
   );
 
   return (
     <div className="fade-in" style={{ maxWidth: 860, margin: '0 auto', padding: '16px 12px' }}>
+
+      {/* ── Phase 3B: League Trade Posture Board ── */}
+      {leagueTeams && visiblePostureTeams.length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <h3 className="font-display section-header" style={{ fontSize: '0.9rem', margin: 0 }}>
+              League Trade Activity
+            </h3>
+            {hasHiddenTeams && (
+              <span className="font-mono" style={{ fontSize: '0.72rem', color: 'var(--ink-muted)' }}>
+                {leaguePostureBoard.length - visiblePostureCount} teams hidden — upgrade Scouting Staff to reveal
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 6 }}>
+            {visiblePostureTeams.map(team => (
+              <div
+                key={team.id}
+                className="card"
+                style={{
+                  padding: '8px 10px',
+                  border: `1px solid ${
+                    team.posture === 'buyer' ? 'rgba(46,160,67,0.35)'
+                    : team.posture === 'seller' ? 'rgba(220,53,69,0.35)'
+                    : 'var(--cream-darker)'
+                  }`,
+                  background: team.posture === 'buyer' ? 'rgba(46,160,67,0.06)'
+                    : team.posture === 'seller' ? 'rgba(220,53,69,0.06)'
+                    : 'transparent',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                  <span className="font-display" style={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                    {team.city} {team.name}
+                  </span>
+                  <span style={{ fontSize: '1rem' }}>
+                    {team.posture === 'buyer' ? '🟢' : team.posture === 'seller' ? '🔴' : '⚪'}
+                  </span>
+                </div>
+                <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>
+                  {team.wins}-{team.losses} · {team.posture === 'buyer' ? 'Buying' : team.posture === 'seller' ? 'Selling' : 'Standing Pat'}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 8, fontSize: '0.7rem', color: 'var(--ink-muted)', fontStyle: 'italic' }}>
+            🟢 Active buyers &nbsp;⚪ Standing pat &nbsp;🔴 Looking to sell
+          </div>
+        </div>
+      )}
 
       {/* ── HEADER BANNER ── */}
       <div style={{
