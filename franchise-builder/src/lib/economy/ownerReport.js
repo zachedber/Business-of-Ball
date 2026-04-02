@@ -23,8 +23,9 @@ export function buildOwnerReport(franchise, prevSeasonHistory) {
   const finances = buildFinancialPerformance(f, currentHistory, prev);
   const valuation = buildValuation(f, prev);
   const verdict = buildVerdict(f, currentHistory, prev, onField, fanSentiment, finances, valuation);
+  const pendingConsequences = buildPendingConsequences(f);
 
-  return { onField, fanSentiment, finances, valuation, verdict };
+  return { onField, fanSentiment, finances, valuation, verdict, pendingConsequences };
 }
 
 // ── Section 1: On-Field Results ──────────────────────────────────────
@@ -256,6 +257,62 @@ function buildVerdict(f, current, prev, onField, fanSentiment, finances, valuati
   }
 
   return { success, failure, grade, gradeReason };
+}
+
+// ── Section 6: Pending Consequences ──────────────────────────────────
+
+/**
+ * Summarizes pending effects that will fire in the next 1–2 seasons.
+ * Returns an array of consequence descriptors for the Owner Report.
+ */
+function buildPendingConsequences(f) {
+  const pending = (f.pendingEffects || []).filter(e => !e.resolved);
+  if (pending.length === 0) return { items: [], boardTrust: f.boardTrust ?? null };
+
+  const nextSeason = (f.season || 1) + 1;
+
+  // Group into "fires next season" vs "fires later"
+  const nextSeasonItems = pending.filter(e => e.triggerSeason === nextSeason);
+  const futureItems = pending.filter(e => e.triggerSeason > nextSeason);
+
+  // Build display items
+  const items = [
+    ...nextSeasonItems.map(e => ({
+      timing: 'next',
+      type: e.type,
+      delta: e.delta,
+      source: e.source,
+      label: formatPendingEffectLabel(e),
+    })),
+    ...futureItems.map(e => ({
+      timing: 'future',
+      type: e.type,
+      delta: e.delta,
+      source: e.source,
+      label: formatPendingEffectLabel(e),
+    })),
+  ];
+
+  return {
+    items,
+    boardTrust: f.boardTrust ?? null,
+    boardTrustFloor: f.franchiseIdentity?.boardTrustFloor ?? 0,
+  };
+}
+
+function formatPendingEffectLabel(effect) {
+  const fieldLabels = {
+    fanRating: 'Fan Rating',
+    mediaRep: 'Media Rep',
+    lockerRoomChemistry: 'Locker Room Chemistry',
+    boardTrust: 'Board Trust',
+    sponsorInterest: 'Sponsor Level',
+    fanExpectations: 'Fan Expectations',
+  };
+  const field = fieldLabels[effect.type] || effect.type;
+  if (effect.type === 'fanExpectations') return `Fan expectations elevated — below-.500 next season will hit harder`;
+  const sign = effect.delta > 0 ? '+' : '';
+  return `${field} ${sign}${effect.delta}`;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────

@@ -385,6 +385,8 @@ export default function App() {
             aiSigningsLog={aiSigningsLog}
             onDone={handleFreeAgencyDone}
             gmRep={gmRep}
+            dispatch={dispatch}
+            currentSeason={season}
           />
         )}
 
@@ -454,6 +456,7 @@ export default function App() {
             onSignWaiver={(player) => {
               dispatch({ type: 'SIGN_WAIVER', payload: { player, waiverPool } });
             }}
+            leagueTeams={tradeDeadlineLeague || lt}
           />
         )}
 
@@ -483,6 +486,7 @@ export default function App() {
             leagueHistory={leagueHistory}
             offseasonFAPool={offseasonFAPool}
             quarterPhase={quarterPhase}
+            dispatch={dispatch}
           />
         )}
 

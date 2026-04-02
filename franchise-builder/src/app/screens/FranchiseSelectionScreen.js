@@ -3,6 +3,7 @@ import { useState, useMemo } from 'react';
 import { NGL_TEAMS, ABL_TEAMS, MARKET_TIERS, getMarketTier, getMarketTierInfo } from '@/data/leagues';
 import { getContrastText } from '@/data/teamColors';
 import { calculateDynamicInterestRate, calculateDebtPayment } from '@/lib/engine/finance';
+import { FRANCHISE_IDENTITIES } from '@/lib/engine/simulation';
 
 // Starting cash by market tier
 const TIER_CASH = { 1: 120, 2: 100, 3: 85, 4: 75, 5: 65 };
@@ -173,6 +174,24 @@ export default function FranchiseSelectionScreen({ onCreate }) {
                           <span className="font-mono" style={{ color: 'var(--profit)' }}>${startCash}M</span>
                           <span className="font-mono" style={{ color: 'var(--ink-muted)' }}>{team.division}</span>
                         </div>
+                        {FRANCHISE_IDENTITIES[team.id] && (
+                          <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                            <span style={{
+                              fontSize: '0.65rem', padding: '2px 7px', borderRadius: 10,
+                              background: 'rgba(26,18,8,0.07)', color: 'var(--ink-muted)',
+                              fontFamily: 'var(--font-mono, monospace)',
+                            }}>
+                              {FRANCHISE_IDENTITIES[team.id].historicCulture.replace(/-/g, ' ')}
+                            </span>
+                            <span style={{
+                              fontSize: '0.65rem', padding: '2px 7px', borderRadius: 10,
+                              background: 'rgba(26,18,8,0.07)', color: 'var(--ink-muted)',
+                              fontFamily: 'var(--font-mono, monospace)',
+                            }}>
+                              {FRANCHISE_IDENTITIES[team.id].fanExpectationProfile.replace(/-/g, ' ')}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}

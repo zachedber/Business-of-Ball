@@ -7,7 +7,7 @@ import { RATING_TOOLTIP } from '@/app/components/SharedComponents';
 // ============================================================
 // FREE AGENCY FLOW SCREEN
 // ============================================================
-export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSigningsLog, onDone, gmRep }) {
+export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSigningsLog, onDone, gmRep, dispatch, currentSeason }) {
   const [pool, setPool] = useState(offseasonFAPool || []);
   const [biddingWar, setBiddingWar] = useState(null); // { player, slotName, aiSalary, aiTeamName }
   const [showTransactions, setShowTransactions] = useState(false);
