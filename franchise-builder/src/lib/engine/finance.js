@@ -73,6 +73,30 @@ export function buildMandatoryDebt(askingPrice, market) {
     cash: Math.max(0, baseCapital - askingPrice),
   };
 }
+/**
+ * Returns a debt pressure level for a franchise, used to surface
+ * warnings in the UI and gate the board pressure check.
+ *
+ * Levels:
+ *   'none'     — debt/valuation ratio <= 0.20
+ *   'watch'    — ratio 0.21–0.30
+ *   'warning'  — ratio 0.31–0.38
+ *   'critical' — ratio > 0.38 (approaching MAX_DEBT_RATIO of 0.40)
+ *
+ * @param {Object} f - Franchise state with debt and history/valuation fields
+ * @returns {'none' | 'watch' | 'warning' | 'critical'}
+ */
+export function getDebtPressureLevel(f) {
+  if (!f.debt || f.debt <= 0) return 'none';
+  const val = calculateValuation(f);
+  if (val <= 0) return 'critical';
+  const ratio = f.debt / val;
+  if (ratio <= 0.20) return 'none';
+  if (ratio <= 0.30) return 'watch';
+  if (ratio <= 0.38) return 'warning';
+  return 'critical';
+}
+
 export function applyDebtPenalty(debtObject, cash) {
   const debt = { ...(debtObject || {}) };
   const availableCash = Math.max(0, Number(cash) || 0);
@@ -493,7 +517,21 @@ export function calculateEndSeasonFinances(f, winPct, totalGames, econMod = 1.0)
   const maintBase = f.stadiumAge > 15 ? f.stadiumAge * 0.3 : 1;
   const maintMult = _stadTier ? _stadTier.maintMultiplier : 1.0;
   const maint = maintBase * maintMult;
-  const interest = (f.debt || 0) * DEBT_INTEREST;
+  let interest = (f.debt || 0) * DEBT_INTEREST;
+
+  // Phase 4: Debt recovery escape hatch — if franchise is in critical debt,
+  // cap annual interest accrual at 5% of current valuation to prevent
+  // irrecoverable spirals. This is a soft safety net, not forgiveness.
+  const debtPressure = getDebtPressureLevel(f);
+  if (debtPressure === 'critical') {
+    const maxInterestThisSeason = r1(calculateValuation(f) * 0.05);
+    if (interest > maxInterestThisSeason) {
+      const saved = r1(interest - maxInterestThisSeason);
+      f = { ...f, debt: Math.max(0, r1((f.debt || 0) - saved)) };
+      interest = maxInterestThisSeason;
+    }
+  }
+
   // Coordinator salaries
   let coordSalaries = 0;
   if (f.offensiveCoordinator) coordSalaries += STAFF_SALARIES.oc[f.offensiveCoordinator.level] || 1;

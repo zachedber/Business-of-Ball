@@ -313,6 +313,7 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
                       className="btn-secondary"
                       style={{ fontSize: '0.72rem', borderColor: 'var(--red)', color: 'var(--red)' }}
                       onClick={() => releasePlayer(player.id)}
+                      aria-label={`Release ${player.name}`}
                     >
                       Release
                     </button>
@@ -371,6 +372,7 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
                     className="btn-primary"
                     style={{ fontSize: '0.72rem' }}
                     onClick={() => onAcceptTrade && onAcceptTrade(offer)}
+                    aria-label={`Accept trade offer from ${offer.aiTeam?.city || ''} ${offer.aiTeam?.name || ''}`}
                   >
                     Accept Trade
                   </button>
@@ -378,6 +380,7 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
                     className="btn-secondary"
                     style={{ fontSize: '0.72rem' }}
                     onClick={() => onDeclineTrade && onDeclineTrade(offer.id)}
+                    aria-label={`Decline trade offer from ${offer.aiTeam?.city || ''} ${offer.aiTeam?.name || ''}`}
                   >
                     Decline
                   </button>
@@ -405,6 +408,7 @@ export default function TradeDeadlineScreen({ fr, setFr, onContinue, cash, setCa
                     style={{ fontSize: '0.72rem', opacity: hasSlot ? 1 : 0.5 }}
                     disabled={!hasSlot}
                     onClick={() => onSignWaiver && onSignWaiver(p)}
+                    aria-label={`Sign ${p.name} off waivers`}
                   >
                     {hasSlot ? 'Claim' : 'No Slot'}
                   </button>
