@@ -120,7 +120,7 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
                 <>
                   <div className="font-display" style={{ fontSize: '0.95rem', fontWeight: 700 }}>{player.name}</div>
                   <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>{player.position} · {player.rating} rtg · ${player.salary}M{player.developmentPhase ? ` · ${player.developmentPhase}` : ''}</div>
-                  <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '3px 8px', marginTop: 6, borderColor: 'var(--red)', color: 'var(--red)' }} onClick={() => doRelease(key)}>
+                  <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '3px 8px', marginTop: 6, borderColor: 'var(--red)', color: 'var(--red)' }} onClick={() => doRelease(key)} aria-label={`Release player from ${label} slot`}>
                     Release
                   </button>
                 </>
@@ -188,6 +188,7 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
                                 disabled={!canAfford || wouldOverBudget || slotFull}
                                 onClick={() => attemptSign(p, key)}
                                 title={slotFull ? 'Slot full' : !canAfford ? 'Insufficient cash' : wouldOverBudget ? 'Over budget' : `Sign to ${label}`}
+                                aria-label={`Sign ${p.name} to ${label} slot`}
                               >
                                 {label}
                               </button>
@@ -216,7 +217,7 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
           position: 'fixed', inset: 0, background: 'rgba(30,26,20,0.55)', display: 'flex',
           alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16,
         }}>
-          <div className="card-elevated" style={{ maxWidth: 420, width: '100%', padding: 20, border: '2px solid var(--amber)' }}>
+          <div className="card-elevated" style={{ maxWidth: 420, width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: 20, border: '2px solid var(--amber)' }}>
             <h3 className="font-display" style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--amber)', marginBottom: 6 }}>
               Bidding War!
             </h3>
@@ -230,6 +231,7 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
                 style={{ fontSize: '0.72rem', padding: '7px 14px' }}
                 disabled={(fr.cash || 0) < biddingWar.aiSalary}
                 onClick={() => acceptBid(0)}
+                aria-label="Match competing offer"
               >
                 Match — ${biddingWar.aiSalary}M/yr
               </button>
@@ -238,6 +240,7 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
                 style={{ fontSize: '0.72rem', padding: '7px 14px', borderColor: 'var(--green)', color: 'var(--green)' }}
                 disabled={(fr.cash || 0) < Math.round(biddingWar.aiSalary * 1.10 * 10) / 10}
                 onClick={() => acceptBid(0.10)}
+                aria-label="Outbid competing offer by 10 percent"
               >
                 Outbid (+10%) — ${Math.round(biddingWar.aiSalary * 1.10 * 10) / 10}M/yr
               </button>
@@ -245,6 +248,7 @@ export default function FreeAgencyFlowScreen({ fr, setFr, offseasonFAPool, aiSig
                 className="btn-secondary"
                 style={{ fontSize: '0.72rem', padding: '7px 14px', borderColor: 'var(--red)', color: 'var(--red)' }}
                 onClick={walkAway}
+                aria-label="Let AI team sign player"
               >
                 Walk Away
               </button>

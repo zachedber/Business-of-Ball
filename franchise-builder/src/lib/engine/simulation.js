@@ -1659,6 +1659,41 @@ export function flushPendingEffects(franchise, currentSeason) {
   return { franchise: f, firedEffects };
 }
 
+/**
+ * Evaluates whether the board fires the owner after a season.
+ * Called at end-of-season, after pendingEffects have been flushed.
+ *
+ * Firing conditions (ALL must be true):
+ *   1. boardTrust <= 15
+ *   2. boardTrust is at or below the boardTrustFloor (no identity protection remaining)
+ *   3. The franchise has played at least 3 seasons (grace period)
+ *
+ * Returns an object describing the outcome, NOT a mutated state.
+ *
+ * @param {Object} franchise - Player franchise state (after season sim)
+ * @returns {{ fired: boolean, reason: string | null }}
+ */
+export function checkBoardPressure(franchise) {
+  const trust = franchise.boardTrust ?? 60;
+  const floor = franchise.franchiseIdentity?.boardTrustFloor ?? 0;
+  const seasonsPlayed = franchise.season || 1;
+
+  if (seasonsPlayed < 3) return { fired: false, reason: null };
+  if (trust > 15) return { fired: false, reason: null };
+  if (trust > floor) return { fired: false, reason: null };
+
+  // Determine reason for firing
+  const lastHistory = franchise.history?.[franchise.history.length - 1];
+  const winPct = lastHistory?.winPct ?? 0;
+  let reason;
+  if (winPct < 0.35) {
+    reason = `The board has lost confidence after a ${Math.round(winPct * 100)}% win rate season. You have been relieved of your duties.`;
+  } else {
+    reason = `Despite on-field performance, the board has lost confidence in your franchise management. You have been removed as owner.`;
+  }
+  return { fired: true, reason };
+}
+
 /** Default franchise identity for teams not in the lookup map */
 export const DEFAULT_FRANCHISE_IDENTITY = {
   ownerPersonality: 'patient',

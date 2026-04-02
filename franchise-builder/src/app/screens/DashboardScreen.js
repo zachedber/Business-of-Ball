@@ -736,9 +736,9 @@ function CoachTab({ fr, setFr, gmRep }) {
             </div>
           </div>
           {!confirmFire
-            ? <button className="btn-secondary" style={{ borderColor: 'var(--red)', color: 'var(--red)', fontSize: '0.7rem' }} onClick={() => setConfirmFire(true)}>Fire</button>
+            ? <button className="btn-secondary" style={{ borderColor: 'var(--red)', color: 'var(--red)', fontSize: '0.7rem' }} onClick={() => setConfirmFire(true)} aria-label="Fire head coach">Fire</button>
             : <div style={{ display: 'flex', gap: 6 }}>
-                <button className="btn-primary" style={{ fontSize: '0.7rem', padding: '5px 10px' }} onClick={() => { const fired = fireCoach(fr); let result = appendLogEntry(fired, { season: fr.season || 1, quarter: null, type: 'coaching', headline: `${coach.name} fired, $${coach.level * 2}M dead cap`.slice(0, 80), detail: null, impact: 'negative' }); if (coach.level >= 3) { result = addPendingEffect(result, { id: `fireCoach_s${fr.season || 1}_${Date.now()}`, triggerSeason: (fr.season || 1) + 1, type: 'mediaRep', delta: -10, source: `Fired ${coach.name} (Lvl ${coach.level} coach) — media scrutiny next season` }); } if (coach.level >= 2) { result = addPendingEffect(result, { id: `fireCoachBoard_s${fr.season || 1}_${Date.now()}`, triggerSeason: (fr.season || 1) + 1, type: 'boardTrust', delta: -5, source: 'Mid-season coaching change — board questions stability' }); } setFr(() => result); setCandidates(generateCoachCandidates(3)); setConfirmFire(false); }}>
+                <button className="btn-primary" style={{ fontSize: '0.7rem', padding: '5px 10px' }} aria-label="Confirm fire coach" onClick={() => { const fired = fireCoach(fr); let result = appendLogEntry(fired, { season: fr.season || 1, quarter: null, type: 'coaching', headline: `${coach.name} fired, $${coach.level * 2}M dead cap`.slice(0, 80), detail: null, impact: 'negative' }); if (coach.level >= 3) { result = addPendingEffect(result, { id: `fireCoach_s${fr.season || 1}_${Date.now()}`, triggerSeason: (fr.season || 1) + 1, type: 'mediaRep', delta: -10, source: `Fired ${coach.name} (Lvl ${coach.level} coach) — media scrutiny next season` }); } if (coach.level >= 2) { result = addPendingEffect(result, { id: `fireCoachBoard_s${fr.season || 1}_${Date.now()}`, triggerSeason: (fr.season || 1) + 1, type: 'boardTrust', delta: -5, source: 'Mid-season coaching change — board questions stability' }); } setFr(() => result); setCandidates(generateCoachCandidates(3)); setConfirmFire(false); }}>
                   Confirm (-${coach.level * 2}M)
                 </button>
                 <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '5px 10px' }} onClick={() => setConfirmFire(false)}>Cancel</button>
@@ -768,6 +768,7 @@ function CoachTab({ fr, setFr, gmRep }) {
                   style={{ fontSize: '0.7rem', padding: '5px 12px', opacity: repLocked ? 0.4 : 1 }}
                   disabled={repLocked}
                   title={repLocked ? `Need ${repRequired} GM Rep` : ''}
+                  aria-label={`Hire ${cd.name} as head coach`}
                   onClick={() => { const hired = hireCoach(fr, cd); setFr(() => appendLogEntry(hired, { season: fr.season || 1, quarter: null, type: 'coaching', headline: `${cd.name} hired as Head Coach (Lv ${cd.level})`.slice(0, 80), detail: null, impact: 'positive' })); setCandidates(null); }}
                 >
                   Hire
@@ -1123,6 +1124,7 @@ function FacTab({ fr, setFr, onCashChange }) {
                   disabled={!canAffordIt}
                   onClick={() => upgrade(key)}
                   title={!canAffordIt ? 'Insufficient cash' : `Upgrade for $${cost}M`}
+                  aria-label={`Upgrade ${label} for $${cost}M`}
                 >
                   ${cost}M
                 </button>

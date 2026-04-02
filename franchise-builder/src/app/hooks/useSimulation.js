@@ -20,6 +20,7 @@ import {
   generateFreeAgents,
   genPressConference,
   generateDraftProspects,
+  checkBoardPressure,
   r1,
 } from '@/lib/engine';
 import { applyDebtPenalty, calculateDebtPayment } from '@/lib/engine/finance';
@@ -67,6 +68,15 @@ export function useSimulation({ state, dispatch, doSave, refs }) {
       if ((updatedDebt.consecutiveMissedPayments || 0) >= 2) gameOverForced = true;
     }
     if (gameOverForced) return dispatch({ type: 'GAME_OVER_FORCED' });
+
+    // Phase 4: Board pressure fire check
+    const boardPressureResult = af ? checkBoardPressure(af) : { fired: false };
+    if (boardPressureResult.fired) {
+      return dispatch({
+        type: 'BOARD_PRESSURE_FIRE',
+        payload: { reason: boardPressureResult.reason },
+      });
+    }
 
     const newRep = af ? updateGMReputation(gmRep, af, prevFranchise) : gmRep;
     let newLeagueHistory = leagueHistory;

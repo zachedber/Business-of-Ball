@@ -48,7 +48,7 @@ export default function App() {
     rosterFullAlert,
     trainingCampActive, quarterPhase, q1PauseActive, q3PauseActive, playerEvents,
     waiverWireActive, waiverPool, tradeOffers,
-    gameOverForced,
+    gameOverForced, gameOverReason,
   } = state;
 
   // ── Derived: current franchise (replaces ad-hoc fr[activeIdx]) ──
@@ -288,12 +288,12 @@ export default function App() {
               fontSize: '2rem', fontWeight: 700, color: 'var(--red)',
               textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12,
             }}>
-              Forced Sale
+              {gameOverReason ? 'Fired' : 'Forced Sale'}
             </div>
             <p className="font-body" style={{
               fontSize: '0.9rem', color: '#ccc', lineHeight: 1.6, marginBottom: 24,
             }}>
-              Your creditors have seized control of the franchise due to catastrophic insolvency.
+              {gameOverReason || 'Your creditors have seized control of the franchise due to catastrophic insolvency.'}
             </p>
             <button
               className="btn-secondary"

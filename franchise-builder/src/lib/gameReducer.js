@@ -125,6 +125,7 @@ export const initialState = {
   waiverPool: [],
   tradeOffers: [],
   gameOverForced: false,
+  gameOverReason: null,
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -232,6 +233,7 @@ export function gameReducer(state, action) {
         slotDecisionActive: false,
         waiverWireActive: false,
         playerEvents: [],
+        gameOverReason: saved.gameOverReason || null,
       };
     }
 
@@ -906,6 +908,15 @@ export function gameReducer(state, action) {
     }
     case 'Q3_PAUSE_CLOSE': {
       return { ...state, q3PauseActive: false };
+    }
+
+    /**
+     * Board fires the owner due to sustained low trust.
+     * Distinct from GAME_OVER_FORCED (debt) so the UI can show a different message.
+     * payload: { reason: string }
+     */
+    case 'BOARD_PRESSURE_FIRE': {
+      return { ...state, gameOverForced: true, gameOverReason: action.payload.reason || 'The board has removed you as owner.', simming: false };
     }
 
     case 'GAME_OVER_FORCED': {
