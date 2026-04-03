@@ -1153,6 +1153,42 @@ function LegacyTab({ fr, leagueHistory }) {
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Dynasty Status — Phase 5 */}
+      <div className="card" style={{ padding: 16, marginBottom: 0 }}>
+        <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Dynasty Status</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{
+            padding: '10px 18px', borderRadius: 4,
+            background: fr.dynastyLevel === 'dynasty' ? 'var(--gold)'
+              : fr.dynastyLevel === 'established' ? 'rgba(212,168,67,0.25)'
+              : fr.dynastyLevel === 'building' ? 'rgba(212,168,67,0.12)'
+              : 'var(--cream-darker)',
+            color: fr.dynastyLevel === 'dynasty' ? 'var(--ink)' : 'var(--ink-soft)',
+          }}>
+            <div className="font-display" style={{ fontSize: '1.1rem', fontWeight: 700, textTransform: 'uppercase' }}>
+              {fr.dynastyLevel === 'dynasty' ? 'Dynasty'
+                : fr.dynastyLevel === 'established' ? 'Established'
+                : fr.dynastyLevel === 'building' ? 'Building'
+                : 'No Dynasty'}
+            </div>
+            {fr.dynastyStreakYears > 0 && (
+              <div className="font-mono" style={{ fontSize: '0.72rem', marginTop: 2 }}>
+                {fr.dynastyStreakYears} consecutive winning season{fr.dynastyStreakYears !== 1 ? 's' : ''}
+              </div>
+            )}
+          </div>
+          <div className="font-body" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', flex: 1 }}>
+            {fr.dynastyLevel === 'dynasty'
+              ? 'Your dynasty is attracting top free agents and maximizing sponsor deals.'
+              : fr.dynastyLevel === 'established'
+              ? 'Sustained winning is building real franchise equity.'
+              : fr.dynastyLevel === 'building'
+              ? 'Keep winning — dynasty bonuses unlock at 4 consecutive winning seasons.'
+              : 'Build a winning culture to unlock dynasty compounding effects.'}
+          </div>
+        </div>
+      </div>
+
       {/* Championship Banners */}
       <div className="card" style={{ padding: 16 }}>
         <h3 className="font-display section-header" style={{ fontSize: '0.9rem' }}>Championship Banners</h3>

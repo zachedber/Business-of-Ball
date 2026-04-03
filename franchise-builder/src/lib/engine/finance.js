@@ -277,6 +277,61 @@ export function calculateValuation(f) {
   );
 }
 
+/**
+ * Calculates the player's current Empire Tier based on total net worth
+ * and number of active stakes.
+ *
+ * @param {number} netWorth - Total net worth in $M
+ * @param {Object[]} stakes - Active stakes array
+ * @param {number} championships - Total franchise championships
+ * @returns {{ tier: string, label: string, nextTier: string | null, progressPct: number }}
+ */
+export function getEmpireTier(netWorth, stakes, championships) {
+  const stakeCount = (stakes || []).length;
+  const positiveStakes = (stakes || []).filter(s => (s.currentValue || 0) > (s.purchasePrice || 0)).length;
+
+  let tier, label, nextTier, progressPct;
+
+  if (netWorth >= 4000 && stakeCount >= 5 && championships >= 2) {
+    tier = 'Legend'; label = 'Legend'; nextTier = null; progressPct = 100;
+  } else if (netWorth >= 2000 && stakeCount >= 3) {
+    tier = 'Mogul'; label = 'Mogul';
+    nextTier = 'Legend';
+    progressPct = Math.round(Math.min(100, ((netWorth - 2000) / 2000) * 50 + (stakeCount / 5) * 30 + (championships / 2) * 20));
+  } else if (netWorth >= 1000 && (positiveStakes >= 4 || stakeCount >= 4)) {
+    tier = 'Baron'; label = 'Baron';
+    nextTier = 'Mogul';
+    progressPct = Math.round(Math.min(100, ((netWorth - 1000) / 1000) * 60 + (stakeCount / 4) * 40));
+  } else if (netWorth >= 500 || stakeCount >= 2) {
+    tier = 'Magnate'; label = 'Magnate';
+    nextTier = 'Baron';
+    progressPct = Math.round(Math.min(100, ((netWorth - 500) / 500) * 70 + (stakeCount / 4) * 30));
+  } else {
+    tier = 'Owner'; label = 'Owner';
+    nextTier = 'Magnate';
+    progressPct = Math.round(Math.min(100, (netWorth / 500) * 70 + (stakeCount / 2) * 30));
+  }
+
+  return { tier, label, nextTier, progressPct };
+}
+
+/**
+ * Calculates cross-franchise synergy bonuses when the player owns
+ * stakes in the same league as their primary franchise.
+ *
+ * @param {Object} franchise - Player franchise
+ * @param {Object[]} stakes - Active stakes array
+ * @returns {{ fanBonus: number, mediaBonus: number, sponsorBoost: number }}
+ */
+export function calcEmpireSynergy(franchise, stakes) {
+  const sameLeagueStakes = (stakes || []).filter(s => s.league === franchise.league);
+  const count = sameLeagueStakes.length;
+  if (count === 0) return { fanBonus: 0, mediaBonus: 0, sponsorBoost: 0 };
+  if (count === 1) return { fanBonus: 2, mediaBonus: 0, sponsorBoost: 0 };
+  if (count === 2) return { fanBonus: 4, mediaBonus: 0, sponsorBoost: 0.05 };
+  return { fanBonus: 6, mediaBonus: 3, sponsorBoost: 0.10 };
+}
+
 /** Get asking price for a franchise based on market size */
 export function getFranchiseAskingPrice(team) {
   const m = team.market;
@@ -511,7 +566,16 @@ export function calculateEndSeasonFinances(f, winPct, totalGames, econMod = 1.0)
   const naming = f.namingRightsActive ? (f.namingRightsDeal || 3) : 0;
   const luxuryBoxRev = (f.luxuryBoxes || 0) * 0.8;
   const clubSeatRev = (f.clubSeatSections || 0) * 0.15 * clamp(0.8 + winPct * 0.4, 0.8, 1.2);
-  const totalRev = gate + tv + merch + spon + naming + luxuryBoxRev + clubSeatRev;
+  let totalRev = gate + tv + merch + spon + naming + luxuryBoxRev + clubSeatRev;
+
+  // Phase 5: ABL has longer season (82 games vs 17) — playoff amplifier for deep runs
+  if (f.league === 'abl') {
+    const madePlayoffs = f.playoffTeam;
+    const wonChampionship = (f.trophies || []).some(t => t.season === (f.season || 1));
+    if (wonChampionship) totalRev = r1(totalRev * 1.18);
+    else if (madePlayoffs) totalRev = r1(totalRev * 1.08);
+  }
+
   const staff = (f.scoutingStaff + f.developmentStaff + f.medicalStaff + f.marketingStaff) * 2;
   const fac = (f.trainingFacility + f.weightRoom + f.filmRoom) * 1.5;
   const maintBase = f.stadiumAge > 15 ? f.stadiumAge * 0.3 : 1;

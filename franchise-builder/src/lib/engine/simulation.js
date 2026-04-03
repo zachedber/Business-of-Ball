@@ -17,7 +17,7 @@ import {
   updateStaffChemistry, calculateSchemeFit,
   endOfSeasonAging,
 } from './roster';
-import { calcAttendance, calculateValuation, getFranchiseAskingPrice, calculateEndSeasonFinances, buildMandatoryDebt } from './finance';
+import { calcAttendance, calculateValuation, getFranchiseAskingPrice, calculateEndSeasonFinances, buildMandatoryDebt, calcEmpireSynergy } from './finance';
 import {
   updateCityEconomy, advanceStadiumProject,
   initFranchiseRecords, initHeadToHead, initRivalry,
@@ -169,8 +169,22 @@ function calcWinProb(f, options = {}) {
   // 7. FAN RATING FACTOR
   const homeFactor = ((f.fanRating || 50) - 50) * 0.0008;
 
+  // Phase 5: ABL star concentration — single elite player matters more in basketball
+  // than in football. A 90+ star in ABL provides outsized WP contribution.
+  let starConcentrationBonus = 0;
+  if (!isAI && f.league === 'abl') {
+    const star1Rating = f.star1?.rating || 0;
+    if (star1Rating >= 90) starConcentrationBonus = 0.04;
+    else if (star1Rating >= 85) starConcentrationBonus = 0.02;
+    else if (star1Rating >= 80) starConcentrationBonus = 0.01;
+    // Reciprocal: losing your star hurts more in ABL
+    if (f.star1?.injured && f.star1?.injurySeverity === 'severe') {
+      starConcentrationBonus = -0.05;
+    }
+  }
+
   // ASSEMBLE WP
-  let wp = 0.40 + rosterDelta + facilityFactor + chemFactor + ocBonus + dcBonus + schemeFitBonus + staffChemBonus + momentumDelta + homeFactor;
+  let wp = 0.40 + rosterDelta + facilityFactor + chemFactor + ocBonus + dcBonus + schemeFitBonus + staffChemBonus + momentumDelta + homeFactor + starConcentrationBonus;
 
   // VARIANCE
   const structuralVar = isAI ? randFloat(-0.06, 0.06) : randFloat(-0.04, 0.04);
@@ -258,6 +272,27 @@ export function simAITeam(team, season) {
 }
 
 /**
+ * Returns whether an ABL franchise can offer a max contract to a player.
+ * ABL max contracts are 35% of the salary cap. Teams can only have one
+ * max contract active at a time.
+ *
+ * @param {Object} franchise - Player franchise state
+ * @param {Object} player - Player being evaluated
+ * @returns {{ canOffer: boolean, reason: string | null }}
+ */
+export function canOfferABLMaxContract(franchise, player) {
+  if (franchise.league !== 'abl') return { canOffer: false, reason: 'Not an ABL franchise' };
+  const cap = ABL_SALARY_CAP;
+  const maxSalary = r1(cap * 0.35);
+  const hasExistingMax = (franchise.players || []).some(p =>
+    p.id !== player.id && p.salary >= maxSalary * 0.9
+  );
+  if (hasExistingMax) return { canOffer: false, reason: 'Already have a max contract player' };
+  if (player.rating < 85) return { canOffer: false, reason: 'Player rating below max contract threshold (85+)' };
+  return { canOffer: true, reason: null };
+}
+
+/**
  * Computes a trade deadline posture for any team (AI or player).
  * Called before the trade deadline opens each season to generate buyer/seller signals.
  *
@@ -303,7 +338,7 @@ export function computeTradePosture(team, gamesPlayed) {
  * @param {number} season - Season number
  * @returns {Object} Updated franchise state
  */
-export function simPlayerSeason(f, season) {
+export function simPlayerSeason(f, season, simOptions = {}) {
   const lg = f.league;
   const games = getSeasonGames(lg);
 
@@ -315,6 +350,33 @@ export function simPlayerSeason(f, season) {
   // Phase 3A: fire any pending delayed consequences before this season's sim runs
   const { franchise: flushed, firedEffects: _firedEffects } = flushPendingEffects(f, season);
   f = flushed;
+
+  // Phase 5: Apply dynasty compounding effects
+  const dynastyEffects = computeDynastyEffects(f);
+  if (dynastyEffects.fanBonus > 0) {
+    f = { ...f, fanRating: clamp((f.fanRating || 50) + dynastyEffects.fanBonus, 0, 100) };
+  }
+  if (dynastyEffects.chemBonus > 0) {
+    f = { ...f, lockerRoomChemistry: clamp((f.lockerRoomChemistry || 65) + dynastyEffects.chemBonus, 0, 100) };
+  }
+  if (dynastyEffects.mediaBonus > 0) {
+    f = { ...f, mediaRep: clamp((f.mediaRep || 50) + dynastyEffects.mediaBonus, 0, 100) };
+  }
+  if (dynastyEffects.boardBonus > 0) {
+    f = { ...f, boardTrust: clamp((f.boardTrust ?? 60) + dynastyEffects.boardBonus, 0, 100) };
+  }
+  f = { ...f, dynastyLevel: dynastyEffects.level, dynastyStreakYears: dynastyEffects.consecutiveWins };
+
+  // Phase 5: Apply empire synergy bonuses (requires stakes from game state)
+  if (simOptions?.stakes) {
+    const synergy = calcEmpireSynergy(f, simOptions.stakes);
+    if (synergy.fanBonus > 0) {
+      f = { ...f, fanRating: clamp((f.fanRating || 50) + synergy.fanBonus, 0, 100) };
+    }
+    if (synergy.mediaBonus > 0) {
+      f = { ...f, mediaRep: clamp((f.mediaRep || 50) + synergy.mediaBonus, 0, 100) };
+    }
+  }
 
   // Economy cycle
   f = updateCityEconomy(f);
@@ -1694,6 +1756,51 @@ export function checkBoardPressure(franchise) {
   return { fired: true, reason };
 }
 
+/**
+ * Computes dynasty bonus effects for the current season based on franchise history.
+ * Called at the START of simPlayerSeason (before win probability is calculated).
+ * Returns a delta object applied to calcWinProb inputs — it does NOT mutate franchise.
+ *
+ * Dynasty levels:
+ *   'none'        — fewer than 2 consecutive winning seasons
+ *   'building'    — 2–3 consecutive winning seasons
+ *   'established' — 4–5 consecutive winning seasons
+ *   'dynasty'     — 6+ consecutive winning seasons OR 2+ championships in last 5 seasons
+ *
+ * @param {Object} franchise - Current franchise state
+ * @returns {{ level: string, consecutiveWins: number, fanBonus: number, chemBonus: number, mediaBonus: number, boardBonus: number }}
+ */
+export function computeDynastyEffects(franchise) {
+  const history = franchise.history || [];
+
+  let consecutiveWins = 0;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const h = history[i];
+    const wp = h.winPct ?? (h.wins / Math.max(1, h.wins + h.losses));
+    if (wp >= 0.5) consecutiveWins++;
+    else break;
+  }
+
+  const recentChampionships = (franchise.trophies || []).filter(
+    t => t.season >= (franchise.season || 1) - 5
+  ).length;
+
+  let level;
+  if (consecutiveWins >= 6 || recentChampionships >= 2) level = 'dynasty';
+  else if (consecutiveWins >= 4) level = 'established';
+  else if (consecutiveWins >= 2) level = 'building';
+  else level = 'none';
+
+  const effects = {
+    none:        { fanBonus: 0,  chemBonus: 0, mediaBonus: 0, boardBonus: 0 },
+    building:    { fanBonus: 3,  chemBonus: 0, mediaBonus: 0, boardBonus: 0 },
+    established: { fanBonus: 5,  chemBonus: 0, mediaBonus: 3, boardBonus: 3 },
+    dynasty:     { fanBonus: 8,  chemBonus: 5, mediaBonus: 8, boardBonus: 10 },
+  };
+
+  return { level, consecutiveWins, ...effects[level] };
+}
+
 /** Default franchise identity for teams not in the lookup map */
 export const DEFAULT_FRANCHISE_IDENTITY = {
   ownerPersonality: 'patient',
@@ -2023,5 +2130,11 @@ export function createPlayerFranchise(tmpl, lg) {
     boardTrust: 60,
     pendingEffects: [],        // PendingEffect[] — queued delayed consequences
     fanExpectationRaised: false, // set true by flushPendingEffects when dynasty expectations climb
+
+    // Phase 5: dynasty, board meeting, media narrative
+    dynastyLevel: 'none',
+    dynastyStreakYears: 0,
+    lastBoardMeeting: null,
+    lastMediaNarrative: null,
   };
 }

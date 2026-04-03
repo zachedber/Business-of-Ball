@@ -46,6 +46,11 @@ function normalizeFranchiseState(franchise) {
     },
     debtObject: safe.debtObject ?? safe.debtDetails ?? null,
     frontOfficeLog: Array.isArray(safe.frontOfficeLog) ? safe.frontOfficeLog : [],
+    // Phase 5: dynasty + board meeting + media narrative defaults
+    dynastyLevel: safe.dynastyLevel ?? 'none',
+    dynastyStreakYears: safe.dynastyStreakYears ?? 0,
+    lastBoardMeeting: safe.lastBoardMeeting ?? null,
+    lastMediaNarrative: safe.lastMediaNarrative ?? null,
   };
 }
 

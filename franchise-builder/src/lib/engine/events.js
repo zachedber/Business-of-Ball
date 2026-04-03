@@ -1158,3 +1158,154 @@ export function resolveEventChoice(franchise, event, choice) {
 
   return updated;
 }
+
+// ============================================================
+// BOARD MEETING (Phase 5)
+// ============================================================
+
+/**
+ * Generates a Board Meeting event at the end of each season.
+ * The board evaluates the season against its expectations and
+ * updates boardTrust accordingly. Returns a structured event object
+ * that the player can review (auto-resolves — no player choice needed).
+ *
+ * @param {Object} franchise - Franchise state after season sim
+ * @returns {{ boardTrustDelta: number, message: string, tone: 'positive'|'neutral'|'negative' }}
+ */
+export function generateBoardMeeting(franchise) {
+  const f = franchise;
+  const profile = f.franchiseIdentity?.fanExpectationProfile ?? 'balanced';
+  const madePlayoffs = f.playoffTeam;
+  const wonChampionship = (f.trophies || []).some(t => t.season === (f.season || 1));
+  const lastHistory = f.history?.[f.history.length - 1];
+  const winPct = lastHistory?.winPct ?? 0;
+  const prevHistory = f.history?.length >= 2 ? f.history[f.history.length - 2] : null;
+  const prevWinPct = prevHistory?.winPct ?? 0;
+  const improving = winPct > prevWinPct;
+
+  let boardTrustDelta = 0;
+  let message, tone;
+
+  if (profile === 'championship-or-bust') {
+    if (wonChampionship) {
+      boardTrustDelta = 15; tone = 'positive';
+      message = 'The board is ecstatic. A championship validates everything. Trust fully restored.';
+    } else if (madePlayoffs && winPct >= 0.60) {
+      boardTrustDelta = 5; tone = 'positive';
+      message = 'A strong run, but the board wants the title. Keep the pressure on.';
+    } else if (madePlayoffs) {
+      boardTrustDelta = -8; tone = 'negative';
+      message = 'Playoffs without a title is expected, not celebrated. The board is restless.';
+    } else if (winPct >= 0.45) {
+      boardTrustDelta = -15; tone = 'negative';
+      message = 'Missing the playoffs in a championship-or-bust organization is unacceptable. The board is watching.';
+    } else {
+      boardTrustDelta = -22; tone = 'negative';
+      message = 'A losing season in this market has severely damaged board confidence.';
+    }
+  } else if (profile === 'rebuild-tolerant') {
+    if (wonChampionship) {
+      boardTrustDelta = 20; tone = 'positive';
+      message = 'Nobody expected this. The board is overjoyed. You\'ve earned maximum trust.';
+    } else if (madePlayoffs) {
+      boardTrustDelta = 12; tone = 'positive';
+      message = 'A playoff appearance is ahead of schedule. The board is impressed.';
+    } else if (improving) {
+      boardTrustDelta = 5; tone = 'neutral';
+      message = 'Progress acknowledged. The board sees the trajectory moving in the right direction.';
+    } else if (winPct >= 0.35) {
+      boardTrustDelta = 0; tone = 'neutral';
+      message = 'Steady state. The board is patient but watching for signs of stagnation.';
+    } else {
+      boardTrustDelta = -8; tone = 'negative';
+      message = 'Even patient boards have limits. A losing season without improvement raises questions.';
+    }
+  } else {
+    // balanced
+    if (wonChampionship) {
+      boardTrustDelta = 18; tone = 'positive';
+      message = 'Championship won. The board couldn\'t be prouder. Maximum trust earned.';
+    } else if (madePlayoffs && winPct >= 0.55) {
+      boardTrustDelta = 8; tone = 'positive';
+      message = 'A solid, winning season. The board has full confidence in this direction.';
+    } else if (madePlayoffs) {
+      boardTrustDelta = 3; tone = 'neutral';
+      message = 'Playoff team. Board is satisfied, though not overwhelmed.';
+    } else if (winPct >= 0.45) {
+      boardTrustDelta = -5; tone = 'neutral';
+      message = 'Just below .500. The board is patient for one more season, then expects results.';
+    } else {
+      boardTrustDelta = -12; tone = 'negative';
+      message = 'A losing season erodes board confidence. Improvement is expected next year.';
+    }
+  }
+
+  // Dynasty modifier: dynasties get more patience
+  if ((f.dynastyLevel === 'dynasty' || f.dynastyLevel === 'established') && boardTrustDelta < 0) {
+    boardTrustDelta = Math.round(boardTrustDelta * 0.6); // 40% forgiveness for dynasties
+  }
+
+  return { boardTrustDelta, message, tone };
+}
+
+// ============================================================
+// MEDIA NARRATIVE (Phase 5)
+// ============================================================
+
+/**
+ * Computes the current media narrative tone for a franchise.
+ * Called at season end. The returned headline can be appended to the
+ * Front Office Log by useSimulation.js.
+ *
+ * @param {Object} franchise - Franchise state after season sim
+ * @returns {{ tone: 'hot' | 'warm' | 'cool' | 'cold', headline: string, mediaImpact: number }}
+ */
+export function computeMediaNarrative(franchise) {
+  const f = franchise;
+  const mpi = f.franchiseIdentity?.mediaPressureIndex ?? 5;
+  const mediaRep = f.mediaRep ?? 50;
+  const winPct = f.history?.length
+    ? (f.history[f.history.length - 1]?.winPct ?? 0)
+    : 0;
+  const wonChampionship = (f.trophies || []).some(t => t.season === (f.season || 1));
+
+  // Tone is driven by combo of mediaRep and on-field performance
+  let tone;
+  if (wonChampionship || (mediaRep >= 70 && winPct >= 0.60)) tone = 'hot';
+  else if (mediaRep >= 55 && winPct >= 0.45) tone = 'warm';
+  else if (mediaRep >= 40 || winPct >= 0.40) tone = 'cool';
+  else tone = 'cold';
+
+  // Headlines indexed by tone and situation
+  const headlines = {
+    hot: [
+      `${f.city} ${f.name} are the talk of the league — and they've earned every word`,
+      `Championship culture is real in ${f.city}. The franchise has never looked stronger.`,
+      `Front offices around the league are watching ${f.city}'s blueprint with envy`,
+    ],
+    warm: [
+      `${f.city} ${f.name} are quietly building something worth watching`,
+      `Don't sleep on ${f.city} — the pieces are in place and the staff knows it`,
+      `Steady progress in ${f.city}. Not flashy. Getting results.`,
+    ],
+    cool: [
+      `Questions linger in ${f.city} as another inconsistent season ends`,
+      `The ${f.name} front office faces scrutiny heading into the offseason`,
+      `${f.city} fans are patient — but that patience has a timer on it`,
+    ],
+    cold: [
+      `${f.city} ${f.name} face a credibility crisis after another disappointing year`,
+      `The ${f.name} organization is under fire. Changes may be coming.`,
+      `Sources inside the ${f.city} organization describe a franchise at a crossroads`,
+    ],
+  };
+
+  const pool = headlines[tone];
+  const headline = pool[Math.floor(Math.random() * pool.length)];
+
+  // Media impact on fanRating: hot = +mpi*0.3, warm = +mpi*0.1, cool = -mpi*0.1, cold = -mpi*0.3
+  const impactScale = { hot: 0.3, warm: 0.1, cool: -0.1, cold: -0.3 };
+  const mediaImpact = Math.round(mpi * impactScale[tone]);
+
+  return { tone, headline, mediaImpact };
+}
