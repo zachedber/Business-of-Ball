@@ -24,6 +24,7 @@ import {
   r1,
 } from '@/lib/engine';
 import { applyDebtPenalty, calculateDebtPayment } from '@/lib/engine/finance';
+import { generateBoardMeeting, computeMediaNarrative } from '@/lib/engine/events';
 import { processQuarterInjuries } from '@/lib/engine/injuries';
 import { rollPlayerEvents } from '@/lib/events/playerEvents';
 import { missedDebtWarnings } from '@/data/eventFlavor';
@@ -76,6 +77,43 @@ export function useSimulation({ state, dispatch, doSave, refs }) {
         type: 'BOARD_PRESSURE_FIRE',
         payload: { reason: boardPressureResult.reason },
       });
+    }
+
+    // Phase 5: Board meeting — apply seasonal trust delta
+    if (af) {
+      const boardMeeting = generateBoardMeeting(af);
+      const newBoardTrust = Math.max(0, Math.min(100,
+        (af.boardTrust ?? 60) + boardMeeting.boardTrustDelta
+      ));
+      const floor = af.franchiseIdentity?.boardTrustFloor ?? 0;
+      const clampedBoardTrust = Math.max(newBoardTrust, floor);
+      newFr = newFr.map((f, i) => i === activeIdx
+        ? { ...f, boardTrust: clampedBoardTrust, lastBoardMeeting: boardMeeting }
+        : f
+      );
+    }
+
+    // Phase 5: Media narrative — apply seasonal media impact to fan rating
+    if (af) {
+      const afUpdated = newFr[activeIdx];
+      const narrative = computeMediaNarrative(afUpdated);
+      const updatedFanRating = Math.max(0, Math.min(100, (afUpdated.fanRating || 50) + narrative.mediaImpact));
+      newFr = newFr.map((f, i) => i === activeIdx
+        ? { ...f, fanRating: updatedFanRating, lastMediaNarrative: narrative }
+        : f
+      );
+      // Append to front office log
+      newFr = newFr.map((f, i) => i === activeIdx
+        ? appendLogEntry(f, {
+            season,
+            quarter: null,
+            type: 'media',
+            headline: narrative.headline.slice(0, 80),
+            detail: `Media tone: ${narrative.tone} · Fan impact: ${narrative.mediaImpact >= 0 ? '+' : ''}${narrative.mediaImpact}`,
+            impact: narrative.tone === 'hot' ? 'positive' : narrative.tone === 'cold' ? 'negative' : 'neutral',
+          })
+        : f
+      );
     }
 
     const newRep = af ? updateGMReputation(gmRep, af, prevFranchise) : gmRep;

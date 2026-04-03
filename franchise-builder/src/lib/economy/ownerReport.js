@@ -25,7 +25,11 @@ export function buildOwnerReport(franchise, prevSeasonHistory) {
   const verdict = buildVerdict(f, currentHistory, prev, onField, fanSentiment, finances, valuation);
   const pendingConsequences = buildPendingConsequences(f);
 
-  return { onField, fanSentiment, finances, valuation, verdict, pendingConsequences };
+  const boardMeeting = franchise.lastBoardMeeting
+    ? { ...franchise.lastBoardMeeting, boardTrust: franchise.boardTrust ?? null }
+    : null;
+
+  return { onField, fanSentiment, finances, valuation, verdict, pendingConsequences, boardMeeting };
 }
 
 // ── Section 1: On-Field Results ──────────────────────────────────────

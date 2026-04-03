@@ -1,5 +1,6 @@
 'use client';
 import { calculateValuation, getGMTier, calcStakeValue } from '@/lib/engine';
+import { getEmpireTier, calcEmpireSynergy } from '@/lib/engine/finance';
 import { Sparkline } from '@/app/components/AnalyticsScreen';
 
 // ============================================================
@@ -15,18 +16,62 @@ export default function PortfolioScreen({ af, fr, stakes, lt, gmRep, dynasty, se
   return (
     <div style={{ maxWidth: 700, margin: '0 auto', padding: '20px 12px' }}>
       <h2 className="font-display section-header" style={{ fontSize: '1.2rem' }}>Empire Overview</h2>
-      <div className="card" style={{ padding: '12px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, borderLeft: '4px solid var(--gold)' }}>
-        <span className="font-display" style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--gold)' }}>GM</span>
-        <div>
-          <div className="font-display" style={{ fontSize: '1rem', fontWeight: 700 }}>{gmTier.label}</div>
-          <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>GM Reputation: {gmRep}/100</div>
-        </div>
-        <div style={{ flex: 1, marginLeft: 8 }}>
-          <div className="progress-bar">
-            <div className="progress-bar-fill" style={{ width: `${gmRep}%`, background: gmRep >= 65 ? 'var(--gold)' : gmRep >= 40 ? 'var(--amber)' : 'var(--ink-muted)' }} />
+      {/* Empire Tier — Phase 5 */}
+      {(() => {
+        const tier = getEmpireTier(netWorth, stakes, af.championships || 0);
+        const tierColors = {
+          Owner: 'var(--ink-muted)',
+          Magnate: 'var(--ink)',
+          Baron: '#7C5F2A', /* no existing token for bronze — muted gold-brown */
+          Mogul: 'var(--gold)',
+          Legend: '#D4A843', /* no existing token for bright gold — matches --gold accent */
+        };
+        return (
+          <div className="card" style={{ padding: '14px 16px', marginBottom: 12, borderLeft: `4px solid ${tierColors[tier.tier] || 'var(--ink-muted)'}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+              <div>
+                <div className="font-display" style={{ fontSize: '1.2rem', fontWeight: 700, color: tierColors[tier.tier] }}>
+                  {tier.label}
+                </div>
+                <div className="font-mono" style={{ fontSize: '0.72rem', color: 'var(--ink-muted)' }}>
+                  Empire Tier · Net Worth ${Math.round(netWorth)}M
+                </div>
+              </div>
+              {tier.nextTier && (
+                <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', textAlign: 'right' }}>
+                  Next: {tier.nextTier}
+                  <div className="progress-bar" style={{ width: 80, marginTop: 4 }}>
+                    <div className="progress-bar-fill" style={{ width: `${tier.progressPct}%`, background: tierColors[tier.tier] }} />
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>GM Reputation: {gmRep}/100 · {gmTier.label}</div>
           </div>
-        </div>
-      </div>
+        );
+      })()}
+
+      {/* Empire Synergy — Phase 5 */}
+      {(() => {
+        const synergy = calcEmpireSynergy(af, stakes);
+        const hasSynergy = synergy.fanBonus > 0;
+        return (
+          <div className="card" style={{ padding: '12px 16px', marginBottom: 12 }}>
+            <h3 className="font-display section-header" style={{ fontSize: '0.85rem' }}>Cross-League Synergy</h3>
+            {hasSynergy ? (
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                {synergy.fanBonus > 0 && <span className="badge badge-green">Fan Rating +{synergy.fanBonus}/season</span>}
+                {synergy.mediaBonus > 0 && <span className="badge badge-green">Media Rep +{synergy.mediaBonus}/season</span>}
+                {synergy.sponsorBoost > 0 && <span className="badge badge-green">Sponsor +{Math.round(synergy.sponsorBoost * 100)}%</span>}
+              </div>
+            ) : (
+              <p className="font-body" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
+                Buy a stake in another {af.league === 'ngl' ? 'NGL' : 'ABL'} franchise to unlock synergy bonuses.
+              </p>
+            )}
+          </div>
+        );
+      })()}
       <div className="stat-grid" style={{ marginBottom: 16 }}>
         {[
           ['Net Worth', `$${netWorth}M`, 'var(--gold)'],

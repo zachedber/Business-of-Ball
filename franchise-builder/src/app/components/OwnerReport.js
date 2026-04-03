@@ -28,7 +28,7 @@ export default function OwnerReport({ fr, recap, grade }) {
 
       {/* Sub-tab nav */}
       <div className="tab-nav" style={{ marginBottom: 12 }}>
-        {[['summary', 'Summary'], ['analysis', 'Analysis'], ['coming', 'Coming']].map(([key, label]) => (
+        {[['summary', 'Summary'], ['analysis', 'Analysis'], ['coming', 'Coming'], ['board', 'Board']].map(([key, label]) => (
           <button
             key={key}
             className={`tab-btn${subTab === key ? ' active' : ''}`}
@@ -49,6 +49,10 @@ export default function OwnerReport({ fr, recap, grade }) {
 
       {subTab === 'coming' && (
         <ComingConsequencesTab consequences={report.pendingConsequences} />
+      )}
+
+      {subTab === 'board' && (
+        <BoardMeetingTab boardMeeting={report.boardMeeting} />
       )}
     </div>
   );
@@ -248,6 +252,46 @@ function ComingConsequencesTab({ consequences }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Board Meeting Sub-tab (Phase 5) ─────────────────────────────────
+
+function BoardMeetingTab({ boardMeeting }) {
+  if (!boardMeeting) return (
+    <p className="font-body" style={{ fontSize: '0.82rem', color: 'var(--ink-muted)', fontStyle: 'italic' }}>
+      Complete a season to see your Board Meeting review.
+    </p>
+  );
+  const { message, tone, boardTrustDelta, boardTrust } = boardMeeting;
+  const toneColor = tone === 'positive' ? 'var(--green)' : tone === 'negative' ? 'var(--red)' : 'var(--ink-muted)';
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ padding: '14px 16px', borderRadius: 8, background: 'rgba(255,255,255,0.6)', border: `1px solid ${toneColor}` }}>
+        <div className="font-display" style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: toneColor, marginBottom: 8 }}>
+          Board Verdict
+        </div>
+        <p className="font-body" style={{ fontSize: '0.85rem', lineHeight: 1.6, color: 'var(--ink-soft)' }}>
+          {message}
+        </p>
+      </div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <div className="card" style={{ flex: 1, textAlign: 'center', padding: '10px 12px' }}>
+          <div className="stat-label">Trust Change</div>
+          <div className="font-display" style={{ fontSize: '1.1rem', fontWeight: 700, color: boardTrustDelta >= 0 ? 'var(--green)' : 'var(--red)' }}>
+            {boardTrustDelta >= 0 ? '+' : ''}{boardTrustDelta}
+          </div>
+        </div>
+        {boardTrust !== null && (
+          <div className="card" style={{ flex: 1, textAlign: 'center', padding: '10px 12px' }}>
+            <div className="stat-label">Current Trust</div>
+            <div className="font-display" style={{ fontSize: '1.1rem', fontWeight: 700, color: boardTrust < 35 ? 'var(--red)' : boardTrust < 55 ? '#D4A017' : 'var(--green)' }}>
+              {boardTrust}/100
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
